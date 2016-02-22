@@ -1,0 +1,147 @@
+#!/bin/sh
+
+. /lib/ar71xx.sh
+. /lib/upgrade/upgrade_server.sh
+
+FIRMWARE_FILE=new_firmware.tar
+UCI="uci -c /tmp/"
+WGET="wget -c -T 20 -O"
+FLASH_READ=""
+SERVER_ADDR=""
+SERVER_PORT=""
+PRODUCT_MODEL="`partool -part mtd6 -show product.model`" > /dev/null 2>&1
+PRODUCT_MAC="`partool -part mtd6 -show product.mac`" > /dev/null 2>&1
+PRODUCT_SN="`partool -part mtd6 -show product.sn`" > /dev/null 2>&1
+MYIP="`ifconfig br-wan | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`" > /dev/null 2>&1
+IMAGE_NAME="sysupgrade.img"
+
+DEFAULT_MODEL="AFi-A1"
+DEFAULT_MAC="00:00:00:00:00:00"
+DEFAULT_SN="000000000000"
+
+check_product_message()
+{
+        if [ "$PRODUCT_MODEL" = "" ] || [ "$PRODUCT_MODEL" = "product.model not exist" ]; then
+                PRODUCT_MODEL=$DEFAULT_MODEL
+                echo "There is no product.model in the product section of the system."
+                logger -s "There is no product.model in the product section of the system."
+        fi
+
+        if [ "$PRODUCT_MAC" = "" ] || [ "$PRODUCT_MAC" = "product.mac not exist" ]; then
+                PRODUCT_MAC=$DEFAULT_MAC
+                echo "There is no product.mac in the product section of the system."
+                logger -s "There is no product.mac in the product section of the system."
+        fi
+
+        if [ "$PRODUCT_SN" = "" ] || [ "$PRODUCT_SN" = "product.sn not exist" ]; then
+                PRODUCT_SN=$DEFAULT_SN
+                echo "There is no product.sn in the product section of the system."
+                logger -s "There is no product.sn in the product section of the system."
+        fi
+}
+
+get_version_url()
+{
+	i=1
+	SERVER_ADDR=$(cut -d , -f $i $1)
+	while :
+	do
+		SERVER_ADDR=$(cut -d , -f $i $1)
+		if [ "$SERVER_ADDR" = "" ]; then
+			echo "cannot get domain from ac"
+			logger -s "cannot get domain from ac"
+			exit
+		fi
+		
+		if [ "$SERVER_ADDR" == "255.255.255.255" ]; then
+			i=$(($i+1))
+			continue
+		fi
+		
+		cd /tmp
+		if [ -f addrinfo ]; then
+			echo "rm -f addrinfo"
+			rm -f addrinfo
+		fi
+		
+		$WGET addrinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=workos_sysupgrade"
+		
+		if [ $? -ne 0 ]; then
+			i=$(($i+1))
+		else
+			echo "get domain from ac $SERVER_ADDR:$SERVER_PORT"
+			break
+		fi
+	done
+}
+
+get_image_from_upgrade_server()
+{
+	if [ "$SERVER_ADDR_FROM_AC" != "" ]; then
+		cd /tmp
+		echo $SERVER_ADDR_FROM_AC > addr_from_ac
+		get_version_url addr_from_ac
+	else
+		logger -s "upgrade server address not found!"
+		exit
+	fi
+	
+	echo $SERVER_ADDR > server_addr
+	
+	cd /tmp
+	SERVER_PATH="$(get_upgrade_url)"
+	if [ $? -ne 0 ]; then
+		exit
+	else
+		$WGET $IMAGE_NAME $SERVER_PATH
+		if [ $? -ne 0 ]; then
+			echo "cannot get image"
+			$WGET imageinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=cannot_get_image"
+			exit
+		else
+			echo "get the image"
+			$WGET imageinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=get_the_image"
+		fi
+	fi
+}
+
+check_memory_space()
+{
+	FREE_SPACE=`free | grep Mem | awk '{print $4}'`
+	if [ $FREE_SPACE -lt 9000 ];then
+		/etc/init.d/apmonitor stop
+		/etc/init.d/um stop
+		/etc/init.d/wifidog stop
+		sync
+	
+		FREE_SPACE=`free | grep Mem | awk '{print $4}'`
+		if [ $FREE_SPACE -lt 9000 ];then
+			killall hostapd
+			/etc/init.d/tid stop
+			/etc/init.d/wtpd stop
+			sync
+			echo "free space=$FREE_SPACE"
+			sleep 2
+		fi
+	fi
+}
+
+clean_upgrade_files()
+{	
+	echo 2 > /tmp/y-robot-flg
+	[ -f "/tmp/addr_from_ac" ] && rm /tmp/addr_from_ac
+	[ -f "/tmp/addrinfo" ] && rm /tmp/addrinfo
+	[ -f "/tmp/sysupgrade.img" ] && rm /tmp/sysupgrade.img
+	[ -f "/tmp/imageinfo" ] && rm /tmp/imageinfo
+	[ -f "/tmp/server_addr" ] && rm /tmp/server_addr
+	[ -f "/tmp/server_port" ] && rm /tmp/server_port
+}
+
+clean_upgrade_files
+SERVER_ADDR_FROM_AC="$(get_upgrade_server_address)"
+SERVER_PORT="$(get_upgrade_port)"
+check_memory_space
+check_product_message
+get_image_from_upgrade_server
+/sbin/autelan-sysupgrade $IMAGE_NAME
+

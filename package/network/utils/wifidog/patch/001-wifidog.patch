@@ -1,0 +1,379 @@
+diff -uNr a/src/conf.c b/src/conf.c
+--- a/src/conf.c	2014-07-10 18:14:05.000000000 +0800
++++ b/src/conf.c	2014-08-27 22:19:48.000000000 +0800
+@@ -96,6 +96,7 @@
+ 	oTrustedMACList,
+         oHtmlMessageFile,
+ 	oProxyPort,
++	oBridgePort,  //Autelan-add: zhaoyang1 add for supporting bridge mode
+ } OpCodes;
+ 
+ /** @internal
+@@ -136,6 +137,7 @@
+ 	{ "trustedmaclist",		oTrustedMACList },
+         { "htmlmessagefile",		oHtmlMessageFile },
+ 	{ "proxyport",			oProxyPort },
++	{ "bridgeport",			oBridgePort }, //Autelan-add: zhaoyang1 add for supporting bridge mode
+ 	{ NULL,				oBadOption },
+ };
+ 
+@@ -753,7 +755,11 @@
+ 				case oProxyPort:
+ 					sscanf(p1, "%d", &config.proxy_port);
+ 					break;
+-
++				/*Autelan-add-Begind: zhaoyang1 add for supporting bridge mode*/
++				case oBridgePort:
++					config.br_port = safe_strdup(p1);
++					break;
++				/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ 				}
+ 			}
+ 		}
+diff -uNr a/src/conf.h b/src/conf.h
+--- a/src/conf.h	2014-07-10 18:14:05.000000000 +0800
++++ b/src/conf.h	2014-08-27 22:21:02.000000000 +0800
+@@ -165,6 +165,8 @@
+     int proxy_port;		/**< @brief Transparent proxy port (0 to disable) */
+     t_firewall_ruleset	*rulesets;	/**< @brief firewall rules */
+     t_trusted_mac *trustedmaclist; /**< @brief list of trusted macs */
++
++	char *br_port; //Autelan-add: zhaoyang1 add for supporting bridge mode
+ } s_config;
+ 
+ /** @brief Get the current gateway configuration */
+diff -uNr a/src/fw_iptables.c b/src/fw_iptables.c
+--- a/src/fw_iptables.c	2014-07-10 18:14:05.000000000 +0800
++++ b/src/fw_iptables.c	2014-08-27 22:30:07.000000000 +0800
+@@ -37,6 +37,8 @@
+ #include <sys/socket.h>
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
++#include <unistd.h>
++
+ 
+ #include "common.h"
+ 
+@@ -59,6 +61,30 @@
+ Used to supress the error output of the firewall during destruction */ 
+ static int fw_quiet = 0;
+ 
++/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
++#define ONLY_ONE_WIFIDOG 0 //????????
++
++static int
++is_only_one_wifidog()
++{
++	char cmd[128] = {0};
++	char buf[8] = {0};
++	FILE *p = NULL;
++
++	sprintf(cmd, "iptables -L %s 2>/dev/null | grep -r physdev | wc -l", TABLE_WIFIDOG_UNKNOWN);
++
++	p = popen(cmd, "r");
++	if (p) {
++		fgets(buf, sizeof(buf), p);
++		pclose(p);
++		return atoi(buf);
++	}
++	
++	pclose(p);
++	return -1;
++}
++/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
++
+ /** @internal
+  * @brief Insert $ID$ with the gateway's id in a string.
+  *
+@@ -83,7 +109,7 @@
+ 		memcpy(token, "%1$s", 4);
+ 
+ 	config = config_get_config();
+-	safe_asprintf(&buffer, *input, config->gw_interface);
++	safe_asprintf(&buffer, *input, config->br_port); //Autelan-add: zhaoyang1 add for supporting bridge mode
+ 
+ 	free(*input);
+ 	*input=buffer;
+@@ -262,19 +288,19 @@
+ 	 * Everything in the MANGLE table
+ 	 *
+ 	 */
+-
++	/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
+ 	/* Create new chains */
+ 	iptables_do_command("-t mangle -N " TABLE_WIFIDOG_TRUSTED);
+ 	iptables_do_command("-t mangle -N " TABLE_WIFIDOG_OUTGOING);
+ 	iptables_do_command("-t mangle -N " TABLE_WIFIDOG_INCOMING);
+ 
+ 	/* Assign links and rules to these new chains */
+-	iptables_do_command("-t mangle -I PREROUTING 1 -i %s -j " TABLE_WIFIDOG_OUTGOING, config->gw_interface);
+-	iptables_do_command("-t mangle -I PREROUTING 1 -i %s -j " TABLE_WIFIDOG_TRUSTED, config->gw_interface);//this rule will be inserted before the prior one
++	iptables_do_command("-t mangle -I PREROUTING 1 -m physdev --physdev-in  %s -j " TABLE_WIFIDOG_OUTGOING, config->br_port);
++	iptables_do_command("-t mangle -I PREROUTING 1 -m physdev --physdev-in %s -j " TABLE_WIFIDOG_TRUSTED, config->br_port);//this rule will be inserted before the prior one
+ 	iptables_do_command("-t mangle -I POSTROUTING 1 -o %s -j " TABLE_WIFIDOG_INCOMING, config->gw_interface);
+ 
+ 	for (p = config->trustedmaclist; p != NULL; p = p->next)
+-		iptables_do_command("-t mangle -A " TABLE_WIFIDOG_TRUSTED " -m mac --mac-source %s -j MARK --set-mark %d", p->mac, FW_MARK_KNOWN);
++		iptables_do_command("-t mangle -A " TABLE_WIFIDOG_TRUSTED " -m mac --mac-source %s -m physdev --physdev-in %s -j MARK --set-mark %d", p->mac, config->br_port, FW_MARK_KNOWN);
+ 
+ 	/*
+ 	 *
+@@ -284,33 +310,38 @@
+ 
+ 	/* Create new chains */
+ 	iptables_do_command("-t nat -N " TABLE_WIFIDOG_OUTGOING);
+-	iptables_do_command("-t nat -N " TABLE_WIFIDOG_WIFI_TO_ROUTER);
+-	iptables_do_command("-t nat -N " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t nat -N " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t nat -N " TABLE_WIFIDOG_UNKNOWN);
+-	iptables_do_command("-t nat -N " TABLE_WIFIDOG_AUTHSERVERS);
++	if (ONLY_ONE_WIFIDOG == is_only_one_wifidog()) {
++		iptables_do_command("-t nat -N " TABLE_WIFIDOG_WIFI_TO_ROUTER);
++		iptables_do_command("-t nat -N " TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t nat -N " TABLE_WIFIDOG_GLOBAL);
++		iptables_do_command("-t nat -N " TABLE_WIFIDOG_UNKNOWN);
++		iptables_do_command("-t nat -N " TABLE_WIFIDOG_AUTHSERVERS);
++	}
+ 
+ 	/* Assign links and rules to these new chains */
+-	iptables_do_command("-t nat -A PREROUTING -i %s -j " TABLE_WIFIDOG_OUTGOING, config->gw_interface);
++	iptables_do_command("-t nat -A PREROUTING -m physdev --physdev-in  %s -j " TABLE_WIFIDOG_OUTGOING, config->br_port);
+ 
+ 	iptables_do_command("-t nat -A " TABLE_WIFIDOG_OUTGOING " -d %s -j " TABLE_WIFIDOG_WIFI_TO_ROUTER, config->gw_address);
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_ROUTER " -j ACCEPT");
+-
++	
+ 	iptables_do_command("-t nat -A " TABLE_WIFIDOG_OUTGOING " -j " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+ 
+-	if((proxy_port=config_get_config()->proxy_port) != 0){
+-		debug(LOG_DEBUG,"Proxy port set, setting proxy rule");
+-		iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -p tcp --dport 80 -m mark --mark 0x%u -j REDIRECT --to-port %u", FW_MARK_KNOWN, proxy_port);
+-		iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -p tcp --dport 80 -m mark --mark 0x%u -j REDIRECT --to-port %u", FW_MARK_PROBATION, proxy_port);
+-	}
++	if (ONLY_ONE_WIFIDOG == is_only_one_wifidog()) {
++		iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_ROUTER " -j ACCEPT");
++		if((proxy_port=config_get_config()->proxy_port) != 0){
++			debug(LOG_DEBUG,"Proxy port set, setting proxy rule");
++			iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -p tcp --dport 80 -m mark --mark 0x%u -j REDIRECT --to-port %u", FW_MARK_KNOWN, proxy_port);
++			iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -p tcp --dport 80 -m mark --mark 0x%u -j REDIRECT --to-port %u", FW_MARK_PROBATION, proxy_port);
++		}
++
++		iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -m mark --mark 0x%u -j ACCEPT", FW_MARK_KNOWN);
++		iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -m mark --mark 0x%u -j ACCEPT", FW_MARK_PROBATION);
++		iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -j " TABLE_WIFIDOG_UNKNOWN);
+ 
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -m mark --mark 0x%u -j ACCEPT", FW_MARK_KNOWN);
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -m mark --mark 0x%u -j ACCEPT", FW_MARK_PROBATION);
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -j " TABLE_WIFIDOG_UNKNOWN);
+-
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_UNKNOWN " -j " TABLE_WIFIDOG_AUTHSERVERS);
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_UNKNOWN " -j " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t nat -A " TABLE_WIFIDOG_UNKNOWN " -p tcp --dport 80 -j REDIRECT --to-ports %d", gw_port);
++		iptables_do_command("-t nat -A " TABLE_WIFIDOG_UNKNOWN " -j " TABLE_WIFIDOG_AUTHSERVERS);
++		iptables_do_command("-t nat -A " TABLE_WIFIDOG_UNKNOWN " -j " TABLE_WIFIDOG_GLOBAL);
++	}
++	
++	iptables_do_command("-t nat -A " TABLE_WIFIDOG_UNKNOWN " -p tcp --dport 80 -m physdev --physdev-in %s -j REDIRECT --to-ports %d", config->br_port, gw_port);
+ 
+ 
+ 	/*
+@@ -319,14 +350,15 @@
+ 	 *
+ 	 */
+ 
+-	/* Create new chains */
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_AUTHSERVERS);
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_LOCKED);
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_VALIDATE);
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_KNOWN);
+-	iptables_do_command("-t filter -N " TABLE_WIFIDOG_UNKNOWN);
++	if (ONLY_ONE_WIFIDOG == is_only_one_wifidog()) {
++		/* Create new chains */
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_AUTHSERVERS);
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_LOCKED);
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_GLOBAL);
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_VALIDATE);
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_KNOWN);
++		iptables_do_command("-t filter -N " TABLE_WIFIDOG_UNKNOWN);
+ 
+ 	/* Assign links and rules to these new chains */
+ 
+@@ -362,10 +394,11 @@
+ 	iptables_do_command("-t filter -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -m mark --mark 0x%u -j " TABLE_WIFIDOG_KNOWN, FW_MARK_KNOWN);
+ 	iptables_load_ruleset("filter", "known-users", TABLE_WIFIDOG_KNOWN);
+ 
+-	iptables_do_command("-t filter -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -j " TABLE_WIFIDOG_UNKNOWN);
+-	iptables_load_ruleset("filter", "unknown-users", TABLE_WIFIDOG_UNKNOWN);
+-	iptables_do_command("-t filter -A " TABLE_WIFIDOG_UNKNOWN " -j REJECT --reject-with icmp-port-unreachable");
+-
++		iptables_do_command("-t filter -A " TABLE_WIFIDOG_WIFI_TO_INTERNET " -j " TABLE_WIFIDOG_UNKNOWN);
++		iptables_load_ruleset("filter", "unknown-users", TABLE_WIFIDOG_UNKNOWN);
++	}	
++	iptables_do_command("-t filter -A " TABLE_WIFIDOG_UNKNOWN " -m physdev --physdev-in %s -j REJECT --reject-with icmp-port-unreachable", config->br_port);
++	/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ 	UNLOCK_CONFIG();
+ 	return 1;
+ }
+@@ -378,7 +411,8 @@
+ iptables_fw_destroy(void)
+ {
+ 	fw_quiet = 1;
+-
++	s_config *config = config_get_config();
++		
+ 	debug(LOG_DEBUG, "Destroying our iptables entries");
+ 
+ 	/*
+@@ -387,6 +421,7 @@
+ 	 *
+ 	 */
+ 	debug(LOG_DEBUG, "Destroying chains in the MANGLE table");
++	/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
+ 	iptables_fw_destroy_mention("mangle", "PREROUTING", TABLE_WIFIDOG_TRUSTED);
+ 	iptables_fw_destroy_mention("mangle", "PREROUTING", TABLE_WIFIDOG_OUTGOING);
+ 	iptables_fw_destroy_mention("mangle", "POSTROUTING", TABLE_WIFIDOG_INCOMING);
+@@ -404,41 +439,48 @@
+ 	 */
+ 	debug(LOG_DEBUG, "Destroying chains in the NAT table");
+ 	iptables_fw_destroy_mention("nat", "PREROUTING", TABLE_WIFIDOG_OUTGOING);
+-	iptables_do_command("-t nat -F " TABLE_WIFIDOG_AUTHSERVERS);
+ 	iptables_do_command("-t nat -F " TABLE_WIFIDOG_OUTGOING);
+-	iptables_do_command("-t nat -F " TABLE_WIFIDOG_WIFI_TO_ROUTER);
+-	iptables_do_command("-t nat -F " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t nat -F " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t nat -F " TABLE_WIFIDOG_UNKNOWN);
+-	iptables_do_command("-t nat -X " TABLE_WIFIDOG_AUTHSERVERS);
+ 	iptables_do_command("-t nat -X " TABLE_WIFIDOG_OUTGOING);
+-	iptables_do_command("-t nat -X " TABLE_WIFIDOG_WIFI_TO_ROUTER);
+-	iptables_do_command("-t nat -X " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t nat -X " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t nat -X " TABLE_WIFIDOG_UNKNOWN);
+-
+-	/*
+-	 *
+-	 * Everything in the FILTER table
+-	 *
+-	 */
+-	debug(LOG_DEBUG, "Destroying chains in the FILTER table");
+-	iptables_fw_destroy_mention("filter", "FORWARD", TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_AUTHSERVERS);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_LOCKED);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_VALIDATE);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_KNOWN);
+-	iptables_do_command("-t filter -F " TABLE_WIFIDOG_UNKNOWN);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_WIFI_TO_INTERNET);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_AUTHSERVERS);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_LOCKED);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_GLOBAL);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_VALIDATE);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_KNOWN);
+-	iptables_do_command("-t filter -X " TABLE_WIFIDOG_UNKNOWN);
+-
++	iptables_do_command("-t nat -D " TABLE_WIFIDOG_UNKNOWN " -p tcp --dport 80 -m physdev --physdev-in %s -j REDIRECT --to-ports %d", config->br_port, config->gw_port);
++	iptables_do_command("-t filter -D " TABLE_WIFIDOG_UNKNOWN " -m physdev --physdev-in %s -j REJECT --reject-with icmp-port-unreachable", config->br_port);
++	
++	if (ONLY_ONE_WIFIDOG == is_only_one_wifidog()) {
++		iptables_do_command("-t nat -F " TABLE_WIFIDOG_AUTHSERVERS);
++		
++		iptables_do_command("-t nat -F " TABLE_WIFIDOG_WIFI_TO_ROUTER);
++		iptables_do_command("-t nat -F " TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t nat -F " TABLE_WIFIDOG_GLOBAL);
++		iptables_do_command("-t nat -F " TABLE_WIFIDOG_UNKNOWN);
++		iptables_do_command("-t nat -X " TABLE_WIFIDOG_AUTHSERVERS);
++		
++		iptables_do_command("-t nat -X " TABLE_WIFIDOG_WIFI_TO_ROUTER);
++		iptables_do_command("-t nat -X " TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t nat -X " TABLE_WIFIDOG_GLOBAL);
++		iptables_do_command("-t nat -X " TABLE_WIFIDOG_UNKNOWN);
++
++		/*
++		 *
++		 * Everything in the FILTER table
++		 *
++		 */
++		debug(LOG_DEBUG, "Destroying chains in the FILTER table");
++		iptables_fw_destroy_mention("filter", "FORWARD", TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_AUTHSERVERS);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_LOCKED);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_GLOBAL);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_VALIDATE);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_KNOWN);
++		iptables_do_command("-t filter -F " TABLE_WIFIDOG_UNKNOWN);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_WIFI_TO_INTERNET);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_AUTHSERVERS);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_LOCKED);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_GLOBAL);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_VALIDATE);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_KNOWN);
++		iptables_do_command("-t filter -X " TABLE_WIFIDOG_UNKNOWN);
++	}
++	/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ 	return 1;
+ }
+ 
+@@ -509,23 +551,24 @@
+ iptables_fw_access(fw_access_t type, const char *ip, const char *mac, int tag)
+ {
+ 	int rc;
+-
++	s_config *config = config_get_config();
++	
+ 	fw_quiet = 0;
+-
++	/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
+ 	switch(type) {
+ 		case FW_ACCESS_ALLOW:
+-			iptables_do_command("-t mangle -A " TABLE_WIFIDOG_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip, mac, tag);
++			iptables_do_command("-t mangle -A " TABLE_WIFIDOG_OUTGOING " -s %s -m mac --mac-source %s -m physdev --physdev-in %s -j MARK --set-mark %d", ip, mac, config->br_port, tag);
+ 			rc = iptables_do_command("-t mangle -A " TABLE_WIFIDOG_INCOMING " -d %s -j ACCEPT", ip);
+ 			break;
+ 		case FW_ACCESS_DENY:
+-			iptables_do_command("-t mangle -D " TABLE_WIFIDOG_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip, mac, tag);
++			iptables_do_command("-t mangle -D " TABLE_WIFIDOG_OUTGOING " -s %s -m mac --mac-source %s -m physdev --physdev-in %s -j MARK --set-mark %d", ip, mac, config->br_port, tag);
+ 			rc = iptables_do_command("-t mangle -D " TABLE_WIFIDOG_INCOMING " -d %s -j ACCEPT", ip);
+ 			break;
+ 		default:
+ 			rc = -1;
+ 			break;
+ 	}
+-
++	/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ 	return rc;
+ }
+ 
+diff -uNr a/src/fw_iptables.h b/src/fw_iptables.h
+--- a/src/fw_iptables.h	2014-07-10 18:14:05.000000000 +0800
++++ b/src/fw_iptables.h	2014-08-27 22:30:17.000000000 +0800
+@@ -32,16 +32,18 @@
+ /*@{*/ 
+ /**Iptable table names used by WifiDog */
+ #define TABLE_WIFIDOG_OUTGOING  "WiFiDog_$ID$_Outgoing"
+-#define TABLE_WIFIDOG_WIFI_TO_INTERNET "WiFiDog_$ID$_WIFI2Internet"
+-#define TABLE_WIFIDOG_WIFI_TO_ROUTER "WiFiDog_$ID$_WIFI2Router"
++/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
++#define TABLE_WIFIDOG_WIFI_TO_INTERNET "WiFiDog_WIFI2Internet"
++#define TABLE_WIFIDOG_WIFI_TO_ROUTER "WiFiDog_WIFI2Router"
+ #define TABLE_WIFIDOG_INCOMING  "WiFiDog_$ID$_Incoming"
+-#define TABLE_WIFIDOG_AUTHSERVERS "WiFiDog_$ID$_AuthServers"
+-#define TABLE_WIFIDOG_GLOBAL  "WiFiDog_$ID$_Global"
+-#define TABLE_WIFIDOG_VALIDATE  "WiFiDog_$ID$_Validate"
+-#define TABLE_WIFIDOG_KNOWN     "WiFiDog_$ID$_Known"
+-#define TABLE_WIFIDOG_UNKNOWN   "WiFiDog_$ID$_Unknown"
+-#define TABLE_WIFIDOG_LOCKED    "WiFiDog_$ID$_Locked"
++#define TABLE_WIFIDOG_AUTHSERVERS "WiFiDog_AuthServers"
++#define TABLE_WIFIDOG_GLOBAL  "WiFiDog_Global"
++#define TABLE_WIFIDOG_VALIDATE  "WiFiDog_Validate"
++#define TABLE_WIFIDOG_KNOWN     "WiFiDog_Known"
++#define TABLE_WIFIDOG_UNKNOWN   "WiFiDog_Unknown"
++#define TABLE_WIFIDOG_LOCKED    "WiFiDog_Locked"
+ #define TABLE_WIFIDOG_TRUSTED    "WiFiDog_$ID$_Trusted"
++/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ /*@}*/ 
+ 
+ /** Used by iptables_fw_access to select if the client should be granted of denied access */

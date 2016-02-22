@@ -1,0 +1,44 @@
+diff -ruN a//arch/mips/ath79/Kconfig b//arch/mips/ath79/Kconfig
+--- a//arch/mips/ath79/Kconfig	2015-09-17 22:17:39.000000000 +0800
++++ b//arch/mips/ath79/Kconfig	2015-09-17 22:20:06.000000000 +0800
+@@ -146,6 +146,18 @@
+          Say 'Y' here if you want your kernel to support the
+          Atheros AP152 reference board.
+          
++config ATH79_MACH_AE5000_11AC_E2
++       bool "Atheros AE5000_11AC_E2 reference board"
++       select SOC_QCA955X
++       select ATH79_DEV_GPIO_BUTTONS
++       select ATH79_DEV_LEDS_GPIO
++       select ATH79_DEV_NFC
++       select ATH79_DEV_SPI
++       select ATH79_DEV_USB
++       select ATH79_DEV_WMAC
++       help
++         Say 'Y' here if you want your kernel to support the
++         Atheros AE5000_11AC_E2 reference boards.
+ 
+ config ATH79_MACH_AP81
+ 	bool "Atheros AP81 reference board"
+diff -ruN a//arch/mips/ath79/machtypes.h b//arch/mips/ath79/machtypes.h
+--- a//arch/mips/ath79/machtypes.h	2015-09-17 22:17:39.000000000 +0800
++++ b//arch/mips/ath79/machtypes.h	2015-09-17 22:21:05.000000000 +0800
+@@ -31,6 +31,7 @@
+         ATH79_MACH_AP152_AFI,           /* Atheros AP152_AFI reference board */
+         ATH79_MACH_AP151,               /* Atheros AP151 reference board */
+         ATH79_MACH_AP152,               /* Atheros AP152 reference board */
++        ATH79_MACH_AE5000_11AC_E2,      /* Atheros AE5000_11AC_E2 reference board */
+ 	ATH79_MACH_AP81,		/* Atheros AP81 reference board */
+ 	ATH79_MACH_AP83,		/* Atheros AP83 */
+ 	ATH79_MACH_AP96,		/* Atheros AP96 */
+diff -ruN a//arch/mips/ath79/Makefile b//arch/mips/ath79/Makefile
+--- a//arch/mips/ath79/Makefile	2015-09-17 22:17:39.000000000 +0800
++++ b//arch/mips/ath79/Makefile	2015-09-17 22:21:45.000000000 +0800
+@@ -49,6 +49,7 @@
+ obj-$(CONFIG_ATH79_MACH_AP152_AFI)      += mach-ap152-afi.o
+ obj-$(CONFIG_ATH79_MACH_AP151)          += mach-ap151.o
+ obj-$(CONFIG_ATH79_MACH_AP152)          += mach-ap152.o
++obj-$(CONFIG_ATH79_MACH_AE5000_11AC_E2) += mach-ae5000_11ac_e2.o
+ obj-$(CONFIG_ATH79_MACH_AP81)		+= mach-ap81.o
+ obj-$(CONFIG_ATH79_MACH_AP83)		+= mach-ap83.o
+ obj-$(CONFIG_ATH79_MACH_AP96)		+= mach-ap96.o

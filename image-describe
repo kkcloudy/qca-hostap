@@ -1,0 +1,10 @@
+config spec hardware
+	option hardtype		ae5000_11ac_e2
+	option flashsize	16M
+	option flashcount	1
+
+config spec software
+	option platform		openwrt_ac_os
+	option ha	single
+	option version	5.1.10
+	option md5	1

@@ -1,0 +1,120 @@
+diff -urN a/drivers/net/ethernet/atheros/ag71xx/ag71xx.h b/drivers/net/ethernet/atheros/ag71xx/ag71xx.h
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx.h	2015-05-29 00:05:46.000000000 +0800
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx.h	2015-05-29 00:11:57.000000000 +0800
+@@ -474,6 +474,8 @@
+ 
+ u16 ar7240sw_phy_read(struct mii_bus *mii, unsigned phy_addr,
+ 		      unsigned reg_addr);
++int ag71xx_mdio_write_phy(struct mii_bus *bus, int addr, int reg, u16 val);
++int ag71xx_mdio_read_phy(struct mii_bus *bus, int addr, int reg);
+ int ar7240sw_phy_write(struct mii_bus *mii, unsigned phy_addr,
+ 		       unsigned reg_addr, u16 reg_val);
+ 
+diff -urN a/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c b/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c	2015-05-29 00:05:46.000000000 +0800
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c	2015-05-29 00:12:29.000000000 +0800
+@@ -582,13 +582,40 @@
+ 	case SPEED_1000:
+ 		cfg2 |= MAC_CFG2_IF_1000;
+ 		fifo5 |= FIFO_CFG5_BM;
++		/* start:set Link Partner Ability Register for init ar8035 phy */
++#if 1
++        if((ag->phy_dev) && (ag->phy_dev->phy_id == 0x004dd072))
++        {
++    		ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001d, 0x0000);
++    		ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001e, 0x02ee);
++        }
++#endif
++		/* end: set Link Partner Ability Register for init ar8035 phy */
+ 		break;
+ 	case SPEED_100:
+ 		cfg2 |= MAC_CFG2_IF_10_100;
+ 		ifctl |= MAC_IFCTL_SPEED;
++		/* start:set Link Partner Ability Register for init ar8035 phy */
++#if 1
++        if((ag->phy_dev) && (ag->phy_dev->phy_id == 0x004dd072))
++        {
++    		ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001d, 0x0000);
++    		ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001e, 0x82ee);
++        }
++#endif
++		/* end: set Link Partner Ability Register for init ar8035 phy */
+ 		break;
+ 	case SPEED_10:
+ 		cfg2 |= MAC_CFG2_IF_10_100;
++		/* start:set Link Partner Ability Register for init ar8035 phy */
++#if 1
++        if((ag->phy_dev) && (ag->phy_dev->phy_id == 0x004dd072))
++        {
++    		ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001d, 0x0000);
++    		ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001e, 0x82ee);
++        }
++#endif
++		/* end: set Link Partner Ability Register for init ar8035 phy */
+ 		break;
+ 	default:
+ 		BUG();
+@@ -640,6 +667,11 @@
+ 		ag->dev->name,
+ 		ag71xx_rr(ag, AG71XX_REG_MAC_CFG2),
+ 		ag71xx_rr(ag, AG71XX_REG_MAC_IFCTL));
++
++	/* start:set Link Partner Ability Register for init ar8035 phy */
++    if((ag->phy_dev) && (ag->phy_dev->phy_id == 0x004dd072))
++    	ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x0004, 0x0de1);
++	/* end: set Link Partner Ability Register for init ar8035 phy */
+ }
+ 
+ static int ag71xx_open(struct net_device *dev)
+diff -urN a/drivers/net/ethernet/atheros/ag71xx/ag71xx_mdio.c b/drivers/net/ethernet/atheros/ag71xx/ag71xx_mdio.c
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx_mdio.c	2015-05-29 00:05:46.000000000 +0800
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx_mdio.c	2015-05-29 00:12:43.000000000 +0800
+@@ -207,6 +207,30 @@
+ 		ag71xx_mdio_mii_write(am, addr, reg, val);
+ 	return 0;
+ }
++int ag71xx_mdio_write_phy(struct mii_bus *bus, int addr, int reg, u16 val)
++{
++	int rtn_wr;
++	u16 rtn_rd;
++
++	rtn_rd = ag71xx_mdio_read(bus, addr, reg);
++	printk("Read  Reg: 0x%08x = 0x%08x\n", reg, rtn_rd);	
++
++	rtn_wr = ag71xx_mdio_write(bus, addr, reg, val);
++	if(rtn_wr < 0)
++		printk("Write Reg: 0x%08x = 0x%08x err!\n", reg, val);	
++	else
++		printk("Write Reg: 0x%08x = 0x%08x\n", reg, val);	
++	return rtn_wr;
++}
++int ag71xx_mdio_read_phy(struct mii_bus *bus, int addr, int reg)
++{
++	int rtn_wr;
++	u16 rtn_rd;
++
++	rtn_rd = ag71xx_mdio_read(bus, addr, reg);
++	printk("Read  Reg: 0x%08x = 0x%08x\n", reg, rtn_rd);	
++	return rtn_wr;
++}
+ 
+ static int ag71xx_mdio_probe(struct platform_device *pdev)
+ {
+diff -urN a/drivers/net/ethernet/atheros/ag71xx/ag71xx_phy.c b/drivers/net/ethernet/atheros/ag71xx/ag71xx_phy.c
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx_phy.c	2015-05-29 00:05:46.000000000 +0800
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx_phy.c	2015-05-29 00:13:09.000000000 +0800
+@@ -154,6 +154,14 @@
+ 	ag->link = 0;
+ 	ag->speed = 0;
+ 	ag->duplex = -1;
++	/* start:set Link Partner Ability Register for init ar8035 phy */
++    if(phydev->phy_id == 0x004dd072)
++    {
++        ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x0000, 0x1000);
++    	ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001d, 0x0005);
++    	ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x001e, 0x0147);
++    }
++	/* end: set Link Partner Ability Register for init ar8035 phy */
+ 
+ 	return ret;
+ }

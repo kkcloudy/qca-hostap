@@ -1,0 +1,35 @@
+config spec cpu
+	option type		'mips'
+	option freq		750MHz
+
+config spec flash
+	option type		'WINBOND W25Q128BV16'
+	option count		1
+	option size		16M
+
+config spec memory
+	option type		'K4B2G1646C-HCH9'
+	option count		1
+	option size		64M
+
+config spec eth
+	option base		0
+	option count		1
+
+config spec wifi
+	option base		0
+	option count		2
+
+config spec eth0
+	option up_speed		1000
+
+config spec wifi0
+	option hwmode		11ng
+	option minpower2g	0
+	option maxpower2g	17
+
+config spec wifi1
+	option hwmode		11ac
+	option minpower5g	0
+	option maxpower5g	16
+

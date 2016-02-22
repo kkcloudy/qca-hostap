@@ -1,0 +1,74 @@
+#!/bin/sh
+
+# to recover configurations in config.wtp
+if [ -f /jffs/config.wtp ]; then
+
+	# to recover ac iplist
+	uci delete wtpd.@wtp[0].ac_addr
+
+	tmp_iplist=`sed -n '/AC_ADDRESSES/,/AC_ADDRESSES/p' /jffs/config.wtp`
+	ip_list=`echo $tmp_iplist | cut -d">" -f 2 | cut -d "<" -f 1`
+	for ip in $ip_list
+	do
+	echo $ip
+	uci add_list wtpd.@wtp[0].ac_addr=$ip
+	done
+	
+	# to recover other parameters
+	name="`cat /jffs/config.wtp |awk -F' ' '/WTP_NAME/{print $2}'`"
+	location="`cat /jffs/config.wtp |awk -F' ' '/WTP_LOCATION/{print $2}'`"
+	lvl3_proto="`cat /jffs/config.wtp |awk -F' ' '/WTP_LEV3_PROTOCOL/{print $2}'`"
+	force_mtu="`cat /jffs/config.wtp |awk -F' ' '/WTP_FORCE_MTU/{print $2}'`"
+	log_file_enable="`cat /jffs/config.wtp |awk -F' ' '/AC_LOG_FILE_ENABLE/{print $2}'`"                                                  
+	log_file_size="`cat /jffs/config.wtp |awk -F' ' '/AC_LOG_FILE_SIZE/{print $2}'`"
+	ac_domain_name="`cat /jffs/config.wtp |awk -F' ' '/WTP_AC_DOMAIN_NAME/{print $2}'`"
+
+	uci set wtpd.@wtp[0].name=$name
+	uci set wtpd.@wtp[0].location=$location
+	uci set wtpd.@wtp[0].lvl3_proto=$lvl3_proto
+	uci set wtpd.@wtp[0].force_mtu=$force_mtu
+	uci set wtpd.@wtp[0].log_file_enable=$log_file_enable
+	uci set wtpd.@wtp[0].log_file_size=$log_file_size
+	uci set wtpd.@wtp[0].ac_domain_name=$ac_domain_name
+	uci commit wtpd
+fi
+	
+# to recover configurations in config.xml
+if [ -f /jffs/config.xml ]; then
+			echo "/jffs/config.xml exists!"
+
+	. /usr/lib/web/constant.sh
+	. /usr/lib/web/xmlconf.sh
+	. /usr/lib/web/sysinit.sh
+	. /usr/lib/web/function.sh
+
+	local xml_lan=`config_read /config/network/lan`
+	local xml_if=`config_getoption "$xml_lan" if`
+	local xml_type=`config_getoption "$xml_lan" type`
+	local xml_proto=`config_getoption "$xml_lan" proto`
+	local xml_ipaddr=`config_getoption "$xml_lan" ipaddr`
+	local xml_netmask=`config_getoption "$xml_lan" netmask`
+	local xml_lan_dhcpcount=`config_getoption "$xml_lan" dhcpcount`    
+	local xml_lan_vendorclassid=`config_getoption "$xml_lan" vendorclassid`
+
+	if [ $xml_proto = "dhcp" ]; then
+		echo $xml_proto
+		uci set network.wan.proto=$xml_proto
+		uci delete network.wan.ipaddr
+		uci delete network.wan.netmask
+		uci commit network
+		/etc/init.d/network restart
+	elif [ $xml_proto = "static" ]; then
+		echo $xml_proto
+		uci set network.wan.proto=$xml_proto
+		uci set network.wan.ipaddr=$xml_ipaddr
+		uci set network.wan.netmask=$xml_netmask
+		uci commit network
+		/etc/init.d/network restart	
+	else
+		echo "proto type is neither dhcp nor static!"
+	fi
+	#partool -part mtd2 -update system.platform openwrtos-ac
+fi
+
+

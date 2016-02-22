@@ -1,0 +1,46 @@
+diff -urN a/include/uapi/linux/wireless.h b/include/uapi/linux/wireless.h
+--- a/include/uapi/linux/wireless.h	2015-11-20 17:40:48.000000000 +0800
++++ b/include/uapi/linux/wireless.h	2015-11-20 17:46:24.000000000 +0800
+@@ -391,6 +391,13 @@
+ 					 * pre-authentication
+ 					 * (struct iw_pmkid_cand) */
+ 
++/* Begin:lijiyong transplanted for apv8 2014-04-15 */
++#define IWEVWIDSALERM 0x8c0A	/*for wids*/
++#define IWEVTRAFFIC 0x8C0B		/*kick off the station which traffic is too low*/
++#define IWEVTIMEOUT 0x8C0C		/*suzhaoyu add IWEVTIMEOUT for zhongtai project*/
++#define IWEVSTALV 0x8C0D		/*change disassoc message*/
++/* End:lijiyong transplanted end */
++
+ #define IWEVFIRST	0x8C00
+ #define IW_EVENT_IDX(cmd)	((cmd) - IWEVFIRST)
+ 
+diff -urN a/net/wireless/wext-core.c b/net/wireless/wext-core.c
+--- a/net/wireless/wext-core.c	2015-11-20 17:40:47.000000000 +0800
++++ b/net/wireless/wext-core.c	2015-11-20 17:46:54.000000000 +0800
+@@ -305,6 +305,24 @@
+ 		.token_size	= 1,
+ 		.max_tokens	= sizeof(struct iw_pmkid_cand),
+ 	},
++	/* Begin:lijiyong transplanted for apv8 2014-04-15 */
++	[IW_EVENT_IDX(IWEVWIDSALERM)] = {	/*for wids*/
++		.header_type	= IW_HEADER_TYPE_POINT,
++		.token_size = 1,
++		.max_tokens = IW_GENERIC_IE_MAX,
++	},
++	[IW_EVENT_IDX(IWEVTRAFFIC)] = {		/*kick off the station which traffic is too low*/
++		.header_type	= IW_HEADER_TYPE_ADDR,
++	},
++	[IW_EVENT_IDX(IWEVTIMEOUT)] = {		/*suzhaoyu add IWEVTIMEOUT for zhongtai project*/
++		.header_type	= IW_HEADER_TYPE_ADDR,
++	},
++	[IW_EVENT_IDX(IWEVSTALV)] = {		/*change disassoc message*/
++		.header_type	= IW_HEADER_TYPE_POINT,
++		.token_size = 1,
++		.max_tokens = IW_GENERIC_IE_MAX,
++	},
++	/* End:lijiyong transplanted end */
+ };
+ static const unsigned int standard_event_num = ARRAY_SIZE(standard_event);
+ 
+ 

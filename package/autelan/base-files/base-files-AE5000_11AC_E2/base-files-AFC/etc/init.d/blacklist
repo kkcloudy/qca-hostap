@@ -1,0 +1,31 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2008 OpenWrt.org
+
+START=96
+
+black_control(){
+        local cfg="$1"
+	local ifname
+
+       	# flush MAC list
+	config_get ifname "$cfg" ifname
+        iwpriv "$ifname" maccmd 3
+	if [ "$macfilter" = "disable" ];then
+		return
+	fi
+
+        [ -n "$maclist" ] && {
+                iwpriv "$ifname" maccmd 2
+                for mac in $maclist; do
+			iwpriv "$ifname" kickmac "$mac"
+                        iwpriv "$ifname" addmac "$mac"
+                        done
+               	}
+}
+
+start() {
+	maclist=`uci get wireless.station.maclist 2>/dev/null`
+	macfilter=`uci get wireless.station.macfilter 2>/dev/null`
+        config_load wireless
+        config_foreach black_control wifi-iface
+}

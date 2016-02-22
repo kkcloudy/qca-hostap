@@ -1,0 +1,51 @@
+config rule 'rule1'
+	option action 'allow'
+	option proto 'udp'
+	option port '53'
+
+config rule 'rule2'
+	option action 'allow'
+	option proto 'tcp'
+	option port '53'
+
+config rule 'rule3'
+	option action 'allow'
+	option proto 'udp'
+	option port '67'
+
+config rule 'rule4'
+	option action 'allow'
+	option proto 'tcp'
+	option port '67'
+
+config rule 'rule5'
+	option action 'allow'
+	option ipaddress '0'
+	option ipmask '0'
+
+config rule 'rule6'
+	option action 'block'
+	option ipaddress '0'
+	option ipmask '0'
+
+config ruleset 'global'
+	option type 'global'
+
+config ruleset 'validating'
+	option type 'validating'
+	list rule 'rule5'
+
+config ruleset 'known'
+	option type 'known'
+	list rule 'rule5'
+
+config ruleset 'unknown'
+	option type 'unknown'
+	list rule 'rule1'
+	list rule 'rule2'
+	list rule 'rule3'
+	list rule 'rule4'
+
+config ruleset 'locked'
+	option type 'locked'
+	list rule 'rule6'

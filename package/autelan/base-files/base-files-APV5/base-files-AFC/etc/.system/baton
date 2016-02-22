@@ -1,0 +1,5 @@
+config spec system
+
+config spec wtpd
+
+config spec uplink

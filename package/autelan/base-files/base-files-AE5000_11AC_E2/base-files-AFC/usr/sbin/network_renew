@@ -1,0 +1,71 @@
+#!/bin/sh
+
+UCI="/sbin/uci -c /etc/.system"
+OLD_IPADDR=""
+NEW_IPADDR=""
+
+check_process_exist() {
+	if test $( pgrep -f $1 | wc -l ) -eq 0
+	then
+		return 0
+	else
+		return 1
+	fi
+}
+
+check_local_ip_changed() {
+	local new_ipaddr="`/sbin/ifconfig br-wan | awk -F " " '/inet addr/ {print $2}' | awk -F ":" '{print $2}'`"
+	local old_ipaddr="`$UCI get baton.wtpd.last_ip`"
+	NEW_IPADDR=$new_ipaddr
+	OLD_IPADDR=$old_ipaddr
+
+	if [ "$new_ipaddr" != "$old_ipaddr" ] && [ "x""$new_ipaddr" != "x" ]
+	then
+		$UCI set baton.wtpd.last_ip="$new_ipaddr"
+		$UCI commit baton
+		return 1
+
+	elif [ "x""$new_ipaddr" == "x" ]
+	then
+		$UCI delete baton.wtpd.last_ip="new_ipaddr"
+		$UCI commit baton
+		return 0
+	else
+		return 0
+	fi
+	
+}
+
+wtpd_restart() {
+	/etc/init.d/wtpd stop
+	/etc/init.d/wtpd start
+}
+
+check_wtpd_restart() {
+	local ret1=""
+	local ret2=""
+
+	check_process_exist wtpd
+        ret1=$?
+
+        check_local_ip_changed
+        ret2=$?
+
+        if [ $ret1 -eq 1 ] && [ $ret2 -eq 1 ]; then
+		date >> /tmp/network_renew.log
+		echo "last ip address is $OLD_IPADDR, new ip address is $NEW_IPADDR"  >> /tmp/network_renew.log
+		echo "wtpd process is running when local ip changed, so restart wtpd process" >> /tmp/network_renew.log 
+        	wtpd_restart
+        fi
+}
+
+case $1 in
+	bound)
+		ubus call ap-monitor reload
+		check_wtpd_restart
+	;;
+	renew)
+		check_wtpd_restart
+	;;
+esac
+

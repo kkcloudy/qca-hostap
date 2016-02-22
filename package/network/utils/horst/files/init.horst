@@ -1,0 +1,126 @@
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+
+reload_service()
+{
+        echo reload_service
+}
+
+stop_2G_service()
+{
+        local ifname                         
+        local enable                
+	
+        ifname=`uci get horst.2G.interface` 2>/dev/null    
+	
+	wlanconfig $ifname destroy
+}
+stop_5G_service()
+{
+        local ifname                         
+        local enable                
+
+        ifname=`uci get horst.5G.interface`  2>/dev/null
+
+	wlanconfig $ifname destroy
+}
+stop_service()
+{
+        stop_2G_service
+        stop_5G_service
+        echo horst stop ...
+}
+
+start_5G_service()
+{
+        local enable                
+        local interface                 
+        local interval                        
+        local server                          
+	local uplink
+	local port
+                                              
+	uplink=`uci get -c /etc/.system baton.uplink.status`
+	if [ "$uplink" = "wireless" ];then
+		return
+	fi
+        enable=`uci get horst.5G.enable` 2>/dev/null
+        interface=`uci get horst.5G.interface` 2>/dev/null
+        interval=`uci get horst.5G.interval` 2>/dev/null
+	server=`uci get horst.5G.server` 2>/dev/null 
+	port=`uci get horst.5G.port` 2>/dev/null
+
+        [ $enable -ne 1 ]&&return
+        [ -z $interface ]&&return
+        [ -z $server ]&&return
+        [ -z $interval ]&&[ interval=30 ]
+                                              
+       	wlanconfig $interface create wlandev wifi1 wlanmode ap 
+	iwpriv $interface monitor 1
+	iwpriv wifi1 allowpromisc 1
+	ifconfig $interface up
+	iwpriv $interface setparam 111 1
+
+        procd_open_instance                   
+        if [ x"$port" != x ]; then                                      
+        	procd_set_param command horst -i $interface -c $server -T $interval -q -G 1 -p $port
+	else
+        	procd_set_param command horst -i $interface -c $server -T $interval -q -G 1
+	fi
+        procd_set_param respawn               
+                                              
+        procd_close_instance                  
+        echo horst 5G start ...
+
+}
+start_2G_service()
+{
+        local enable
+        local interface
+        local interval
+        local server
+	local port
+
+        enable=`uci get horst.2G.enable` 2>/dev/null
+	interface=`uci get horst.2G.interface` 2>/dev/null
+	interval=`uci get horst.2G.interval` 2>/dev/null
+	server=`uci get horst.2G.server` 2>/dev/null
+	port=`uci get horst.2G.port` 2>/dev/null
+        
+        [ $enable -ne 1 ]&&return
+        [ -z $interface ]&&return
+        [ -z $server ]&&return
+        [ -z $interval ]&&[ interval=30 ]
+                                              
+       	wlanconfig $interface create wlandev wifi0 wlanmode ap 
+	iwpriv $interface monitor 1
+	iwpriv wifi0 allowpromisc 1
+	ifconfig $interface up
+	iwpriv $interface setparam 111 1
+
+        procd_open_instance                   
+        if [ x"$port" != x ]; then
+                procd_set_param command horst -i $interface -c $server -T $interval -q -G 0 -p $port
+        else
+                procd_set_param command horst -i $interface -c $server -T $interval -q -G 0
+        fi                                      
+        procd_set_param respawn               
+                                              
+        procd_close_instance                  
+        echo horst 2G start ... 
+}
+
+start_service()
+{
+
+        start_2G_service
+        start_5G_service
+}
+restart()
+{
+        stop_service
+        uci export horst > /dev/null
+        start_service
+        echo horst restart ...
+}
+

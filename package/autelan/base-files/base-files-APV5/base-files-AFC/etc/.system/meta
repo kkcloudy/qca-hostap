@@ -1,0 +1,8 @@
+config spec preconfig
+	list clean		/etc/.system/status
+config spec postconfig
+	list clean		/etc/.system/baton
+config spec reset
+	list keep		/etc/.system/spec
+	list keep		/etc/.system/vender
+	list keep		/etc/.system/meta

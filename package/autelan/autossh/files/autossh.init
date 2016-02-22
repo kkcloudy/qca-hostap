@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+
+
+USE_PROCD=1
+PROG=/usr/sbin/autossh.sh
+
+autossh_get_config()
+{
+    local var
+
+    config_get var "ssh" "hostname"
+    export "$1"="$var"
+    config_get var "ssh" "port"
+    export "$2"="$var"
+    config_get var "ssh" "username"
+    export "$3"="$var"
+    config_get var "ssh" "passwd"
+    export "$4"="$var"
+}
+
+start_service()
+{
+    local hostname port username passwd
+
+    config_load autossh
+    autossh_get_config hostname port username passwd
+
+    procd_open_instance
+    procd_set_param command "$PROG" "$hostname" "$port" "$username" "$passwd"
+    procd_set_param respawn
+    procd_close_instance
+}
+
+stop_service()
+{
+    killall ssh
+    killall autossh_funcs.sh
+    killall autossh.sh
+}

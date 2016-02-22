@@ -1,0 +1,5 @@
+config remote-config 'ssh'
+    option hostname 'afi.autelan.com'
+    option port '8000'
+    option username 'duanmingzhe'
+    option passwd 'duanmingzhe'

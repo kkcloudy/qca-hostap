@@ -1,0 +1,13 @@
+diff -urN a/net/bridge/br_input.c b/net/bridge/br_input.c
+--- a/net/bridge/br_input.c	2015-04-06 23:05:01.000000000 +0800
++++ b/net/bridge/br_input.c	2015-04-06 23:08:49.000000000 +0800
+@@ -166,7 +166,8 @@
+ 	const unsigned char *dest = eth_hdr(skb)->h_dest;
+ 	br_should_route_hook_t *rhook;
+ 
+-	if (unlikely(skb->pkt_type == PACKET_LOOPBACK))
++	if (unlikely(skb->pkt_type == PACKET_LOOPBACK) ||
++        skb->protocol == __constant_htons(ETH_P_PAE))
+ 		return RX_HANDLER_PASS;
+ 
+ 	if (!is_valid_ether_addr(eth_hdr(skb)->h_source))

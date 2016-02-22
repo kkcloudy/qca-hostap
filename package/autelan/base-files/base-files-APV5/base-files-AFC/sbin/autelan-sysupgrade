@@ -1,0 +1,190 @@
+#!/bin/sh
+
+. /lib/ar71xx.sh
+
+if [ $# -ne 1 ] ;then
+	echo "Usage: sysupgrade version"
+	exit 1
+fi
+
+FIRMWARE_FILE=new_firmware.tar
+UCI="uci -c /tmp/"
+WGET="wget -c -T 20 -O"
+FLASH_READ=""
+SERVER_ADDR="$(cat /tmp/server_addr)"
+SERVER_PORT="$(cat /tmp/server_port)"
+PRODUCT_MODEL="`partool -part mtd6 -show product.model`" > /dev/null 2>&1
+PRODUCT_MAC="`partool -part mtd6 -show product.mac`" > /dev/null 2>&1
+PRODUCT_SN="`partool -part mtd6 -show product.sn`" > /dev/null 2>&1
+IFNAME="br-wan"
+MYIP="`ifconfig br-wan | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`" > /dev/null 2>&1
+
+check_autelan_image()
+{
+
+	local board=$(ar71xx_board_name)
+	
+	if [ -z $1 ] || [ ! -f $1 ]; then
+		logger -s "$0 <firmware-file>"
+		$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&myip=$MYIP&key=cannot_found_image"
+		exit 1
+	fi
+	
+	if [ -z $2 ] || [ ! -f $2 ]; then
+		logger -s "no describe file"
+		$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=no_describe_file"
+		exit 1
+	fi
+	
+	if [ -z sysupgrade.md5 ] || [ ! -f sysupgrade.md5 ]; then
+		logger -s "no md5 file"
+		$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=no_md5_file"
+		exit 1
+	fi
+	
+	cd /tmp
+	cp /etc/.system/spec /tmp/
+	
+	touch 2
+	echo "Extracting the firmware files."
+	
+	echo "Checking for firmware file contents."
+	
+	touch 4
+	md5sum -c sysupgrade.md5 < $1
+	if [ $? -ne 0 ]; then
+		logger -s "ERROR: invalid md5sum of $1"
+		cat sysupgrade.md5 | logger -s
+		rm -f $1
+		$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=md5_erro"
+		exit 1
+	fi
+	touch 5
+	
+	
+	HARD_TYPE="`$UCI get $2.hardware.hardtype`" > /dev/null 2>&1
+	
+	if [ "$HARD_TYPE" = "" ] || [ "$board" != "$HARD_TYPE" ]; then
+		logger -s "Invalid board $board"
+		$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=invalid_board"
+		rm -f $1
+		exit 2
+	fi
+	
+	FLASH_SIZE="`$UCI get $2.hardware.flashsize`" > /dev/null 2>&1
+	FLASH_COUNT="`$UCI get $2.hardware.flashcount`" > /dev/null 2>&1
+	
+	BOARD_FLASH_SIZE="`$UCI get spec.flash.size`" > /dev/null 2>&1
+	BOARD_FLASH_COUNT="`$UCI get spec.flash.count`" > /dev/null 2>&1
+	
+	if [ "$FLASH_SIZE" = "" ] || [ "$FLASH_COUNT" = "" ] || [ "$BOARD_FLASH_SIZE" = "" ] || [ "$BOARD_FLASH_COUNT" = "" ] || [ "$FLASH_COUNT" != "$BOARD_FLASH_COUNT" ] || [ "$FLASH_SIZE" != "$BOARD_FLASH_SIZE" ]; then
+		logger -s "Invalid board flash_size=$FLASH_SIZE flash_count=$FLASH_COUNT board_flash_count=$BOARD_FLASH_COUNT board_flash_size=$BOARD_FLASH_SIZE "
+		$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=invalid_board"
+		rm -f $1
+		exit 2
+	fi
+	
+	touch 6
+}
+
+image_sysupgrade()
+{
+	if [ -e $1 ]; then
+		echo "file exist"
+		cd /tmp/
+		mv $1 version.tar
+		size=$(ls -l version.tar | awk -F " " '{print $5}')
+		echo $size
+		if [ $size -lt 1048576 ] || [ $size -gt 11534325 ];then
+			logger -s "wrong size"
+			$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=wrong_size"
+			exit 1
+		fi
+		tar -zxvf version.tar
+		if [ $? -ne 0 ]; then
+			logger -s "tar version faild"
+			$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=tar_version_faild"
+			exit 1
+		fi
+		sleep 1
+		rm version.tar
+
+		if [ ! -e image-describe ]; then
+			logger -s "Invalid image-describe file"
+                        $WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=invalid_firmware_file"
+                        rm -f $1
+                        exit 2
+		fi
+
+		local dev_name="`$UCI get image-describe.hardware.hardtype`" > /dev/null 2>&1
+        	local firmware_name=openwrt-ar71xx-generic-"$dev_name"-squashfs-sysupgrade.bin
+		
+		if [ ! -e $firmware_name ]; then
+			logger -s "Invalid firmware file"
+			$WGET sysgradeerro "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=invalid_firmware_file"
+			rm -f $1
+			exit 2
+		fi
+		
+		
+		check_autelan_image $firmware_name image-describe
+		cd /tmp/
+		if [ -e "/tmp/sysupgrade" ]; then
+			/tmp/sysupgrade $firmware_name
+		else
+			/sbin/sysupgrade $firmware_name
+		fi
+	fi
+}
+
+network_config_restore()
+{
+        if [ ! -f "/tmp/runconfig" ]; then
+                touch /tmp/runconfig
+        fi
+
+        local brigeip="`/sbin/ifconfig $IFNAME | awk -F " " '/inet addr/ {print $2}' |  awk -F ":" '{print $2}`" > /dev/null 2>&1
+        local brigemask="`/sbin/ifconfig $IFNAME | awk -F " " '/Mask/ {print $4}' | awk -F ":" '{print $2}'`" > /dev/null 2>&1
+        local proto="`/sbin/uci get network.wan.proto`" > /dev/null 2>&1
+        local brigegateway="`/sbin/route | awk -F " " '/default/ {print $2}'`" > /dev/null 2>&1
+
+        $UCI set runconfig.network=spec
+        $UCI set runconfig.network.ipaddr=$brigeip
+        $UCI set runconfig.network.netmask=$brigemask
+        $UCI set runconfig.network.gateway=$brigegateway
+        $UCI commit runconfig
+}
+
+led_red_blue_blink() {
+	/etc/init.d/apmonitor  stop
+	sleep 3
+	echo none > /sys/class/leds/afi_a1:green/trigger
+	echo none > /sys/class/leds/afi_a1:red/trigger
+	echo none > /sys/class/leds/afi_a1:blue/trigger
+	echo none > /sys/class/leds/afi_a1:yellow/trigger
+	echo 0 > /sys/class/leds/afi_a1:yellow/brightness
+	echo 0 > /sys/class/leds/afi_a1:red/brightness
+	echo 0 > /sys/class/leds/afi_a1:blue/brightness
+	echo 0 > /sys/class/leds/afi_a1:green/brightness
+
+	echo poll > /sys/class/leds/afi_a1:blue/trigger
+	echo poll > /sys/class/leds/afi_a1:red/trigger
+	echo 200 > /sys/class/leds/afi_a1:red/frequency
+}
+
+#led_red_blue_blink
+network_config_restore
+image_sysupgrade $1
+
+
+
+
+
+
+
+
+
+
+
+
+

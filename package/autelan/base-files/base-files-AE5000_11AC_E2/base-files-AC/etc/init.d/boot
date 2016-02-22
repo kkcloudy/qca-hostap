@@ -1,0 +1,106 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+START=10
+STOP=98
+
+
+uci_apply_defaults() {
+	. /lib/functions/system.sh
+
+	cd /etc/uci-defaults || return 0
+	files="$(ls)"
+	[ -z "$files" ] && return 0
+	mkdir -p /tmp/.uci
+	for file in $files; do
+		( . "./$(basename $file)" ) && rm -f "$file"
+	done
+	uci commit
+}
+
+boot() {
+	[ -f /proc/mounts ] || /sbin/mount_root
+	[ -f /proc/jffs2_bbc ] && echo "S" > /proc/jffs2_bbc
+	[ -f /proc/net/vlan/config ] && vconfig set_name_type DEV_PLUS_VID_NO_PAD
+
+	mkdir -p /var/run
+	mkdir -p /var/log
+	mkdir -p /var/lock
+	mkdir -p /var/state
+	mkdir -p /tmp/.uci
+	chmod 0700 /tmp/.uci
+	touch /var/log/wtmp
+	touch /var/log/lastlog
+	touch /tmp/resolv.conf.auto
+	ln -sf /tmp/resolv.conf.auto /tmp/resolv.conf
+	grep -q debugfs /proc/filesystems && /bin/mount -o noatime -t debugfs debugfs /sys/kernel/debug
+	[ "$FAILSAFE" = "true" ] && touch /tmp/.failsafe
+
+	/sbin/kmodloader
+
+	# allow wifi modules time to settle
+	sleep 1
+
+	/sbin/wifi detect > /tmp/wireless.tmp
+	[ -s /tmp/wireless.tmp ] && {
+		cat /tmp/wireless.tmp >> /etc/config/wireless
+	}
+	rm -f /tmp/wireless.tmp
+
+	uci_apply_defaults
+	
+	# temporary hack until configd exists
+	/sbin/reload_config
+
+	#zhouke add for version differentiation
+	echo thin-ac > /tmp/sysinfo/osinfo
+	
+	# create /dev/root if it doesn't exist
+	[ -e /dev/root -o -h /dev/root ] || {
+		rootdev=$(awk 'BEGIN { RS=" "; FS="="; } $1 == "root" { print $2 }' < /proc/cmdline)
+		[ -n "$rootdev" ] && ln -s "$rootdev" /dev/root
+	}
+
+	#add by liwei to count restart number                                                       
+        local count="`/sbin/uci get system.record.boot_count`" > /dev/null 2>&1                     
+        if [ x"$count" == x ]; then                                                                 
+                /sbin/uci set system.record=extend                                                  
+                /sbin/uci set system.record.boot_count=1                                            
+        else
+        /sbin/uci set system.record.boot_count=$((count+1))
+        fi
+	
+    #add by wangjianru for hostname
+        local hostname="$(/usr/sbin/showsysinfo|/bin/grep 'Company Name:'|/usr/bin/cut -d: -f2)"
+        #echo "$hostname" > /proc/sys/kernel/hostname
+        uci set system.@system[0].hostname="$hostname"
+        uci commit system
+
+    #add by wangjianru for update eth macaddr
+        local mac="$(/usr/sbin/showsysinfo|/bin/grep 'MAC:'|/usr/bin/cut -d: -f2-7)"
+        ifconfig eth1 down
+        ifconfig eth1 hw ether "${mac}"
+        ifconfig eth1 up
+    
+    #add by chenxf mount mtdblock7 to jffs
+        mount -rw -t jffs2 /dev/mtdblock7 /jffs
+    
+    #add by chenxf check if we need to recover configuration from oldos
+	/etc/wlan/config_recover
+
+    #add by chenxf for start kes service
+	/etc/wlan/config_kes
+
+    #added by duanmingzhe disable or enable uplink-interface
+        #AP_MODE="$(/sbin/uci get system.runmode.ap_mode)" > /dev/null 2>&1
+        AP_MODE=$(cat /tmp/sysinfo/osinfo)
+        if [ "thin-ac" != "$AP_MODE" ] && [ "fat-ac" != "$AP_MODE" ]; then
+                /sbin/uci set wireless.@wifi-iface[0].disabled=0
+        else  #else mode is "fat-afc" and "cloud-afc"
+                /sbin/uci set wireless.@wifi-iface[0].disabled=1
+        fi
+        /sbin/uci commit wireless
+	
+    #add by dugang to support default led state
+	led_control.sh red_green blink
+}

@@ -1,0 +1,15 @@
+diff -ruN a/arch/mips/ath79/setup.c b/arch/mips/ath79/setup.c
+--- a/arch/mips/ath79/setup.c	2015-06-04 16:57:34.030005451 +0800
++++ b/arch/mips/ath79/setup.c	2015-06-04 17:37:22.537947389 +0800
+@@ -36,6 +36,11 @@
+ #define AR724X_BASE_FREQ	5000000
+ #define AR913X_BASE_FREQ	5000000
+ 
++/*AUTELAN-Begin:Added by duanmindzhe for art*/
++u8 art_for_qca98xx[16 * 1024] = {0 };
++EXPORT_SYMBOL(art_for_qca98xx);
++/*AUTELAN-End:Added by duanmindzhe for art*/
++
+ static char ath79_sys_type[ATH79_SYS_TYPE_LEN];
+ 
+ static void ath79_restart(char *command)

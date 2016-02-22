@@ -1,0 +1,30 @@
+config wifi-device  wifi0
+        option type     qcawifi
+        option channel  auto
+	option bcnburst 1
+        option hwmode   11ng
+        # REMOVE THIS LINE TO ENABLE WIFI:
+        option disabled 0
+
+config wifi-device  wifi1
+        option type     qcawifi
+        option channel  auto
+	option bcnburst 1
+        option hwmode   11ac
+        # REMOVE THIS LINE TO ENABLE WIFI:
+        option disabled 0
+
+config wifi-iface
+        option device   wifi1
+        option network  wan
+        option mode     ap
+	option ifname	ath198
+	option ssid	AFI-LINK
+	option hidden	1
+	option wds	1
+	option wpa_group_rekey 0
+	option encryption psk2
+	option key	'!@#$%^&*'
+        option disabled 0
+
+

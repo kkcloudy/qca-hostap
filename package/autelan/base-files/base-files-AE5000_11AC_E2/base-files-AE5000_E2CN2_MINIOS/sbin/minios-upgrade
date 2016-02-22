@@ -1,0 +1,97 @@
+#!/bin/sh
+
+. /lib/ar71xx.sh
+
+#if [ $# -ne 1 ] ;then
+#	echo "Usage: sysupgrade version"
+#	exit 1
+#fi
+
+FIRMWARE_FILE=new_firmware.tar
+UCI="uci -c /tmp/"
+WGET="wget -c -T 20 -O"
+FLASH_READ=""
+SERVER_ADDR=""
+SERVER_PORT="80"
+PRODUCT_MODEL="`partool -part mtd8 -show product.model`" > /dev/null 2>&1
+PRODUCT_MAC="`partool -part mtd8 -show product.mac`" > /dev/null 2>&1
+PRODUCT_SN="`partool -part mtd8 -show product.sn`" > /dev/null 2>&1
+MYIP="`ifconfig br-wan | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`" > /dev/null 2>&1
+IMAGE_NAME="ae5000_e2cn2_minios.img"
+
+get_domain_from_ac()
+{
+	i=1
+	SERVER_ADDR=$(cut -d , -f $i $1)
+	while :
+	do
+		SERVER_ADDR=$(cut -d , -f $i $1)
+		if [ "$SERVER_ADDR" = "" ]; then
+			echo "cannot get domain from ac"
+			exit
+		fi
+		
+		#echo "SERVER_ADDR $SERVER_ADDR"
+		
+		cd /tmp
+		#$WGET addrinfo http://$SERVER_ADDR/md5sums
+		echo "$WGET http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=minios_sysupgrade"
+		if [ -f addrinfo ]; then
+			echo "rm -f addrinfo"
+			rm -f addrinfo
+		fi
+		$WGET addrinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=minios_sysupgrade"
+		
+		#if [ -z addrinfo ] || [ ! -f addrinfo ]; then
+		#	i=$(($i+1))
+		#else
+		#	echo "get domain from ac"
+		#	break
+		#fi
+		
+		if [ $? -ne 0 ]; then
+			i=$(($i+1))
+		else
+			echo "get domain from ac"
+			break
+		fi
+	done
+}
+
+get_image_from_domain()
+{
+	SERVER_ADDR_FROM_AC="$(partool -part mtd2 -show recovery.domain.ac)"
+	if [ "$SERVER_ADDR_FROM_AC" != "" ] && [ "$SERVER_ADDR_FROM_AC" != "recovery.domain.ac not exist" ]; then
+		cd /tmp
+		echo $SERVER_ADDR_FROM_AC > addr_from_ac
+		
+		get_domain_from_ac addr_from_ac
+		#SERVER_ADDR="$SERVER_ADDR_FROM_AC"
+	fi
+	echo $SERVER_ADDR > server_addr
+	cd /tmp
+	#SERVER_PATH="$(partool -part mtd2 -show recovery.path)"
+	SERVER_PATH="$(cat /tmp/addrinfo)"
+	if [ $? -ne 0 ] || [ "$SERVER_PATH" = "" ] || [ "$SERVER_PATH" = "recovery.path not exist" ]; then
+		echo "no path"
+	else
+		$WGET $IMAGE_NAME $SERVER_PATH
+		if [ $? -ne 0 ]; then
+			echo "cannot get image"
+			#$WGET imageinfo http://$SERVER_ADDR/md5sums
+			$WGET imageinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=cannot_get_image"
+			exit
+		else
+			echo "get the image"
+			#$WGET imageinfo http://$SERVER_ADDR/md5sums
+			$WGET imageinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=get_the_image"
+		fi
+	fi
+}
+
+
+	
+#get_image_from_domain
+mtd write  $IMAGE_NAME  minios
+echo "minios has been upgraded!"
+

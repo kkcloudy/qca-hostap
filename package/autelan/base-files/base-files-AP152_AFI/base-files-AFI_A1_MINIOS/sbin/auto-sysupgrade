@@ -1,0 +1,182 @@
+#!/bin/sh
+
+. /lib/ar71xx.sh
+
+#if [ $# -ne 1 ] ;then
+#	echo "Usage: sysupgrade version"
+#	exit 1
+#fi
+
+FIRMWARE_FILE=new_firmware.tar
+UCI="uci -c /tmp/"
+WGET="wget -c -T 20 -O"
+FLASH_READ=""
+SERVER_ADDR=""
+SERVER_PORT="80"
+PRODUCT_MODEL="`partool -part mtd8 -show product.model`" > /dev/null 2>&1
+PRODUCT_MAC="`partool -part mtd8 -show product.mac`" > /dev/null 2>&1
+PRODUCT_SN="`partool -part mtd8 -show product.sn`" > /dev/null 2>&1
+MYIP="`ifconfig eth0 | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`" > /dev/null 2>&1
+AUTELAN_SERVER_ADDR="`partool -part mtd2 -show recovery.domain`">/dev/null 2>&1
+
+MODEL="AFi-A1"
+MAC="00:00:00:00:00:00"
+SN="000000000000"
+
+check_product_message()
+{
+        if [ "$PRODUCT_MODEL" = "" ] || [ "$PRODUCT_MODEL" = "product.model not exist" ]; then
+                PRODUCT_MODEL=$MODEL
+                echo "There is no product.model in the product section of the system."
+                logger -s "There is no product.model in the product section of the system."
+        fi
+
+        if [ "$PRODUCT_MAC" = "" ] || [ "$PRODUCT_MAC" = "product.mac not exist" ]; then
+                PRODUCT_MAC=$MAC
+                echo "There is no product.mac in the product section of the system."
+                logger -s "There is no product.mac in the product section of the system."
+        fi
+
+        if [ "$PRODUCT_SN" = "" ] || [ "$PRODUCT_SN" = "product.sn not exist" ]; then
+                PRODUCT_SN=$SN
+                echo "There is no product.sn in the product section of the system."
+                logger -s "There is no product.sn in the product section of the system."
+        fi
+}
+
+get_domain_from_ac()
+{
+	i=1
+	SERVER_ADDR=$(cut -d , -f $i $1)
+	while :
+	do
+		SERVER_ADDR=$(cut -d , -f $i $1)
+		if [ "$SERVER_ADDR" = "" ]; then
+			echo "cannot get domain from ac" >> /tmp/upgrade_message.log
+			logger -s "cannot get domain from ac" -p 4
+			ping -w 3 $AUTELAN_SERVER_ADDR
+			if [ $? -ne 0 ];then
+				ifconfig eth0 192.168.1.254 netmask 255.255.255.0
+				telnetd
+				logger -s "modified ip 192.168.1.254" -p 4
+				exit 1
+			else
+			#	$WGET addrinfo "http://$AUTELAN_SERVER_ADDR/information.php?key=workos_sysupgrade"
+			        $WGET addrinfo "http://$AUTELAN_SERVER_ADDR/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=workos_sysupgrade"
+				SERVER_PATH="$(cat /tmp/addrinfo)"
+				$WGET  sysupgrade.image $SERVER_PATH
+				if [ $? -ne 0 ];then
+					ifconfig eth0 192.168.1.254 netmask 255.255.255.0
+					telnetd
+					logger -s "modified ip 192.168.1.254" -p 4
+					exit 1
+				fi
+			fi
+
+						
+			return 2
+		fi
+		
+		#echo "SERVER_ADDR $SERVER_ADDR"
+		
+		cd /tmp
+		ping -w 5 $SERVER_ADDR
+		
+		if [ $? -ne 0 ]; then
+			i=$(($i+1))
+		else
+			$WGET addrinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=workos_sysupgrade"
+			if [ $? -ne 0 ]; then
+				i=$(($i+1))
+			else
+				echo "get domain from ac" >> /tmp/upgrade_message.log
+				logger "get domain from ac" -p 6
+				/usr/bin/partool -part mtd2 -new system.minioslog get_domain_addr
+				break
+			fi
+		fi
+	done
+}
+
+get_image_from_domain()
+{
+	SERVER_ADDR_FROM_AC="$(partool -part mtd2 -show recovery.domain.ac)"
+	
+	if [ "$SERVER_ADDR_FROM_AC" != "" ] && [ "$SERVER_ADDR_FROM_AC" != "recovery.domain.ac not exist" ]; then
+		cd /tmp
+		echo $SERVER_ADDR_FROM_AC > addr_from_ac
+		
+		get_domain_from_ac addr_from_ac
+		if [ $? -eq 2 ];then
+			echo "get image from autelan.com" >> /tmp/upgrade_message.log
+			logger "get image from autelan.com" -p 6	
+			/sbin/autelan-sysupgrade sysupgrade.image
+		fi
+		echo "get image from ac." >> /tmp/upgrade_message.log
+		logger "get image from ac" -p 6
+	fi
+	echo $SERVER_ADDR > server_addr
+	cd /tmp
+	#SERVER_PATH="$(partool -part mtd2 -show recovery.path)"
+	SERVER_PATH="$(cat /tmp/addrinfo)"
+	if [ $? -ne 0 ] || [ "$SERVER_PATH" = "" ] || [ "$SERVER_PATH" = "recovery.path not exist" ]; then
+		echo "get image from autelan.com without SERVERPATH!"  >> /tmp/upgrade_message.log
+		logger -s "get image from autelan.com without SERVERPATH!" -p 6	
+
+		ping -w 3 $AUTELAN_SERVER_ADDR
+		if [ $? -ne 0 ];then
+			ifconfig eth0 192.168.1.254 netmask 255.255.255.0
+			telnetd
+			logger -s "modified ip 192.168.1.254" -p 4
+			exit 1
+		else
+				
+		#	$WGET  addrinfo "http://$AUTELAN_SERVER_ADDR/information.php?key=workos_sysupgrade"
+			$WGET addrinfo "http://$AUTELAN_SERVER_ADDR/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=workos_sysupgrade"
+			SERVER_PATH="$(cat /tmp/addrinfo)"
+			$WGET  sysupgrade.image $SERVER_PATH
+			if [ $? -ne 0 ];then
+				echo "no path" >> /tmp/upgrade_message.log
+				ifconfig eth0 192.168.1.254 netmask 255.255.255.0
+				telnetd
+				logger -s "modified ip 192.168.1.254" -p 4
+				exit 1
+			fi
+			/sbin/autelan-sysupgrade sysupgrade.image
+		fi
+	else
+		$WGET sysupgrade.image $SERVER_PATH
+		if [ $? -ne 0 ]; then
+			j="`/usr/bin/partool -part mtd2 -show minios_upgrade_fail_count`" > /dev/null 2>$1
+			j=$(($j+1))
+			partool -part mtd2 -new  minios_upgrade_fail_count  $j
+			echo "cannot get image"
+			logger -s "cannot get image" -p 4
+			$WGET imageinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=cannot_get_image"
+			reboot -f
+		else
+			echo "get the image"
+			logger -s "get the image" -p 4
+			$WGET imageinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=get_the_image"
+		fi
+	fi
+}
+
+n="`/usr/bin/partool -part mtd2 -show minios_upgrade_count`"
+if [ "$n" != "" ] && [ "$n" != "minios_upgrade_count not exist" ];then
+	n=$(($n+1))
+	/usr/bin/partool -part mtd2 -new minios_upgrade_count $n
+else
+	/usr/bin/partool -part mtd2 -new minios_upgrade_count 1
+fi
+
+/usr/bin/partool -part mtd2 -new system.minioslog no_domain_addr
+check_product_message
+get_image_from_domain
+
+
+/sbin/autelan-sysupgrade sysupgrade.image
+
+
+
+

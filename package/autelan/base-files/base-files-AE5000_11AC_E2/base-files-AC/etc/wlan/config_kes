@@ -1,0 +1,12 @@
+#!/bin/sh
+
+if [ -f /proc/kes_debug_switch ] && [ -f /proc/kes_dmsg_switch ];then	
+	cat /proc/kes_dmsg > /tmp/kes_dmsg.log	
+	cat /proc/kes_debug > /tmp/kes_debug.log	
+	cat /proc/kes_traps > /tmp/kes_traps.log	
+	echo 1 > /proc/kes_dmsg_switch	
+	echo 1 > /proc/kes_debug_switch
+else	
+	touch /tmp/kes_load_failed
+fi
+

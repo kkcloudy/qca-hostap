@@ -1,0 +1,331 @@
+diff -urN a/src/firewall.c b/src/firewall.c
+--- a/src/firewall.c	2015-02-10 18:34:26.000000000 +0800
++++ b/src/firewall.c	2015-02-11 01:47:46.000000000 +0800
+@@ -25,7 +25,7 @@
+   @file firewall.c
+   @brief Firewall update functions
+   @author Copyright (C) 2004 Philippe April <papril777@yahoo.com>
+-  2006 Benoit Gr茅goire, Technologies Coeus inc. <bock@step.polymtl.ca>
++  2006 Benoit Gr脙漏goire, Technologies Coeus inc. <bock@step.polymtl.ca>
+  */
+ 
+ #define _GNU_SOURCE
+@@ -198,7 +198,18 @@
+ fw_set_authservers(void)
+ {
+ 	debug(LOG_INFO, "Setting the authservers list");
++    //赂眉赂脛:脦脗莽氓
++    //脭枚录脫露脿赂枚wifidog陆酶鲁脤脥卢虏陆脣酶拢卢路脌脰鹿虏垄路垄路脙脦脢iptables卤铆脧卯
++    int fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        exit(1);
++    } 
++    iptables_process_lock(fd);
+ 	iptables_fw_set_authservers();
++    iptables_process_unlock(fd);
++    close (fd);	
+ }
+ 
+ /** Remove the firewall rules
+diff -urN a/src/fw_iptables.c b/src/fw_iptables.c
+--- a/src/fw_iptables.c	2015-02-10 18:34:26.000000000 +0800
++++ b/src/fw_iptables.c	2015-02-11 01:47:35.000000000 +0800
+@@ -38,7 +38,7 @@
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
+ #include <unistd.h>
+-
++#include <fcntl.h>
+ 
+ #include "common.h"
+ 
+@@ -64,6 +64,33 @@
+ /*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
+ #define ONLY_ONE_WIFIDOG 0 //????????
+ 
++int iptables_process_lock(int fd)
++{ 
++    struct flock s_flock; 
++    s_flock.l_type = F_WRLCK; 
++
++    s_flock.l_whence = SEEK_SET; 
++    s_flock.l_start = 0; 
++    s_flock.l_len = 0; 
++    s_flock.l_pid = getpid(); 
++  
++    return fcntl(fd, F_SETLKW, &s_flock); 
++} 
++
++int iptables_process_unlock(int fd)
++{ 
++    return fcntl(fd, F_SETLKW, F_UNLCK); 
++} 
++
++void iptables_lock_debug(void)
++{
++    openlog("wifidog", 0, LOG_DAEMON);
++    syslog(LOG_ERR, "[wifidog]: open wifidog_lock failed\r\n");
++    closelog(); 
++
++    return;
++}
++
+ static int
+ is_only_one_wifidog()
+ {
+@@ -236,8 +263,19 @@
+ 	void
+ iptables_fw_clear_authservers(void)
+ {
++    //更改:温珏
++    //增加多个wifidog进程同步锁，防止并发访问iptables表项
++    int fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        exit(1);
++    }   
++    iptables_process_lock(fd);
+ 	iptables_do_command("-t filter -F " TABLE_WIFIDOG_AUTHSERVERS);
+ 	iptables_do_command("-t nat -F " TABLE_WIFIDOG_AUTHSERVERS);
++    iptables_process_unlock(fd);
++    close (fd);	 
+ }
+ 
+ 	void
+@@ -247,14 +285,12 @@
+ 	t_auth_serv *auth_server;
+ 
+ 	config = config_get_config();
+-
+ 	for (auth_server = config->auth_servers; auth_server != NULL; auth_server = auth_server->next) {
+ 		if (auth_server->last_ip && strcmp(auth_server->last_ip, "0.0.0.0") != 0) {
+ 			iptables_do_command("-t filter -A " TABLE_WIFIDOG_AUTHSERVERS " -d %s -j ACCEPT", auth_server->last_ip);
+ 			iptables_do_command("-t nat -A " TABLE_WIFIDOG_AUTHSERVERS " -d %s -j ACCEPT", auth_server->last_ip);
+ 		}
+ 	}
+-
+ }
+ 
+ /** Initialize the firewall rules
+@@ -270,6 +306,16 @@
+ 	fw_quiet = 0;
+ 
+ 	LOCK_CONFIG();
++    //更改:温珏
++    //增加多个wifidog进程同步锁，防止并发访问iptables表项
++    int fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        UNLOCK_CONFIG();
++        exit(1);
++    }    
++    iptables_process_lock(fd);
+ 	config = config_get_config();
+ 	gw_port = config->gw_port;
+ 	if (config->external_interface) {
+@@ -279,6 +325,8 @@
+ 	}
+ 
+ 	if (ext_interface == NULL) {
++        iptables_process_unlock(fd);
++        close(fd);
+ 		UNLOCK_CONFIG();
+ 		debug(LOG_ERR, "FATAL: no external interface");
+ 		return 0;
+@@ -399,7 +447,9 @@
+ 	}	
+ 	iptables_do_command("-t filter -A " TABLE_WIFIDOG_UNKNOWN " -m physdev --physdev-in %s -j REJECT --reject-with icmp-port-unreachable", config->br_port);
+ 	/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+-	UNLOCK_CONFIG();
++    iptables_process_unlock(fd);
++    close(fd);
++    UNLOCK_CONFIG();
+ 	return 1;
+ }
+ 
+@@ -411,6 +461,17 @@
+ iptables_fw_destroy(void)
+ {
+ 	fw_quiet = 1;
++    
++   	/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
++    //更改:温珏
++    //增加多个wifidog进程同步锁，防止并发访问iptables表项
++    int fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        exit(1);
++    } 
++    iptables_process_lock(fd);
+ 	s_config *config = config_get_config();
+ 		
+ 	debug(LOG_DEBUG, "Destroying our iptables entries");
+@@ -421,7 +482,6 @@
+ 	 *
+ 	 */
+ 	debug(LOG_DEBUG, "Destroying chains in the MANGLE table");
+-	/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
+ 	iptables_fw_destroy_mention("mangle", "PREROUTING", TABLE_WIFIDOG_TRUSTED);
+ 	iptables_fw_destroy_mention("mangle", "PREROUTING", TABLE_WIFIDOG_OUTGOING);
+ 	iptables_fw_destroy_mention("mangle", "POSTROUTING", TABLE_WIFIDOG_INCOMING);
+@@ -480,6 +540,8 @@
+ 		iptables_do_command("-t filter -X " TABLE_WIFIDOG_KNOWN);
+ 		iptables_do_command("-t filter -X " TABLE_WIFIDOG_UNKNOWN);
+ 	}
++    iptables_process_unlock(fd);
++    close (fd);
+ 	/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ 	return 1;
+ }
+@@ -551,10 +613,21 @@
+ iptables_fw_access(fw_access_t type, const char *ip, const char *mac, int tag)
+ {
+ 	int rc;
++    
++    //更改:温珏
++    //增加多个wifidog进程同步锁，防止并发访问iptables表项
++    int fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        exit(1);
++    }
++    iptables_process_lock(fd);
+ 	s_config *config = config_get_config();
+ 	
+ 	fw_quiet = 0;
+ 	/*Autelan-add-Begin: zhaoyang1 add for supporting bridge mode*/
++
+ 	switch(type) {
+ 		case FW_ACCESS_ALLOW:
+ 			iptables_do_command("-t mangle -A " TABLE_WIFIDOG_OUTGOING " -s %s -m mac --mac-source %s -m physdev --physdev-in %s -j MARK --set-mark %d", ip, mac, config->br_port, tag);
+@@ -568,6 +641,8 @@
+ 			rc = -1;
+ 			break;
+ 	}
++    iptables_process_unlock(fd);
++    close (fd);
+ 	/*Autelan-add-End: zhaoyang1 add for supporting bridge mode*/
+ 	return rc;
+ }
+@@ -584,10 +659,21 @@
+ 	t_client *p1;
+ 	struct in_addr tempaddr;
+ 
++    //更改:温珏
++    //增加多个wifidog进程同步锁，防止并发访问iptables表项
++    int fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        exit(1);
++    } 
++    iptables_process_lock(fd);
+ 	/* Look for outgoing traffic */
+ 	safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " TABLE_WIFIDOG_OUTGOING);
+ 	iptables_insert_gateway_id(&script);
+ 	output = popen(script, "r");
++    iptables_process_unlock(fd);
++    close (fd);
+ 	free(script);
+ 	if (!output) {
+ 		debug(LOG_ERR, "popen(): %s", strerror(errno));
+@@ -610,6 +696,16 @@
+ 			}
+ 			debug(LOG_DEBUG, "Read outgoing traffic for %s: Bytes=%llu", ip, counter);
+ 			LOCK_CLIENT_LIST();
++            //更改:温珏
++            //增加多个wifidog进程同步锁，防止并发访问iptables表项
++            fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++            if (fd < 0)
++            {
++                UNLOCK_CLIENT_LIST();
++                iptables_lock_debug();
++                exit(1);
++            } 
++            iptables_process_lock(fd);
+ 			if ((p1 = client_list_find_by_ip(ip))) {
+ 				if ((p1->counters.outgoing - p1->counters.outgoing_history) < counter) {
+ 					p1->counters.outgoing = p1->counters.outgoing_history + counter;
+@@ -619,19 +715,32 @@
+ 			} else {
+ 				debug(LOG_ERR, "iptables_fw_counters_update(): Could not find %s in client list, this should not happen unless if the gateway crashed", ip);
+ 				debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, TABLE_WIFIDOG_OUTGOING);
+-				iptables_fw_destroy_mention("mangle", TABLE_WIFIDOG_OUTGOING, ip);
++                iptables_fw_destroy_mention("mangle", TABLE_WIFIDOG_OUTGOING, ip);
+ 				debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, TABLE_WIFIDOG_INCOMING);
+ 				iptables_fw_destroy_mention("mangle", TABLE_WIFIDOG_INCOMING, ip);
+-			}
++            }
++            iptables_process_unlock(fd);
++            close (fd);
+ 			UNLOCK_CLIENT_LIST();
+ 		}
+ 	}
+ 	pclose(output);
+ 
++    //更改:温珏
++    //增加多个wifidog进程同步锁，防止并发访问iptables表项
++    fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++    if (fd < 0)
++    {
++        iptables_lock_debug();
++        exit(1);
++    } 
++    iptables_process_lock(fd);
+ 	/* Look for incoming traffic */
+ 	safe_asprintf(&script, "%s %s", "iptables", "-v -n -x -t mangle -L " TABLE_WIFIDOG_INCOMING);
+ 	iptables_insert_gateway_id(&script);
+ 	output = popen(script, "r");
++    iptables_process_unlock(fd);
++    close (fd);
+ 	free(script);
+ 	if (!output) {
+ 		debug(LOG_ERR, "popen(): %s", strerror(errno));
+@@ -653,6 +762,16 @@
+ 			}
+ 			debug(LOG_DEBUG, "Read incoming traffic for %s: Bytes=%llu", ip, counter);
+ 			LOCK_CLIENT_LIST();
++            //更改:温珏
++            //增加多个wifidog进程同步锁，防止并发访问iptables表项
++            fd = open("/tmp/wifidog_lock", O_WRONLY|O_CREAT, 0777);
++            if (fd < 0)
++            {
++                iptables_lock_debug();
++                UNLOCK_CLIENT_LIST();
++                exit(1);
++            } 
++            iptables_process_lock(fd);
+ 			if ((p1 = client_list_find_by_ip(ip))) {
+ 				if ((p1->counters.incoming - p1->counters.incoming_history) < counter) {
+ 					p1->counters.incoming = p1->counters.incoming_history + counter;
+@@ -665,6 +784,8 @@
+ 				debug(LOG_ERR, "Preventively deleting firewall rules for %s in table %s", ip, TABLE_WIFIDOG_INCOMING);
+ 				iptables_fw_destroy_mention("mangle", TABLE_WIFIDOG_INCOMING, ip);
+ 			}
++            iptables_process_unlock(fd);
++            close (fd);
+ 			UNLOCK_CLIENT_LIST();
+ 		}
+ 	}
+diff -urN a/src/fw_iptables.h b/src/fw_iptables.h
+--- a/src/fw_iptables.h	2015-02-10 18:34:26.000000000 +0800
++++ b/src/fw_iptables.h	2015-02-11 01:47:52.000000000 +0800
+@@ -52,6 +52,12 @@
+     FW_ACCESS_DENY
+ } fw_access_t;
+ 
++int iptables_process_lock(int fd);
++
++int iptables_process_unlock(int fd);
++
++void iptables_lock_debug(void);
++
+ /** @brief Initialize the firewall */
+ int iptables_fw_init(void);
+ 

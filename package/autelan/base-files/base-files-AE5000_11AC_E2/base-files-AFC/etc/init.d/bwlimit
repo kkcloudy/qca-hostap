@@ -1,0 +1,46 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2008 OpenWrt.org
+
+START=96
+
+limit_rate() {                                                                                                                           
+	local cfg="$1"
+        config_get peruserrate "$cfg" peruserrate "0"                                                                                    
+        config_get vaprate "$cfg" vaprate  "0"                                                                                           
+        config_get upvaprate "$cfg" upvaprate    "0"                                                                                     
+        config_get downvaprate "$cfg" downvaprate "0"                                                                                    
+        config_get downperuserrate "$cfg" downperuserrate "0"                                                                            
+        config_get upperuserrate "$cfg" upperuserrate  "0"                                                                               
+	config_get ifname "$cfg" ifname
+                                                                                                                                         
+        autelan traffic_limit "$ifname" set_vap_flag $vaprate > /dev/null 2>&1                                                           
+        autelan traffic_limit "$ifname" set_every_node_flag $peruserrate > /dev/null 2>&1                                                
+                                                                                                                                         
+        [ "$vaprate" -gt 0 ] && {                                                                                                        
+                [ "$upvaprate" -gt 0 ] && autelan traffic_limit "$ifname" set_vap "$upvaprate" > /dev/null 2>&1                          
+                [ "$downvaprate" -gt 0 ] && autelan traffic_limit "$ifname" set_vap_send "$downvaprate" > /dev/null 2>&1                 
+        }                                                                                                                                
+        [ "$peruserrate" -gt 0 ] && {                                                                                                    
+                [ "$upperuserrate" -gt 0 ] && autelan traffic_limit "$ifname" set_every_node "$upperuserrate" > /dev/null 2>&1           
+                [ "$downperuserrate" -gt 0 ] && autelan traffic_limit "$ifname" set_every_node_send "$downperuserrate" > /dev/null 2>&1  
+        }                                                                                                                                
+} 
+
+setup_userrate(){
+        local cfg="$1"
+        config_get userrate "$cfg" userrate "0"
+        config_get ifname "$cfg" ifname 
+        config_get downuserrate "$cfg" downuserrate "0"
+        config_get upuserrate "$cfg" upuserrate "0"
+        config_get mac "$cfg" mac
+	
+        autelan traffic_limit "$ifname" set_specific_node_flag "$mac" "$userrate"
+        [ "$upuserrate" -gt 0 ] && autelan traffic_limit "$ifname" set_specific_node  "$mac" "$upuserrate" > /dev/null 2>&1
+        [ "$downuserrate" -gt 0 ] && autelan traffic_limit "$ifname" set_specific_node_send  "$mac" "$downuserrate" > /dev/null 2>&1
+}
+
+start() {
+        config_load wireless
+	config_foreach limit_rate wifi-iface
+        config_foreach setup_userrate ratemac
+}

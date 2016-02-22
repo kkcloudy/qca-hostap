@@ -1,0 +1,529 @@
+#! /bin/sh
+status=0
+debug_lvl=0
+Slvl=0
+Ulvl=0
+value=0
+ath=ath098
+param=""
+Stype=0
+Utype=0
+mac="00:00:00:00:00:00"
+xsleep()
+{
+ i=0
+ while [ $i -lt $1 ]
+  do
+  let i++
+  done
+ }
+ 
+sta_filter_mac()
+{
+	echo "-------------- sta_mac cfg --------------"
+	echo "1. set_filter_mac"
+	echo "0. get_filter_mac"
+
+	read -p "Please Select:" param
+	if [ $param -eq 1 ] ;then
+		read -p "Please Input sta_mac: " mac 
+		autelan packet_trace $ath set_filter_mac $mac
+		ret=$?
+		if [ $ret -ne 0 ];then
+			echo -e '\033[1;31;1m \n\tWarning:mac set error,Please Again!\n \033[0m'
+			return 1
+		fi
+	elif [ $param -eq 0 ] ;then
+		autelan packet_trace $ath get_filter_mac
+	fi
+}
+trace_switch_enbale()
+{
+	echo "-------------- switch cfg ---------------"
+	echo "Please Select switch [$status]"
+	echo "1. Switch on"
+	echo "0. Switch off"
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		echo 1 >/proc/sys/net/pkt_trace/g_trace_enable
+		status="on"
+	elif [ $param -eq 0 ] ; then
+		echo 0 >/proc/sys/net/pkt_trace/g_trace_enable
+		status="off"
+	else
+		return 1
+	fi
+		
+	return 0
+	
+}
+
+special_type_config()
+{
+	disable_switch
+	echo "------------ special_type cfg -------------"
+	echo "Please Select type [${Stype}]"
+	echo "1. dhcp_filter"
+	echo "2. pppoe_filter"
+	echo "3. eap_filter"
+	echo "4. icmp_filter"
+ 
+	read -p "Please Select: " param
+	case $param in
+		
+		"1") dhcp_pkt_level
+			ret=$?
+			if [ $ret -eq 0 ] ;then
+				Stype="dhcp"
+			else
+				echo -e '\033[0;31;1m Input Wrong! \033[0m'
+				return 1
+			fi
+			;;
+		"2") pppoe_pkt_level
+			ret=$?
+			if [ $ret -eq 0 ] ;then
+				Stype="pppoe"
+			else
+				echo -e '\033[0;31;1m Input Wrong! \033[0m'
+				return 1
+			fi
+			;;
+		"3")eap_pkt_level
+			ret=$?
+			if [ $ret -eq 0 ] ;then
+				Stype="eap"
+			else
+				echo -e '\033[0;31;1m Input Wrong! \033[0m'
+				return 1
+			fi
+			;;
+		"4")icmp_pkt_level
+			ret=$?
+			if [ $ret -eq 0 ] ;then
+				Stype="icmp"
+			else
+				echo -e '\033[0;31;1m Input Wrong! \033[0m'
+				return 1
+			fi
+			;;
+		*) 
+			return 1
+		esac
+			
+	return 0
+}
+
+udefine_type_config()
+{
+	disable_switch
+	echo "----------- udefine_type cfg -----------"
+	echo "Please Select type [${Utype}] [${value}]"
+	echo "1. ether_type"
+	echo "2. ip_type"
+	echo "3. port"
+ 
+	read -p "Please Select: " param
+	read -p "Input $Utype value :" val
+	case $param in
+		"1")Utype="ether_type"
+			echo $val >/proc/sys/net/pkt_trace/g_ether_type
+			value=$val
+			ether_pkt_level
+			ret=$?
+			if [ $ret -ne 0 ] ;then
+		        echo -e '\033[0;31;1m Input Wrong! \033[0m'
+		        return 1
+		    fi
+		   	
+			;;
+		"2")Utype="ip_type"
+			echo $val >/proc/sys/net/pkt_trace/g_ip_type
+			value=$val
+			ip_pkt_level
+			ret=$?
+			if [ $ret -ne 0 ] ;then
+                	echo -e '\033[0;31;1m Input Wrong! \033[0m'
+                	return 1
+			fi
+			;;
+		"3")Utype="port"
+			echo $val >/proc/sys/net/pkt_trace/g_port
+			value=$val
+			port_pkt_level
+			ret=$?
+			if [ $ret -ne 0 ] ;then
+				echo -e '\033[0;31;1m Input Wrong! \033[0m'
+				return 1
+			fi
+			;;
+		*) return 1
+		esac
+			
+	return 0
+}
+
+debug_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select switch [${debug_lvl}]"
+	echo "1. Print message flow in detail."
+	echo "0. Print message flow brief."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		debug_lvl=1
+		echo 1 >/proc/sys/net/pkt_trace/debug_level
+	elif [ $param -eq 0 ] ; then
+		echo 0 >/proc/sys/net/pkt_trace/debug_level
+		debug_lvl=0
+	else
+		return 1
+	fi
+	return 0
+	
+}
+
+dhcp_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [$Slvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		d_lvl=1
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_dhcp
+	elif [ $param -eq 2 ] ; then
+		d_lvl=2
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_dhcp
+	elif [ $param -eq 3 ] ; then
+		d_lvl=3
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_dhcp 
+	else
+		return 1
+	fi
+	Slvl=$d_lvl
+	return 0
+	
+}
+pppoe_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [${Slvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_pppoe
+		p_lvl=1
+	elif [ $param -eq 2 ] ; then
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_pppoe
+		p_lvl=2
+	elif [ $param -eq 3 ] ; then
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_pppoe
+		p_lvl=3
+	else
+		return 1
+	fi
+	Slvl=$p_lvl
+	return 0
+	
+}
+eap_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [${Slvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_eap
+		e_lvl=1
+	elif [ $param -eq 2 ] ; then
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_eap
+		e_lvl=2
+	elif [ $param -eq 3 ] ; then
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_eap
+		e_lvl=3 		
+	else
+		return 1
+	fi
+	Slvl=$e_lvl
+	return 0
+	
+}
+icmp_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [$Slvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		i_lvl=1
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_icmp
+	elif [ $param -eq 2 ] ; then
+		i_lvl=2
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_icmp
+	elif [ $param -eq 3 ] ; then
+		i_lvl=3
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_icmp
+	else
+		return 1
+	fi
+	Slvl=$i_lvl
+	return 0
+	
+}
+ether_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [${Ulvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_other
+		n_lvl=1
+	elif [ $param -eq 2 ] ; then
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_other
+		n_lvl=2
+	elif [ $param -eq 3 ] ; then
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_other
+		n_lvl=3
+	else
+		return 1
+	fi
+	Ulvl=$n_lvl
+	return 0
+	
+}
+
+ip_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [${Ulvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_other
+		i_lvl=1
+	elif [ $param -eq 2 ] ; then
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_other
+		i_lvl=2
+	elif [ $param -eq 3 ] ; then
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_other
+		i_lvl=3
+	else
+		return 1
+
+	fi
+	Ulvl=$i_lvl
+	return 0
+	
+}
+
+port_pkt_level()
+{
+	echo "--------------pkt_lvl cfg--------------"
+	echo "Please Select Level [${Ulvl}]"
+	echo "1. Print pkt parsing only."
+	echo "2. Print pkt parsing and pkt header."
+	echo "3. Print pkt parsing and pkt fully."
+	
+	read  -p "Please Select:" param
+	
+	if [ $param -eq 1 ] ; then
+		echo 1 >/proc/sys/net/pkt_trace/g_filter_other
+		t_lvl=1
+	elif [ $param -eq 2 ] ; then
+		echo 3 >/proc/sys/net/pkt_trace/g_filter_other
+		t_lvl=2
+	elif [ $param -eq 3 ] ; then
+		echo 5 >/proc/sys/net/pkt_trace/g_filter_other
+		t_lvl=3 		
+	else
+		return 1
+	fi
+	Ulvl=$t_lvl
+	return 0
+	
+
+}
+
+proc_read_init()
+{
+	
+	has_ath=`cat /proc/net/dev|awk -F'[ :]+' '/ath/{print $1}'|wc -l`
+    	if [ $has_ath -eq 0 ] ; then
+        	echo -e '\033[0;31;1m  Error, ${ath} does not exist! \033[0m'
+       	 	return 1
+    	fi
+	eval $(cat /proc/net/dev|awk -F'[ :]+' '/ath/{printf("ath=%s\n",$1)}')
+	switch=`cat /proc/sys/net/pkt_trace/g_trace_enable`
+	if [ $switch != 0 ] ; then
+		status="on"
+	else
+		status="off"
+	fi
+	level=`cat /proc/sys/net/pkt_trace/debug_level`
+	if [ $level != 0 ] ; then
+		debug_lvl=1
+	else
+		debug_lvl=0
+	fi
+	
+	dtype=`cat /proc/sys/net/pkt_trace/g_filter_dhcp`
+	ptype=`cat /proc/sys/net/pkt_trace/g_filter_pppoe`
+	etype=`cat /proc/sys/net/pkt_trace/g_filter_eap`
+	icmp_type=`cat /proc/sys/net/pkt_trace/g_filter_icmp`
+	if [ $dtype != 0 ] ;then
+  		Stype=dhcp
+  		Slvl=$dtype 
+  	elif [ $ptype != 0 ] ;then
+  	        Stype=pppoe
+  	        Slvl=$ptype
+  	elif [ $etype != 0 ] ;then
+                Stype=eap
+                Slvl=$etype
+  	elif [ $icmp_type != 0 ] ;then
+                Stype=icmp
+                Slvl=$icmp_type				
+	fi
+        
+	ntype=`cat /proc/sys/net/pkt_trace/g_ether_type`
+	itype=`cat /proc/sys/net/pkt_trace/g_ip_type`
+	port=`cat /proc/sys/net/pkt_trace/g_port`
+	otype=`cat /proc/sys/net/pkt_trace/g_filter_other`
+	if [ $ntype != 0 ] ;then
+			Utype="ether_type"
+			value=$ntype
+			Ulvl=$otype
+	elif [ $itype != 0 ] ;then
+			Utype=ip_type
+			Ulvl=$otype
+			value=$itype
+	elif [ $port != 0 ] ;then
+			Utype=port
+			value=$port
+			Ulvl=$otype
+	fi
+	return 0
+}
+disable_switch()
+{
+	dtype=`echo 0 >/proc/sys/net/pkt_trace/g_filter_dhcp`
+	ptype=`echo 0 >/proc/sys/net/pkt_trace/g_filter_pppoe`
+	etype=`echo 0 >/proc/sys/net/pkt_trace/g_filter_eap`
+	icmp_type=`echo 0 >/proc/sys/net/pkt_trace/g_filter_icmp`
+	otype=`echo 0 >/proc/sys/net/pkt_trace/g_filter_other`
+	ntype=`echo 0 >/proc/sys/net/pkt_trace/g_ether_type`
+	itype=`echo 0 >/proc/sys/net/pkt_trace/g_ip_type`
+	port=`echo 0 >/proc/sys/net/pkt_trace/g_port`
+	Utype=undef
+	Stype=undef
+	value=0
+	Ulvl=0
+	Slvl=0
+	
+	
+}
+
+main()
+{
+	    
+	clear
+	echo -n "Reading current configuration... "
+	 has_trace=`lsmod |awk -F " " '/packet_trace/ {print $1}' |wc -l`
+	if [ $has_trace -eq 0 ];then
+		insmod /lib/modules/3.10.49/packet_trace.ko
+	
+	fi
+	     proc_read_init
+		 ret=$?
+		 if [ $ret -ne 0 ] ;then
+			exit 0
+		 else
+			echo "OK."
+		fi
+	while [ 1 ] 
+    do
+		echo "==========packet_trace config =============="
+		echo -n "1. packet_trace sta mac,cur mac: "
+		xsleep 500
+		autelan packet_trace $ath get_filter_mac
+		echo "2. Packet_trace switch [cur switch:${status}]"
+		echo "3. Select special type [cur type:${Stype}] [cur level:${Slvl}]"
+		echo "4. Select user-define type [cur type:${Utype}] [type val:${value}] [cur level:${Ulvl}]"
+		echo "5. Debug level [debug level:${debug_lvl}]"
+       	echo "0. Quit"
+		
+		read -p "Please Select: " param
+		
+		case $param  in
+			"1") sta_filter_mac
+				;;
+			"2") trace_switch_enbale
+				ret=$?
+				if [ $ret -eq 0 ] ; then 
+					read -p "switch config successfully!" nouse
+				else
+					echo -e '\033[0;31;1m Warning,no this choice. return to memu! \033[0m'
+				fi
+				;;
+			"3") special_type_config
+				ret=$?
+				if [ $ret -eq 0 ] ;then 
+					read -p "[${Stype}] config successfully!" nouse
+			        else
+					echo -e '\033[0;31;1m Warning,no this choice. return to memu! \033[0m'
+				fi
+				;;
+			"4")udefine_type_config
+				ret=$?
+				if [ $ret -eq 0 ] ;then
+					read -p "[${Utype}] config successfully!" nouse
+				else
+					echo -e '\033[0;31;1m Warning,no this choice. return to memu! \033[0m'
+				fi
+				;;
+			"5")debug_level
+				ret=$?
+				if [ $ret -eq 0 ] ;then
+					read -p "[debug_lvl=${debug_lvl}] config successfully!" nouse
+				else
+					echo -e '\033[0;31;1m Warning,no this choice. return to memu! \033[0m'
+				fi
+				;;
+			"0")
+				echo "=========== packet_trace cfg exit ============"
+				exit 0
+				;;
+			*)echo -e '\033[0;31;1m Warning,no this choice. return to memu! \033[0m'
+			esac			
+	done	
+}
+main 

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+
+echo -e wireless_interface "\t"mac"\t\t\t\t"ip"\t\t"pkts"\t\t"bytes
+CHAIN_LIST=`iptables -t mangle -L PREROUTING | grep Outgoing | awk '{print$1}'`
+
+for chain in $CHAIN_LIST
+do
+        iptables  -t mangle -L $chain -vnx | awk -F' ' '{if (NR>2) print $15"\t\t"$11"\t\t"$8"\t\t"$1"\t\t"$2}'
+done

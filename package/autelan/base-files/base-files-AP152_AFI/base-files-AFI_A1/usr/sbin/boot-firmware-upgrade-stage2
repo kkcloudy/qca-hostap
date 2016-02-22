@@ -1,0 +1,21 @@
+#!/bin/sh
+
+echo "*** Unmounting existing file systems"
+/bin/umount /oldroot/dev/pts
+/bin/umount /oldroot/proc
+/bin/umount -l /oldroot/
+
+#flashcp u-boot.bin /dev/mtd0
+echo "*** Start to upgrade bootloader"
+/bin/dd if=u-boot.bin of=/dev/mtdblock0
+if [ $? -ne 0 ];
+then
+	logger -s "ERROR: failed to copy u-boot image"
+	echo "ERROR: failed to copy u-boot image" > /jffs/boot_upgrade_log
+        /sbin/reboot
+	exit 3
+fi
+
+/bin/sleep 1
+echo D > /proc/kes_debug_flag
+/sbin/reboot

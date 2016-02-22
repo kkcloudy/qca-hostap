@@ -1,0 +1,44 @@
+#!/bin/ash
+
+TRIGGER_FILE=/tmp/y-robot-flg
+TRIGGER_LOG=/tmp/y-robot.log
+
+v()
+{
+	MSG=$1
+	DATE=$(date "+%Y-%m-%d %H:%M:%S")
+	
+	if [ x"$MSG" != x ] ;
+	then
+		echo -e "$DATE $MSG\n"
+		echo -e "$DATE $MSG\n" > $TRIGGER_LOG
+	fi
+}
+
+if [ ! -e $TRIGGER_FILE ] ;
+then
+	v "upgrade trigger file not exists!"
+	exit 1;
+fi
+
+TRIGGER=`cat $TRIGGER_FILE`
+
+if [ x"$TRIGGER" = x ] ;
+then
+	v "upgrade trigger null so we abort!"	
+	exit 2;
+fi
+
+if [  "$TRIGGER" = "1" ] ;
+then
+	v "upgrade trigger take effect so we auto-upgrade!"
+	/sbin/auto-sysupgrade
+fi
+
+if [ "$TRIGGER" = "2" ] ;
+then
+	v "the system is upgrading!"
+fi
+
+
+

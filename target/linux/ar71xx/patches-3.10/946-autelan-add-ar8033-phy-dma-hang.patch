@@ -1,0 +1,48 @@
+diff -urN a/drivers/net/ethernet/atheros/ag71xx/ag71xx.h b/drivers/net/ethernet/atheros/ag71xx/ag71xx.h
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx.h	2016-01-04 19:15:54.000000000 +0800
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx.h	2016-01-04 19:21:59.000000000 +0800
+@@ -246,6 +246,11 @@
+ #define AG71XX_REG_RX_SM	0x01b0
+ #define AG71XX_REG_TX_SM	0x01b4
+ 
++/* Begin: Added by zhouke,disable checksum for init ar8033 phy. 2015-12-31. */
++#define AG71XX_REG_DEBUG	0x01bc
++#define CFG_CHECKSUM        BIT(27)
++/* End:   Added by zhouke,disable checksum for init ar8033 phy. 2015-12-31. */
++
+ #define MAC_CFG1_TXE		BIT(0)	/* Tx Enable */
+ #define MAC_CFG1_STX		BIT(1)	/* Synchronize Tx Enable */
+ #define MAC_CFG1_RXE		BIT(2)	/* Rx Enable */
+@@ -363,6 +368,9 @@
+ 	case AG71XX_REG_MAC_CFG1 ... AG71XX_REG_MAC_MFL:
+ 	case AG71XX_REG_MAC_IFCTL ... AG71XX_REG_TX_SM:
+ 	case AG71XX_REG_MII_CFG:
++/* Begin: Added by zhouke,disable checksum for init ar8033 phy. 2015-12-31. */
++    case AG71XX_REG_DEBUG:
++/* End:   Added by zhouke,disable checksum for init ar8033 phy. 2015-12-31. */
+ 		break;
+ 
+ 	default:
+diff -urN a/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c b/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c
+--- a/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c	2016-01-04 19:15:54.000000000 +0800
++++ b/drivers/net/ethernet/atheros/ag71xx/ag71xx_main.c	2016-01-04 19:22:17.000000000 +0800
+@@ -672,6 +672,19 @@
+     if((ag->phy_dev) && (ag->phy_dev->phy_id == 0x004dd072))
+     	ag71xx_mdio_write_phy(ag->mii_bus, 0, 0x0004, 0x0de1);
+ 	/* end: set Link Partner Ability Register for init ar8035 phy */
++
++
++/* Begin: Added by zhouke,disable checksum for init ar8033 phy. 2015-12-31. */
++    /* Prevent DMA Hanging  */
++    if((ag->phy_dev) && (ag->phy_dev->phy_id == 0x004dd074))
++    {
++        u32 debug_reg;
++        debug_reg = ag71xx_rr(ag, AG71XX_REG_DEBUG);
++        debug_reg &= ~(CFG_CHECKSUM);
++        ag71xx_wr(ag, AG71XX_REG_DEBUG, debug_reg);
++    }
++/* End:   Added by zhouke,disable checksum for init ar8033 phy. 2015-12-31. */
++    
+ }
+ 
+ static int ag71xx_open(struct net_device *dev)

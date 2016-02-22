@@ -1,0 +1,784 @@
+diff -urN a//channel.c b//channel.c
+--- a//channel.c	2015-04-23 19:45:19.000000000 +0800
++++ b//channel.c	2015-04-23 21:49:57.000000000 +0800
+@@ -56,7 +56,8 @@
+ 
+ static struct timeval last_channelchange;
+ extern int mon; /* monitoring socket */
+-static struct chan_freq channels[MAX_CHANNELS];
++//static struct chan_freq channels[MAX_CHANNELS];
++struct chan_freq channels[MAX_CHANNELS];
+ 
+ 
+ int
+@@ -128,10 +129,42 @@
+ 
+ int
+ channel_get_chan_from_idx(int i) {
++#if 1 
+ 	if (i >= 0 && i < conf.num_channels && i < MAX_CHANNELS)
+ 		return channels[i].chan;
++#endif
++#if 0 
++	{
++
++		FILE *fp;
++		char buf[16] = {0};
++		char cmd[128];
++		int result = 0;
++		int j;
++
++		sprintf(cmd, "iwinfo %s info|grep Channel|awk '{print $4}'",conf.scanname);
++
++		fp = popen(cmd,	"r");
++		if(fp != NULL)
++			fgets(buf, sizeof(buf), fp);
++		pclose(fp);
++
++		for(j = 0; j < 3 ;j++){
++			if((buf[j] <= '9') && (buf[j] >= '0'))
++				result =(result * 10 + buf[j] - '0'); 
++		}
++
++		//return buf[0] - '0';
++		if(result == 0)
++			return 1;
++
++		return result;
++	}
++#endif
++#if 1 
+ 	else
+ 		return -1;
++#endif
+ }
+ 
+ 
+@@ -151,6 +184,8 @@
+ 	if (freq == 0)
+ 		return -1;
+ 
++	freq = freq / 100000;
++
+ 	ch = channel_find_index_from_freq(freq);
+ 
+ 	DEBUG("***%d\n", ch);
+diff -urN a//essid.c b//essid.c
+--- a//essid.c	2015-04-23 19:45:19.000000000 +0800
++++ b//essid.c	2015-04-23 21:49:50.000000000 +0800
+@@ -128,8 +128,10 @@
+ 	}
+ 
+ 	/* if node had another essid before, remove it there */
++#if 0 
+ 	if (n->essid != NULL && n->essid != e)
+ 		remove_node_from_essid(n);
++#endif
+ 
+ 	/* new node */
+ 	if (n->essid == NULL) {
+diff -urN a//ieee80211_util.c b//ieee80211_util.c
+--- a//ieee80211_util.c	2015-04-23 19:45:19.000000000 +0800
++++ b//ieee80211_util.c	2015-04-23 21:49:42.000000000 +0800
+@@ -108,8 +108,8 @@
+ 		slottime = 9;
+ 		dur = 16; /* 17.3.2.3: T_PREAMBLE = 16 usec */
+ 		dur += 4; /* 17.3.2.3: T_SIGNAL = 4 usec */
+-		dur += 4 * DIV_ROUND_UP((16 + 8 * (len + 4) + 6) * 10,
+-					4 * rate); /* T_SYM x N_SYM */
++		//dur += 4 * DIV_ROUND_UP((16 + 8 * (len + 4) + 6) * 10,
++		//			4 * rate); /* T_SYM x N_SYM */
+ 	} else {
+ 		DEBUG("CCK\n");
+ 		/*
+@@ -125,7 +125,7 @@
+ 		sifs = 10; /* aSIFSTime = 10 usec */
+ 		slottime = shortslot ? 9 : 20;
+ 		dur = short_preamble ? (72 + 24) : (144 + 48);
+-		dur += DIV_ROUND_UP(8 * (len + 4) * 10, rate);
++		//dur += DIV_ROUND_UP(8 * (len + 4) * 10, rate);
+ 	}
+ 
+ 	if (type == WLAN_FRAME_CTS ||
+diff -urN a//main.c b//main.c
+--- a//main.c	2015-04-23 19:45:19.000000000 +0800
++++ b//main.c	2015-04-23 21:49:36.000000000 +0800
+@@ -42,6 +42,8 @@
+ #include "essid.h"
+ 
+ 
++#define   DEFAULT_INTERVAL     30    // JORNEY
++
+ struct list_head nodes;
+ struct essid_meta_info essids;
+ struct history hist;
+@@ -58,11 +60,14 @@
+ 	.control_pipe		= DEFAULT_CONTROL_PIPE,
+ 	.filter_pkt		= PKT_TYPE_ALL,
+ 	.filter_mode		= WLAN_MODE_ALL,
++	.interval           = DEFAULT_INTERVAL,  // JORNEY
++	.upload_interval    = 0,
+ };
+ 
+ struct timeval the_time;
+ 
+ int mon; /* monitoring socket */
++int server_fd; /* server socket */
+ 
+ static FILE* DF = NULL;
+ 
+@@ -301,8 +306,11 @@
+ 		return;
+ 	}
+ 
++    //net_send_packet(p);
++#if 0 
+ 	if (cli_fd != -1)
+ 		net_send_packet(p);
++#endif
+ 
+ 	if (conf.dumpfile != NULL && !conf.paused && DF != NULL)
+ 		write_to_file(p);
+@@ -368,7 +376,6 @@
+ 	DEBUG("\n===============================================================================\n");
+ 
+ 	len = recv_packet(fd, buffer, bufsize);
+-
+ #if DO_DEBUG
+ 	if (conf.debug) {
+ 		dump_packet(buffer, len);
+@@ -397,6 +404,8 @@
+ 	if (!conf.quiet && !conf.debug)
+ 		FD_SET(0, &read_fds);
+ 	FD_SET(mon, &read_fds);
++	FD_SET(server_fd, &read_fds);  // add
++
+ 	if (srv_fd != -1)
+ 		FD_SET(srv_fd, &read_fds);
+ 	if (cli_fd != -1)
+@@ -427,19 +436,27 @@
+ 
+ 	/* local packet or client */
+ 	if (FD_ISSET(mon, &read_fds)) {
++#if 0 
+ 		if (conf.serveraddr)
+ 			net_receive(mon, buffer, &buflen, sizeof(buffer));
+ 		else
++#endif
+ 			local_receive_packet(mon, buffer, sizeof(buffer));
+ 	}
+ 
++#if 0 
+ 	/* server */
+ 	if (srv_fd > -1 && FD_ISSET(srv_fd, &read_fds))
+ 		net_handle_server_conn();
++#endif
+ 
+ 	/* from client to server */
++#if 0 
+ 	if (cli_fd > -1 && FD_ISSET(cli_fd, &read_fds))
+ 		net_receive(cli_fd, cli_buffer, &cli_buflen, sizeof(cli_buffer));
++#endif
++	if (server_fd > -1 && FD_ISSET(server_fd, &read_fds))
++		net_receive(server_fd, cli_buffer, &cli_buflen, sizeof(cli_buffer));
+ 
+ 	/* named pipe */
+ 	if (ctlpipe > -1 && FD_ISSET(ctlpipe, &read_fds))
+@@ -530,10 +547,27 @@
+ get_options(int argc, char** argv)
+ {
+ 	int c;
++	int tmp;
+ 	static int n;
+ 
+-	while((c = getopt(argc, argv, "hqDsCi:t:c:p:e:f:d:o:b:X::x:m:u:a:")) > 0) {
++	//while((c = getopt(argc, argv, "hqDsCi:t:c:p:e:f:d:o:b:X::x:m:u:a:")) > 0) {
++	while((c = getopt(argc, argv, "hqDsCi:t:c:p:e:f:d:o:b:X::x:m:u:a:I:T:G:")) > 1) {      // JORNEY
+ 		switch (c) {
++			/* AUTELAN-Added-Begin : &tuqiang horst */
++		case 'I':
++			//conf.scanname = optarg;
++			break;
++		case 'T':
++			conf.interval = atoi(optarg);
++			break;
++		case 'G':
++			tmp = atoi(optarg);
++			if(tmp == 0)
++				conf.phy_mode = PHY_2G;
++			else if (tmp == 1)
++				conf.phy_mode = PHY_5G;
++			break;
++			/* AUTELAN-Added-End : tuqiang@autelan.com */
+ 		case 'p':
+ 			conf.port = optarg;
+ 			break;
+@@ -551,6 +585,7 @@
+ 
+ 		case 'i':
+ 			conf.ifname = optarg;
++			conf.scanname = optarg;
+ 			break;
+ 		case 'o':
+ 			conf.dumpfile = optarg;
+@@ -661,7 +696,7 @@
+ 			break;
+ 		case 'h':
+ 		default:
+-			printf("\nUsage: %s [-h] [-q] [-D ] [-i interface] [-t sec] [-d ms] [-b bytes]\n"
++			printf("\nUsage: %s [-h] [-q] [-D ] [-i interface] [-I scan] [-t sec] [-d ms] [-b bytes]\n"
+ 				"\t\t[-s] [-u] [-C] [-c IP] [-p port] [-o file] [-X[name]] [-x command]\n"
+ 				"\t\t[-e MAC] [-f PKT_NAME] [-m MODE]\n\n"
+ 
+@@ -718,6 +753,75 @@
+ 	}
+ }
+ 
++void do_upload(void)
++{
++    int i = 300;
++	while(i > 0)
++	{
++		if(conf.upload_interval <= 0){
++			sleep(10);
++			continue;
++		}
++
++		gettimeofday(&the_time, NULL);
++		timeout_upload();
++		sleep(1);
++        printf("i = %d\r\n", i);
++        i--;
++	}
++    system("uci set horst.5G.enable=0");
++    system("uci set horst.2G.enable=0");
++    system("uci commit horst");
++    system("/etc/init.d/horst stop");
++    exit(0);
++}
++
++extern struct chan_freq channels[MAX_CHANNELS];
++void do_scan(void)
++{
++	int i, j;
++	char cmd[64];
++	int xchannels[] = {2, 3, 4, 5, 7, 8 ,9 , 10};
++
++#if 1 
++	if(conf.scanname == NULL)
++		return;
++#endif
++
++
++	while(1){
++
++#if 1 
++		for(i = 0; i < conf.num_channels && i < MAX_CHANNELS; i++) {
++
++			for(j = 0; j < 8; j++){
++				if(xchannels[j] != channels[i].chan)
++					continue;
++				else
++					break;
++			}
++
++			if(j != 8)
++				continue;
++
++			printf("CHAN %d , %d MHZ\n" ,channels[i].chan ,channels[i].freq);
++
++			memset(cmd , 0, sizeof(cmd));
++
++			sprintf(cmd, "iwpriv %s ScanChannel %d > /dev/null",conf.scanname, channels[i].chan);
++
++			system(cmd);
++
++			sprintf(cmd , "iwlist %s scanning > /dev/null", conf.scanname);
++
++			system(cmd);
++
++			sleep(conf.interval);
++		}
++#endif
++	}
++}
++
+ 
+ int
+ main(int argc, char** argv)
+@@ -744,12 +848,21 @@
+ 	}
+ 
+ 	if (conf.serveraddr)
+-		mon = net_open_client_socket(conf.serveraddr, conf.port);
++	{
++		server_fd = net_open_client_socket(conf.serveraddr, conf.port);
++		if (server_fd <= 0){
++			err(1, "Couldn't open server socket");
++			exit(1);
++		}
++#if 0 
+ 	else {
++#endif
+ 		mon = open_packet_socket(conf.ifname, conf.recv_buffer_size);
+ 		if (mon <= 0)
+ 			err(1, "Couldn't open packet socket");
+ 
++		conf.arphrd = ARPHRD_IEEE80211_PRISM;
++#if 0 
+ 		conf.arphrd = device_get_hwinfo(mon, conf.ifname, conf.my_mac_addr);
+ 		if (conf.arphrd != ARPHRD_IEEE80211_PRISM &&
+ 		    conf.arphrd != ARPHRD_IEEE80211_RADIOTAP) {
+@@ -757,6 +870,7 @@
+ 			printf("(e.g. 'iw %s interface add mon0 type monitor' and 'horst -i mon0')\n", conf.ifname);
+ 			exit(1);
+ 		}
++#endif
+ 
+ 		channel_init();
+ 		init_spectrum();
+@@ -768,8 +882,17 @@
+ 	if (conf.dumpfile != NULL)
+ 		dumpfile_open(conf.dumpfile);
+ 
++#if 0 
+ 	if (!conf.serveraddr && conf.port && conf.allow_client)
+ 		net_init_server_socket(conf.port);
++#endif
++
++	{
++		pthread_t pid_scan;
++		pthread_t pid_upload;
++		pthread_create(&pid_scan, NULL, do_scan, NULL);
++		pthread_create(&pid_upload, NULL, do_upload, NULL);
++	}
+ 
+ 	for ( /* ever */ ;;)
+ 	{
+@@ -777,6 +900,7 @@
+ 		gettimeofday(&the_time, NULL);
+ 		timeout_nodes();
+ 
++#if 0 
+ 		if (!conf.serveraddr) { /* server */
+ 			if (channel_auto_change()) {
+ 				net_send_channel_config();
+@@ -785,6 +909,7 @@
+ 					update_display(NULL);
+ 			}
+ 		}
++#endif
+ 	}
+ 	/* will never */
+ 	return 0;
+diff -urN a//main.h b//main.h
+--- a//main.h	2015-04-23 19:45:19.000000000 +0800
++++ b//main.h	2015-04-23 21:49:28.000000000 +0800
+@@ -40,6 +40,11 @@
+ #define DEBUG(...)
+ #endif
+ 
++/* AUTELAN-Added-Begin : &tuqiang horst */
++#define PHY_2G          0x2a 
++#define PHY_5G          0x5a 
++/* AUTELAN-Added-End : tuqiang@autelan.com */
++
+ #define MAC_LEN			6
+ 
+ #define MAX_HISTORY		255
+@@ -96,7 +101,8 @@
+ 
+ /* default config values */
+ #define INTERFACE_NAME		"wlan0"
+-#define NODE_TIMEOUT		60	/* seconds */
++//#define NODE_TIMEOUT		60	/* seconds */
++#define NODE_TIMEOUT		1800	/* seconds */
+ #define CHANNEL_TIME		250000	/* 250 msec */
+ /* update display every 100ms - "10 frames per sec should be enough for everyone" ;) */
+ #define DISPLAY_UPDATE_INTERVAL 100000	/* usec */
+@@ -290,7 +296,12 @@
+ 
+ struct config {
+ 	char*			ifname;
++	char*           scanname;   // scan interface; JORNEY
++	unsigned char scanmac[MAC_LEN];
+ 	char*			port;
++	int 			interval;   // scan interval; JORNEY
++	int 			phy_mode;   // phy mode (2.4G or 5G); JORNEY
++	int 			upload_interval;   // upload_interval; JORNEY
+ 	int			quiet;
+ 	int			node_timeout;
+ 	int			channel_time;
+diff -urN a//Makefile b//Makefile
+--- a//Makefile	2015-04-23 19:45:19.000000000 +0800
++++ b//Makefile	2015-04-23 21:49:15.000000000 +0800
+@@ -19,6 +19,7 @@
+ # build options
+ DEBUG=0
+ PCAP=0
++#CC=mips-openwrt-linux-gcc
+ 
+ NAME=horst
+ OBJS=main.o capture$(if $(filter 1,$(PCAP)),-pcap).o protocol_parser.o \
+@@ -28,7 +29,8 @@
+ 	display-statistics.o display-essid.o display-history.o \
+ 	display-spectrum.o display-channel.o control.o \
+ 	radiotap/radiotap.o
+-LIBS=-lncurses -lm
++LIBS=-lncurses -lm -lpthread
++#LIBS+= -L/home/jorney/work/openwrt1407_1.0.0/staging_dir/target-mips_34kc_uClibc-0.9.33.2/usr/lib -L/home/jorney/work/openwrt1407_1.0.0/staging_dir/target-mips_34kc_uClibc-0.9.33.2/lib -L/home/wangjian/openwrt1407_1.0.0/staging_dir/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/usr/lib -L/home/wangjian/openwrt1407_1.0.0/staging_dir/toolchain-mips_34kc_gcc-4.8-linaro_uClibc-0.9.33.2/lib
+ CFLAGS+=-Wall -Wextra -g -I.
+ 
+ ifeq ($(DEBUG),1)
+diff -urN a//network.c b//network.c
+--- a//network.c	2015-04-23 19:45:19.000000000 +0800
++++ b//network.c	2015-04-23 21:49:01.000000000 +0800
+@@ -26,6 +26,8 @@
+ #include <netdb.h>
+ #include <errno.h>
+ #include <err.h>
++#include <sys/ioctl.h>
++#include <net/if.h>
+ 
+ #include "main.h"
+ #include "util.h"
+@@ -41,20 +43,57 @@
+ 
+ #define PROTO_VERSION	2
+ 
++#define AUTELAN_GET_RESULT  0x5a
++#define AUTELAN_SET_UPLOAD  0x5b
+ 
+ enum pkt_type {
+ 	PROTO_PKT_INFO		= 0,
+ 	PROTO_CHAN_LIST		= 1,
+ 	PROTO_CONF_CHAN		= 2,
+ 	PROTO_CONF_FILTER	= 3,
++	PROTO_CONF_CTRL	    = 4,    // JORNEY
++	PROTO_EXTRA_INFO	= 5,    // JORNEY
++	PROTO_ANALYSE_RESULT = 6,    // JORNEY
+ };
+ 
++#define BODY_LIMIT  50
+ 
+ struct net_header {
+ 	unsigned char version;
+ 	unsigned char type;
+ } __attribute__ ((packed));
+ 
++struct nice_body{
++	unsigned char mac[MAC_LEN];
++	char phy_signal;
++	unsigned char channel;
++} __attribute__ ((packed));
++
++// JORNEY
++struct net_analyse_result{
++	struct net_header	proto;
++	unsigned char tag;          // 本包有效邻居数目
++	struct nice_body body[BODY_LIMIT];  // BODY_LIMIT = 50
++
++}__attribute__ ((packed));
++
++struct net_extra_info {
++	struct net_header	proto;
++	unsigned char phymac[MAC_LEN];
++	unsigned char scanmac[MAC_LEN];
++	unsigned char phy_mode;    // 0x2a - wlan0(2.4G); 0x5a - wlan1(5G)
++	unsigned char channel;
++	unsigned char mem_cnt;
++} __attribute__ ((packed));
++
++
++
++struct net_conf_ctrl {
++	struct net_header	proto;
++	unsigned char cmd;    // GET_RESULT
++	unsigned int value;
++
++} __attribute__ ((packed));
+ 
+ struct net_conf_chan {
+ 	struct net_header	proto;
+@@ -91,6 +130,10 @@
+ 	struct net_chan_freq channel[1];
+ } __attribute__ ((packed));
+ 
++static unsigned char local_mac[6] = {0};
++static unsigned char local_scanmac[6] = {0};
++static struct timeval last_uploadtime;
++
+ 
+ #define PKT_INFO_VERSION	1
+ 
+@@ -223,7 +266,10 @@
+ 		np.bat_flags |= PKT_BAT_FLAG_GW;
+ 	np.bat_pkt_type = p->bat_packet_type;
+ 
++	net_write(netmon_fd, (unsigned char *)&np, sizeof(np));
++#if 0 
+ 	net_write(cli_fd, (unsigned char *)&np, sizeof(np));
++#endif
+ 	return 0;
+ }
+ 
+@@ -290,6 +336,110 @@
+ 	return sizeof(struct net_packet_info);
+ }
+ 
++void net_send_extra_info(void)
++{
++	struct net_extra_info info;
++	struct net_analyse_result analyse;
++	struct node_info* n;
++	int i;
++	int size;
++
++	info.proto.version = PROTO_VERSION;
++	info.proto.type	= PROTO_EXTRA_INFO;
++
++	memcpy(info.phymac, local_mac, MAC_LEN);
++	memcpy(info.scanmac, local_scanmac, MAC_LEN);
++	info.phy_mode = conf.phy_mode;
++	info.channel = channel_get_current_chan();
++	info.mem_cnt = 0;
++
++	list_for_each(&nodes, n, list) {
++		if(n != NULL && n->essid != NULL)
++		info.mem_cnt++;
++#if 0 
++		if(n != NULL && n->essid != NULL)
++		{
++			info.mem_cnt++;
++			printf("[%02x:%02x:%02x:%02x:%02x:%02x]\t %d\t %d\t %s\n",
++					n->wlan_bssid[0],
++					n->wlan_bssid[1],
++					n->wlan_bssid[2],
++					n->wlan_bssid[3],
++					n->wlan_bssid[4],
++					n->wlan_bssid[5],
++					n->wlan_channel,
++					n->last_pkt.phy_signal,
++					n->essid->essid);
++		}
++#endif
++	}
++
++	net_write(netmon_fd, (unsigned char *)&info, sizeof(info));
++	usleep(1000);
++
++	if(info.mem_cnt <= 0)
++		return;
++
++
++	analyse.proto.version = PROTO_VERSION;
++	analyse.proto.type = PROTO_ANALYSE_RESULT;
++	analyse.tag = 0;
++	
++	i = 0;
++
++	list_for_each(&nodes, n, list) {
++		if(n != NULL && n->essid != NULL)
++		{
++
++			memcpy(analyse.body[i].mac, n->wlan_bssid, MAC_LEN);
++			analyse.body[i].phy_signal = n->phy_sig_max - 95; 
++			analyse.body[i].channel = n->wlan_channel;
++
++			analyse.tag ++;
++			i++;
++
++			if(analyse.tag >= BODY_LIMIT){
++
++				size = sizeof(analyse);
++
++				net_write(netmon_fd, (unsigned char *)&analyse, size);
++
++				analyse.tag = 0;
++				i = 0;
++
++				usleep(1000);
++			}
++
++
++#if 0 
++			analyse.tag ++;
++			memcpy(analyse.mac, n->wlan_bssid, MAC_LEN);
++			//analyse.phy_signal = n->last_pkt.phy_signal;
++			analyse.phy_signal = n->phy_sig_max;
++			analyse.channel = n->wlan_channel;
++			net_write(netmon_fd, (unsigned char *)&analyse, sizeof(analyse));
++#endif
++		}
++	}
++		
++	if(analyse.tag < BODY_LIMIT && analyse.tag > 0){
++
++		size = sizeof(analyse) - (BODY_LIMIT - analyse.tag) * sizeof(struct nice_body);
++
++		net_write(netmon_fd, (unsigned char *)&analyse, size);
++	}
++
++}
++
++void timeout_upload(void)
++{
++	if ((the_time.tv_sec - last_uploadtime.tv_sec) < 10 * conf.upload_interval)
++		return;
++
++	net_send_extra_info();
++
++	last_uploadtime = the_time;
++}
+ 
+ static void
+ net_send_conf_chan(int fd)
+@@ -321,7 +471,10 @@
+ 	conf.channel_time = le32toh(nc->dwell_time);
+ 
+ 	if (cli_fd > -1 && nc->channel != conf.channel_idx) /* server */
++		return sizeof(struct net_conf_chan);
++#if 0 
+ 		channel_change(nc->channel);
++#endif
+ 	else { /* client */
+ 		conf.channel_idx = nc->channel;
+ 		update_spectrum_durations();
+@@ -354,6 +507,42 @@
+ }
+ 
+ 
++
++static int net_receive_cmd(unsigned char *buffer, size_t len)
++{
++	struct net_conf_ctrl *ctrl;
++	
++	if (len < sizeof(struct net_conf_ctrl))
++		return 0;
++
++	ctrl = (struct net_conf_ctrl *)buffer;
++
++#if 0 
++	if(ctrl->cmd == AUTELAN_GET_RESULT)
++		net_send_extra_info();
++#endif
++
++	switch(ctrl->cmd)
++	{
++	case AUTELAN_GET_RESULT:
++		printf("%s AUTELAN_GET_RESULT\n",__func__);
++		net_send_extra_info();
++		break;
++	case AUTELAN_SET_UPLOAD:
++		printf("%s AUTELAN_SET_UPLOAD value(%d)\n",__func__, htole32(ctrl->value));
++		gettimeofday(&the_time, NULL);
++		last_uploadtime = the_time;
++		conf.upload_interval = htole32(ctrl->value);
++		break;
++	default:
++		break;
++	}
++
++
++
++	return len;
++}
++
+ static int
+ net_receive_conf_filter(unsigned char *buffer, size_t len)
+ {
+@@ -464,6 +653,9 @@
+ 	case PROTO_CONF_FILTER:
+ 		len = net_receive_conf_filter(buf, len);
+ 		break;
++	case PROTO_CONF_CTRL:
++		len = net_receive_cmd(buf, len);
++		break;
+ 	default:
+ 		printlog("ERROR: unknown net packet type");
+ 		len = 0;
+@@ -548,12 +740,48 @@
+ 		err(1, "listen");
+ }
+ 
++int get_scanmac(void)
++{
++	struct ifreq tmp;  
++	int sock;  
++	sock = socket(AF_INET, SOCK_STREAM, 0);  
++	if( sock == -1){  
++		perror("create socket fail\n");  
++		return -1;  
++	}  
++
++	memset(&tmp,0,sizeof(tmp));  
++	if(conf.scanname == NULL){
++		printf("! Has no scan interface\n");
++		exit(0);
++	}
++	strncpy(tmp.ifr_name, conf.scanname, sizeof(tmp.ifr_name)-1 );  
++	if( (ioctl( sock, SIOCGIFHWADDR, &tmp)) < 0 ) {  
++		printf("mac ioctl error\n");  
++		return -1;  
++	}  
++
++	close(sock);  
++
++	memcpy(local_scanmac, (unsigned char *)tmp.ifr_hwaddr.sa_data, MAC_LEN);
++
++	printf("SCANaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
++			local_scanmac[0],
++			local_scanmac[1],
++			local_scanmac[2],
++			local_scanmac[3],
++			local_scanmac[4],
++			local_scanmac[5]);
++
++	return 0;  
++}
+ 
+ int
+ net_open_client_socket(char* serveraddr, char* rport)
+ {
+ 	struct addrinfo saddr;
+ 	struct addrinfo *result, *rp;
++	struct ifreq buffer;
+ 	int ret;
+ 
+ 	printlog("Connecting to server %s port %s", serveraddr, rport);
+@@ -590,6 +818,21 @@
+ 		err(1, "Could not connect");
+ 	}
+ 
++	memset(&buffer, 0, sizeof(struct ifreq));
++	strcpy(buffer.ifr_name, "eth0");
++	ioctl(netmon_fd, SIOCGIFHWADDR, &buffer);
++
++	memcpy(local_mac, (unsigned char *)buffer.ifr_hwaddr.sa_data, MAC_LEN);
++
++	printf("HWaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
++			local_mac[0],
++			local_mac[1],
++			local_mac[2],
++			local_mac[3],
++			local_mac[4],
++			local_mac[5]);
++
++	get_scanmac();
+ 	freeaddrinfo(result);
+ 
+ 	printlog("Connected to server %s", serveraddr);
+diff -urN a//network.h b//network.h
+--- a//network.h	2015-04-23 19:45:19.000000000 +0800
++++ b//network.h	2015-04-23 21:48:54.000000000 +0800
+@@ -35,6 +35,10 @@
+ int
+ net_send_packet(struct packet_info *pkt);
+ 
++/* AUTELAN-Added-Begin : &tuqiang horst */
++void net_send_extra_info(void);
++/* AUTELAN-Added-End : tuqiang@autelan.com */
++
+ void
+ net_send_channel_config(void);
+ 

@@ -1,0 +1,4 @@
+config spec 'network'
+
+        option ipaddr '192.168.1.254'
+        option subnetmask '255.255.255.0'

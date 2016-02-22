@@ -1,0 +1,10 @@
+#!/bin/sh
+
+
+
+echo -e ip"\t\t\t"pkts"\t\t"bytes
+CHAIN_LIST=`iptables -t mangle -L POSTROUTING | grep Incoming | awk '{print$1}'`
+for chain in $CHAIN_LIST
+do
+	iptables  -t mangle -L $chain -vnx | awk -F' ' '{if (NR>2) print"\t\t"$9"\t\t"$1"\t\t"$2}'
+done

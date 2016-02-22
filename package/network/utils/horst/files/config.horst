@@ -1,0 +1,11 @@
+config phy '2G'
+        option interface 'ath099'
+        option interval '30'
+        option server '192.168.6.11'
+        option enable '0'
+
+config phy '5G'
+        option interface 'ath199'
+        option interval '30'
+        option server '192.168.6.11'
+        option enable '0'

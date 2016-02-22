@@ -1,0 +1,59 @@
+#!/bin/sh
+
+#parameter numbers check and usage
+if [ $# -ne 1 ] ;then
+    echo "Usage: boot_upgrade default           --- upgrade default bootloader"
+    echo "       boot_upgrade u-boot.bin        --- upgrade bootloader which you assign"
+    exit 1
+fi
+
+boot=`basename $1`
+
+#if image exist
+if [ $1 == "default" ] ;then
+	echo "file exist!"
+	cat /www/reboot.htm >/dev/null
+	cat /sbin/sysreboot >/dev/null
+	cp /usr/bin/u-boot.bin /tmp/
+#	cp /usr/sbin/boot-firmware-upgrade-file /tmp/
+#flashcp u-boot.bin /dev/mtd0
+	echo "*** Start to upgrade bootloader"
+	/bin/dd if=/tmp/u-boot.bin of=/dev/mtdblock0
+	if [ $? -ne 0 ];
+	then
+        	echo "ERROR: failed to copy u-boot image"
+        	exit
+	fi	
+#	/usr/sbin/stop_monitor & >/dev/null 2>&1
+#	echo 0 > /proc/sys/dev/wifi0/monitor_process    
+#	/tmp/boot-firmware-upgrade-file u-boot.bin
+elif [ $boot == "u-boot.bin" ] ;then
+	echo "file exist!"
+
+        size=$(ls -l $1 | awk -F " " '{print $5}')
+        echo $size
+        if [ $size -gt 262144 ];then
+                logger -s "wrong size of uboot"
+                exit 1
+        fi
+        echo "the size of uboot is ok!"
+
+	cat /www/reboot.htm >/dev/null
+	cat /sbin/sysreboot >/dev/null
+#	cp /usr/sbin/boot-firmware-upgrade-file /tmp/
+#flashcp u-boot.bin /dev/mtd0
+	echo "*** Start to upgrade bootloader"
+	/bin/dd if=$1 of=/dev/mtdblock0
+	if [ $? -ne 0 ];
+	then
+        	logger -s "ERROR: failed to copy u-boot image"
+        	echo "ERROR: failed to copy u-boot image"
+        	exit
+	fi
+#	/usr/sbin/stop_monitor & >/dev/null 2>&1
+#	echo 0 > /proc/sys/dev/wifi0/monitor_process    
+#	/tmp/boot-firmware-upgrade-file $1
+else
+    echo "wrong format, make sure the filename you assign is u-boot.bin"
+fi
+echo "FINISH:success to copy u-boot image"

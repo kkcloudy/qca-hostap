@@ -1,0 +1,1511 @@
+diff -urN a/arch/mips/ath79/prom.c b/arch/mips/ath79/prom.c
+--- a/arch/mips/ath79/prom.c	2014-09-11 00:08:20.659328120 -0700
++++ b/arch/mips/ath79/prom.c	2014-09-11 00:34:32.849135905 -0700
+@@ -135,6 +135,34 @@
+ static __init void ath79_prom_init_cmdline(int argc, char **argv)
+ {
+ 	int i;
++    
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++
++	/* 
++     * if user passes kernel args, ignore the default one 
++     */
++	if (argc > 1) {
++		arcs_cmdline[0] = '\0';
++
++        for (i = 1; i < argc; i++) 
++            printk("arg %d: %s\n", i, argv[i]);
++
++        /* 
++         * arg[0] is "g", the rest is boot parameters 
++         */
++        for (i = 1; i < argc; i++) {
++            if (strlen(arcs_cmdline) + strlen(argv[i] + 1)
++                >= sizeof(arcs_cmdline))
++                break;
++            if((memcmp(argv[i], "mem=", 4) == 0) ||
++               (memcmp(argv[i], "ramdisk_size=", 13) == 0))
++            {
++                strcat(arcs_cmdline, argv[i]);
++                strcat(arcs_cmdline, " ");
++            }       
++        }
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 
+ 	if (ath79_use_image_cmdline())
+ 		return;
+diff -urN a/arch/mips/kernel/traps.c b/arch/mips/kernel/traps.c
+--- a/arch/mips/kernel/traps.c	2014-09-11 00:08:20.777942957 -0700
++++ b/arch/mips/kernel/traps.c	2014-09-11 00:35:49.837145102 -0700
+@@ -83,6 +83,18 @@
+ extern asmlinkage void handle_mcheck(void);
+ extern asmlinkage void handle_reserved(void);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++
++int (*kes_traps_print_handle)(const char * fmt, ...) = NULL;
++int (*kes_mem_dump_handle)(char *buff, int size) = NULL;
++void (*print_current_time_handle)(void) = NULL;
++
++EXPORT_SYMBOL(kes_traps_print_handle);
++EXPORT_SYMBOL(kes_mem_dump_handle);
++EXPORT_SYMBOL(print_current_time_handle);
++
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ void (*board_be_init)(void);
+ int (*board_be_handler)(struct pt_regs *regs, int is_fixup);
+ void (*board_nmi_handler_setup)(void);
+@@ -97,20 +109,50 @@
+ 	unsigned long addr;
+ 
+ 	printk("Call Trace:");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("Call Trace:");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ #ifdef CONFIG_KALLSYMS
+ 	printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ #endif
+ 	while (!kstack_end(sp)) {
+ 		unsigned long __user *p =
+ 			(unsigned long __user *)(unsigned long)sp++;
+ 		if (__get_user(addr, p)) {
+ 			printk(" (Bad stack address)");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" (Bad stack address)");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
+ 			break;
+ 		}
+ 		if (__kernel_text_address(addr))
+ 			print_ip_sym(addr);
+ 	}
+ 	printk("\n");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ }
+ 
+ #ifdef CONFIG_KALLSYMS
+@@ -137,11 +179,25 @@
+ 		return;
+ 	}
+ 	printk("Call Trace:\n");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("Call Trace:\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ 	do {
+ 		print_ip_sym(pc);
+ 		pc = unwind_stack(task, &sp, pc, &ra);
+ 	} while (pc);
+ 	printk("\n");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ }
+ 
+ /*
+@@ -157,24 +213,70 @@
+ 	unsigned long __user *sp = (unsigned long __user *)regs->regs[29];
+ 
+ 	printk("Stack :");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("Stack :");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 	i = 0;
+ 	while ((unsigned long) sp & (PAGE_SIZE - 1)) {
+ 		if (i && ((i % (64 / field)) == 0))
++        {      
+ 			printk("\n	 ");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("\n	 ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++                
++        }
+ 		if (i > 39) {
+ 			printk(" ...");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" ...");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
+ 			break;
+ 		}
+ 
+ 		if (__get_user(stackdata, sp++)) {
+ 			printk(" (Bad stack address)");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" (Bad stack address)");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
+ 			break;
+ 		}
+ 
+ 		printk(" %0*lx", field, stackdata);
++        
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(" %0*lx", field, stackdata);
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 		i++;
+ 	}
+ 	printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ 	show_backtrace(task, regs);
+ }
+ 
+@@ -208,6 +310,13 @@
+ 	unsigned short __user *pc16 = NULL;
+ 
+ 	printk("\nCode:");
++    
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\nCode:");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 
+ 	if ((unsigned long)pc & 1)
+ 		pc16 = (unsigned short __user *)((unsigned long)pc & ~1);
+@@ -215,9 +324,23 @@
+ 		unsigned int insn;
+ 		if (pc16 ? __get_user(insn, pc16 + i) : __get_user(insn, pc + i)) {
+ 			printk(" (Bad address in epc)\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" (Bad address in epc)\n");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
+ 			break;
+ 		}
+ 		printk("%c%0*x%c", (i?' ':'<'), pc16 ? 4 : 8, insn, (i?' ':'>'));
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("%c%0*x%c", (i?' ':'<'), pc16 ? 4 : 8, insn, (i?' ':'>'));
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 	}
+ }
+ 
+@@ -234,25 +357,89 @@
+ 	 */
+ 	for (i = 0; i < 32; ) {
+ 		if ((i % 4) == 0)
++        {      
+ 			printk("$%2d   :", i);
+-		if (i == 0)
+-			printk(" %0*lx", field, 0UL);
+-		else if (i == 26 || i == 27)
+-			printk(" %*s", field, "");
+-		else
+-			printk(" %0*lx", field, regs->regs[i]);
++            
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("$%2d   :", i);
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
++        }
++        if (i == 0)
++        {      
++            printk(" %0*lx", field, 0UL);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" %0*lx", field, 0UL);
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        else if (i == 26 || i == 27)
++        {      
++            printk(" %*s", field, "");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" %*s", field, "");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        else
++        {      
++            printk(" %0*lx", field, regs->regs[i]);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" %0*lx", field, regs->regs[i]);
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        }
+ 
+ 		i++;
+ 		if ((i % 4) == 0)
+-			printk("\n");
++        {      
++            printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("\n");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        }
+ 	}
+ 
+ #ifdef CONFIG_CPU_HAS_SMARTMIPS
+ 	printk("Acx    : %0*lx\n", field, regs->acx);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("Acx    : %0*lx\n", field, regs->acx);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ #endif
+ 	printk("Hi    : %0*lx\n", field, regs->hi);
+ 	printk("Lo    : %0*lx\n", field, regs->lo);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++    	kes_traps_print_handle("Hi    : %0*lx\n", field, regs->hi);
++    	kes_traps_print_handle("Lo    : %0*lx\n", field, regs->lo);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	/*
+ 	 * Saved cp0 registers
+ 	 */
+@@ -264,57 +451,244 @@
+ 
+ 	printk("Status: %08x	", (uint32_t) regs->cp0_status);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("epc   : %0*lx %pS\n", field, regs->cp0_epc,
++            (void *) regs->cp0_epc);
++        kes_traps_print_handle("    %s\n", print_tainted());
++        kes_traps_print_handle("ra    : %0*lx %pS\n", field, regs->regs[31],
++            (void *) regs->regs[31]);
++        
++        kes_traps_print_handle("Status: %08x    ", (uint32_t) regs->cp0_status);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++
++
+ 	if (current_cpu_data.isa_level == MIPS_CPU_ISA_I) {
+ 		if (regs->cp0_status & ST0_KUO)
+-			printk("KUo ");
+-		if (regs->cp0_status & ST0_IEO)
+-			printk("IEo ");
+-		if (regs->cp0_status & ST0_KUP)
+-			printk("KUp ");
+-		if (regs->cp0_status & ST0_IEP)
+-			printk("IEp ");
+-		if (regs->cp0_status & ST0_KUC)
+-			printk("KUc ");
+-		if (regs->cp0_status & ST0_IEC)
+-			printk("IEc ");
++        {      
++            printk("KUo ");
++            
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("KUo ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        if (regs->cp0_status & ST0_IEO)
++        {      
++            printk("IEo ");
++            
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("IEo ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        if (regs->cp0_status & ST0_KUP)
++        {      
++            printk("KUp ");
++            
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("KUp ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        if (regs->cp0_status & ST0_IEP)
++        {      
++            printk("IEp ");
++            
++    /* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("IEp ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        if (regs->cp0_status & ST0_KUC)
++        {      
++            printk("KUc ");
++            
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("KUc ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
++        if (regs->cp0_status & ST0_IEC)
++        {      
++        printk("IEc ");
++        
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("IEc ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++        }
+ 	} else {
+ 		if (regs->cp0_status & ST0_KX)
++        {      
+ 			printk("KX ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("KX ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
++        }
+ 		if (regs->cp0_status & ST0_SX)
++        {      
+ 			printk("SX ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("SX ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
++        }
+ 		if (regs->cp0_status & ST0_UX)
++        {      
+ 			printk("UX ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("UX ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
++        }
+ 		switch (regs->cp0_status & ST0_KSU) {
+ 		case KSU_USER:
+ 			printk("USER ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("USER ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */    
+ 			break;
+ 		case KSU_SUPERVISOR:
+ 			printk("SUPERVISOR ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("SUPERVISOR ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 			break;
+ 		case KSU_KERNEL:
+ 			printk("KERNEL ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("KERNEL ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 			break;
+ 		default:
+ 			printk("BAD_MODE ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("BAD_MODE ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 			break;
+ 		}
+ 		if (regs->cp0_status & ST0_ERL)
++        {      
+ 			printk("ERL ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("ERL ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
++        }
+ 		if (regs->cp0_status & ST0_EXL)
++        {      
+ 			printk("EXL ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("EXL ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        }
+ 		if (regs->cp0_status & ST0_IE)
++        {      
+ 			printk("IE ");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("IE ");
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        }
+ 	}
+ 	printk("\n");
+ 
+ 	printk("Cause : %08x\n", cause);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\n");
++        kes_traps_print_handle("Cause : %08x\n", cause);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	cause = (cause & CAUSEF_EXCCODE) >> CAUSEB_EXCCODE;
+ 	if (1 <= cause && cause <= 5)
++    {   
+ 		printk("BadVA : %0*lx\n", field, regs->cp0_badvaddr);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("BadVA : %0*lx\n", field, regs->cp0_badvaddr);
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++    }
++
+ 	printk("PrId  : %08x (%s)\n", read_c0_prid(),
+ 	       cpu_name_string());
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("PrId  : %08x (%s)\n", read_c0_prid(),
++            cpu_name_string());
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ }
+ 
+ /*
+@@ -334,17 +708,45 @@
+ 	printk("Process %s (pid: %d, threadinfo=%p, task=%p, tls=%0*lx)\n",
+ 	       current->comm, current->pid, current_thread_info(), current,
+ 	      field, current_thread_info()->tp_value);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("Process %s (pid: %d, threadinfo=%p, task=%p, tls=%0*lx)\n",
++            current->comm, current->pid, current_thread_info(), current,
++            field, current_thread_info()->tp_value);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	if (cpu_has_userlocal) {
+ 		unsigned long tls;
+ 
+ 		tls = read_c0_userlocal();
+ 		if (tls != current_thread_info()->tp_value)
++        {      
+ 			printk("*HwTLS: %0*lx\n", field, tls);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("*HwTLS: %0*lx\n", field, tls);
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
++        }
+ 	}
+ 
+ 	show_stacktrace(current, regs);
+ 	show_code((unsigned int __user *) regs->cp0_epc);
+ 	printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ }
+ 
+ static int regs_to_trapnr(struct pt_regs *regs)
+@@ -378,6 +780,14 @@
+ #endif /* CONFIG_MIPS_MT_SMTC */
+ 
+ 	printk("%s[#%d]:\n", str, ++die_counter);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("%s[#%d]:\n", str, ++die_counter);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	show_registers(regs);
+ 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
+ 	raw_spin_unlock_irq(&die_lock);
+@@ -389,6 +799,14 @@
+ 
+ 	if (panic_on_oops) {
+ 		printk(KERN_EMERG "Fatal exception: panic in 5 seconds");
++        
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("Fatal exception: panic in 5 seconds\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 		ssleep(5);
+ 		panic("Fatal exception");
+ 	}
+@@ -453,6 +871,16 @@
+ 	printk(KERN_ALERT "%s bus error, epc == %0*lx, ra == %0*lx\n",
+ 	       data ? "Data" : "Instruction",
+ 	       field, regs->cp0_epc, field, regs->regs[31]);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("%s bus error, epc == %0*lx, ra == %0*lx\n",
++            data ? "Data" : "Instruction",
++            field, regs->cp0_epc, field, regs->regs[31]);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	if (notify_die(DIE_OOPS, "bus error", regs, 0, regs_to_trapnr(regs), SIGBUS)
+ 	    == NOTIFY_STOP)
+ 		return;
+@@ -1192,6 +1620,19 @@
+ 		printk("EntryLo0: %0*lx\n", field, read_c0_entrylo0());
+ 		printk("EntryLo1: %0*lx\n", field, read_c0_entrylo1());
+ 		printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("Index   : %0x\n", read_c0_index());
++            kes_traps_print_handle("Pagemask: %0x\n", read_c0_pagemask());
++            kes_traps_print_handle("EntryHi : %0*lx\n", field, read_c0_entryhi());
++            kes_traps_print_handle("EntryLo0: %0*lx\n", field, read_c0_entrylo0());
++            kes_traps_print_handle("EntryLo1: %0*lx\n", field, read_c0_entrylo1());
++            kes_traps_print_handle("\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 		dump_tlb_all();
+ 	}
+ 
+@@ -1215,26 +1656,69 @@
+ 	switch (subcode) {
+ 	case 0:
+ 		printk(KERN_DEBUG "Thread Underflow\n");
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG"Thread Underflow\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 		break;
+ 	case 1:
+ 		printk(KERN_DEBUG "Thread Overflow\n");
+-		break;
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG "Thread Overflow\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        break;
+ 	case 2:
+ 		printk(KERN_DEBUG "Invalid YIELD Qualifier\n");
+-		break;
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG "Invalid YIELD Qualifier\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        break;
+ 	case 3:
+ 		printk(KERN_DEBUG "Gating Storage Exception\n");
+-		break;
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG "Gating Storage Exception\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        break;
+ 	case 4:
+ 		printk(KERN_DEBUG "YIELD Scheduler Exception\n");
+-		break;
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG "YIELD Scheduler Exception\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        break;
+ 	case 5:
+ 		printk(KERN_DEBUG "Gating Storage Scheduler Exception\n");
+-		break;
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG "Gating Storage Schedulier Exception\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        break;
+ 	default:
+ 		printk(KERN_DEBUG "*** UNKNOWN THREAD EXCEPTION %d ***\n",
+ 			subcode);
+-		break;
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_DEBUG "*** UNKNOWN THREAD EXCEPTION %d ***\n",
++                subcode);
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        break;
+ 	}
+ 	die_if_kernel("MIPS MT Thread exception in kernel", regs);
+ 
+@@ -1324,20 +1808,53 @@
+ 
+ 			printk(KERN_INFO "Writing ErrCtl register=%08lx\n", errctl);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(KERN_INFO "Writing ErrCtl register=%08lx\n", errctl);
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 			write_c0_ecc(errctl);
+ 			back_to_back_c0_hazard();
+ 			errctl = read_c0_ecc();
+ 			printk(KERN_INFO "Readback ErrCtl register=%08lx\n", errctl);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(KERN_INFO "Readback ErrCtl register=%08lx\n", errctl);
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 			if (l1parity_present)
++            {         
+ 				printk(KERN_INFO "Cache parity protection %sabled\n",
+ 				       (errctl & ERRCTL_PE) ? "en" : "dis");
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++                if(kes_traps_print_handle)
++                {
++                        kes_traps_print_handle(KERN_INFO "Cache parity protection %sabled\n",
++                            (errctl & ERRCTL_PE) ? "en" : "dis");
++                }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++                
++            }
++
+ 			if (l2parity_present) {
+ 				if (l1parity_present && l1parity)
+ 					errctl ^= ERRCTL_L2P;
+ 				printk(KERN_INFO "L2 cache parity protection %sabled\n",
+ 				       (errctl & ERRCTL_L2P) ? "en" : "dis");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++                if(kes_traps_print_handle)
++                {
++                    kes_traps_print_handle(KERN_INFO "L2 cache parity protection %sabled\n",
++                        (errctl & ERRCTL_L2P) ? "en" : "dis");
++                }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 			}
+ 		}
+ 		break;
+@@ -1350,12 +1867,30 @@
+ 		/* Set the PE bit (bit 31) in the c0_errctl register. */
+ 		printk(KERN_INFO "Cache parity protection %sabled\n",
+ 		       (read_c0_ecc() & 0x80000000) ? "en" : "dis");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_INFO "Cache parity protection %sabled\n",
++                (read_c0_ecc() & 0x80000000) ? "en" : "dis");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 		break;
+ 	case CPU_20KC:
+ 	case CPU_25KF:
+ 		/* Clear the DE bit (bit 16) in the c0_status register. */
+ 		printk(KERN_INFO "Enable cache parity protection for "
+ 		       "MIPS 20KC/25KF CPUs.\n");
++        
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(KERN_INFO "Enable cache parity protection for "
++                "MIPS 20KC/25KF CPUs.\n");
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 		clear_c0_status(ST0_DE);
+ 		break;
+ 	default:
+@@ -1371,6 +1906,15 @@
+ 	/* For the moment, report the problem and hang. */
+ 	printk("Cache error exception:\n");
+ 	printk("cp0_errorepc == %0*lx\n", field, read_c0_errorepc());
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("Cache error exception:\n");
++        kes_traps_print_handle("cp0_errorepc == %0*lx\n", field, read_c0_errorepc());
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	reg_val = read_c0_cacheerr();
+ 	printk("c0_cacheerr == %08x\n", reg_val);
+ 
+@@ -1387,12 +1931,51 @@
+ 	       reg_val & (1<<22) ? "E0 " : "");
+ 	printk("IDX: 0x%08x\n", reg_val & ((1<<22)-1));
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("c0_cacheerr == %08x\n", reg_val);
++        kes_traps_print_handle("Decoded c0_cacheerr: %s cache fault in %s reference.\n",
++            reg_val & (1<<30) ? "secondary" : "primary",
++            reg_val & (1<<31) ? "data" : "insn");
++        kes_traps_print_handle("Error bits: %s%s%s%s%s%s%s\n",
++            reg_val & (1<<29) ? "ED " : "",
++            reg_val & (1<<28) ? "ET " : "",
++            reg_val & (1<<26) ? "EE " : "",
++            reg_val & (1<<25) ? "EB " : "",
++            reg_val & (1<<24) ? "EI " : "",
++            reg_val & (1<<23) ? "E1 " : "",
++            reg_val & (1<<22) ? "E0 " : "");
++        kes_traps_print_handle("IDX: 0x%08x\n", reg_val & ((1<<22)-1));
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ #if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
+ 	if (reg_val & (1<<22))
++    {   
+ 		printk("DErrAddr0: 0x%0*lx\n", field, read_c0_derraddr0());
++        
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("DErrAddr0: 0x%0*lx\n", field, read_c0_derraddr0());
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++     
++    }
+ 
+ 	if (reg_val & (1<<23))
++    {   
+ 		printk("DErrAddr1: 0x%0*lx\n", field, read_c0_derraddr1());
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("DErrAddr1: 0x%0*lx\n", field, read_c0_derraddr1());
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++    }
+ #endif
+ 
+ 	panic("Can't handle the cache error!");
+@@ -1409,9 +1992,25 @@
+ 	unsigned int debug;
+ 
+ 	printk(KERN_DEBUG "SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
+-	depc = read_c0_depc();
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle(KERN_DEBUG "SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++    depc = read_c0_depc();
+ 	debug = read_c0_debug();
+ 	printk(KERN_DEBUG "c0_depc = %0*lx, DEBUG = %08x\n", field, depc, debug);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle(KERN_DEBUG "c0_depc = %0*lx, DEBUG = %08x\n", field, depc, debug);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ 	if (debug & 0x80000000) {
+ 		/*
+ 		 * In branch delay slot.
+@@ -1452,6 +2051,14 @@
+ 	raw_notifier_call_chain(&nmi_chain, 0, regs);
+ 	bust_spinlocks(1);
+ 	printk("NMI taken!!!!\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("NMI taken!!!!\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ 	die("NMI", regs);
+ }
+ 
+diff -urN a/arch/mips/mm/fault.c b/arch/mips/mm/fault.c
+--- a/arch/mips/mm/fault.c	2014-09-11 00:08:20.801684866 -0700
++++ b/arch/mips/mm/fault.c	2014-09-11 00:35:58.449162800 -0700
+@@ -27,6 +27,11 @@
+ #include <asm/highmem.h>		/* For VMALLOC_END */
+ #include <linux/kdebug.h>
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++extern int (*kes_traps_print_handle)(const char * fmt, ...);
++extern void (*kes_debug_print_flag_handle)(const char *s);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ /*
+  * This routine handles page faults.  It determines the address,
+  * and the problem, and then passes it off to one of the appropriate
+@@ -232,7 +237,24 @@
+ 	       "virtual address %0*lx, epc == %0*lx, ra == %0*lx\n",
+ 	       raw_smp_processor_id(), field, address, field, regs->cp0_epc,
+ 	       field,  regs->regs[31]);
+-	die("Oops", regs);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle(KERN_ALERT "CPU %d Unable to handle kernel paging request at "
++            "virtual address %0*lx, epc == %0*lx, ra == %0*lx\n",
++            raw_smp_processor_id(), field, address, field, regs->cp0_epc,
++            field,  regs->regs[31]);
++    }
++
++    if(kes_debug_print_flag_handle)
++    { 
++        kes_debug_print_flag_handle("6");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++    die("Oops", regs);
+ 
+ out_of_memory:
+ 	/*
+diff -urN a/include/linux/kallsyms.h b/include/linux/kallsyms.h
+--- a/include/linux/kallsyms.h	2014-09-11 00:08:26.209159093 -0700
++++ b/include/linux/kallsyms.h	2014-09-11 00:44:06.913152542 -0700
+@@ -13,6 +13,10 @@
+ #define KSYM_SYMBOL_LEN (sizeof("%s+%#lx/%#lx [%s]") + (KSYM_NAME_LEN - 1) + \
+ 			 2*(BITS_PER_LONG*3/10) + (MODULE_NAME_LEN - 1) + 1)
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++extern int (*kes_traps_print_handle)(const char * fmt, ...);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ struct module;
+ 
+ #ifdef CONFIG_KALLSYMS
+@@ -123,6 +127,14 @@
+ static inline void print_ip_sym(unsigned long ip)
+ {
+ 	printk("[<%p>] %pS\n", (void *) ip, (void *) ip);
++    
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("[<%p>] %pS\n", (void *) ip, (void *) ip);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ }
+ 
+ #endif /*_LINUX_KALLSYMS_H*/
+diff -urN a/init/main.c b/init/main.c
+--- a/init/main.c	2014-09-11 00:07:47.329963266 -0700
++++ b/init/main.c	2014-09-11 00:44:12.281163055 -0700
+@@ -128,6 +128,11 @@
+ char __initdata boot_command_line[COMMAND_LINE_SIZE];
+ /* Untouched saved command line (eg. for /proc) */
+ char *saved_command_line;
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++EXPORT_SYMBOL(saved_command_line);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ /* Command line for parameter parsing */
+ static char *static_command_line;
+ 
+diff -urN a/kernel/kallsyms.c b/kernel/kallsyms.c
+--- a/kernel/kallsyms.c	2014-09-11 00:08:05.797914548 -0700
++++ b/kernel/kallsyms.c	2014-09-11 00:44:16.625684018 -0700
+@@ -448,6 +448,14 @@
+ 	sprint_symbol(buffer, address);
+ 
+ 	printk(fmt, buffer);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle(fmt, buffer);
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ }
+ EXPORT_SYMBOL(__print_symbol);
+ 
+diff -urN a/kernel/module.c b/kernel/module.c
+--- a/kernel/module.c	2014-09-11 00:08:05.733778765 -0700
++++ b/kernel/module.c	2014-09-11 00:44:24.593177354 -0700
+@@ -71,6 +71,10 @@
+ #define ARCH_SHF_SMALL 0
+ #endif
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++extern int (*kes_traps_print_handle)(const char * fmt, ...);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ /*
+  * Modules' sections will be aligned on page boundaries
+  * to ensure complete separation of code and data, but
+@@ -3828,17 +3832,51 @@
+ 	char buf[8];
+ 
+ 	printk(KERN_DEFAULT "Modules linked in:");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle(KERN_DEFAULT "Modules linked in:");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	/* Most callers should already have preempt disabled, but make sure */
+ 	preempt_disable();
+ 	list_for_each_entry_rcu(mod, &modules, list) {
+ 		if (mod->state == MODULE_STATE_UNFORMED)
+ 			continue;
+ 		printk(" %s%s", mod->name, module_flags(mod, buf));
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(" %s%s", mod->name, module_flags(mod, buf));
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 	}
+ 	preempt_enable();
+ 	if (last_unloaded_module[0])
++    {   
+ 		printk(" [last unloaded: %s]", last_unloaded_module);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle(" [last unloaded: %s]", last_unloaded_module);
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    }
++    
+ 	printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("\n");
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ }
+ 
+ #ifdef CONFIG_MODVERSIONS
+diff -urN a/kernel/panic.c b/kernel/panic.c
+--- a/kernel/panic.c	2014-09-11 00:08:05.669973711 -0700
++++ b/kernel/panic.c	2014-09-11 00:44:31.521179723 -0700
+@@ -26,6 +26,14 @@
+ #define PANIC_TIMER_STEP 100
+ #define PANIC_BLINK_SPD 18
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++int (*kes_debug_print_handle)(const char *fmt, ...);
++EXPORT_SYMBOL(kes_debug_print_handle);
++extern int(*kes_traps_print_handle)(const char *fmt, ...);
++void (*kes_debug_print_flag_handle)(const char *s);
++EXPORT_SYMBOL(kes_debug_print_flag_handle);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ int panic_on_oops = CONFIG_PANIC_ON_OOPS_VALUE;
+ static unsigned long tainted_mask;
+ static int pause_on_oops;
+@@ -100,6 +108,25 @@
+ 	vsnprintf(buf, sizeof(buf), fmt, args);
+ 	va_end(args);
+ 	printk(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
++    }
++    if(kes_debug_print_handle)
++    {
++        kes_debug_print_handle("This is a software reboot because of  kernel panic- not syncing: %s\n",buf);
++    }
++    if(kes_debug_print_flag_handle)
++    {
++        kes_debug_print_flag_handle("7");
++    }
++    
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++
+ #ifdef CONFIG_DEBUG_BUGVERBOSE
+ 	/*
+ 	 * Avoid nested stack-dumping if a panic occurs during oops processing
+diff -urN a/kernel/printk.c b/kernel/printk.c
+--- a/kernel/printk.c	2014-09-11 00:08:05.545166762 -0700
++++ b/kernel/printk.c	2014-09-11 00:44:38.398233119 -0700
+@@ -87,6 +87,11 @@
+ };
+ #endif
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++int (*kes_dmsg_print_handle)(char* buff,int size)= NULL;
++EXPORT_SYMBOL(kes_dmsg_print_handle);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ /*
+  * This is used for debugging the mess that is the VT code by
+  * keeping track if we have the console semaphore held. It's
+@@ -1615,6 +1620,55 @@
+ 			log_store(facility, level, lflags, 0,
+ 				  dict, dictlen, text, text_len);
+ 	}
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_dmsg_print_handle)
++    {
++        switch(level + '0')
++        {
++            case '0': 
++                kes_dmsg_print_handle("<0>",3);
++                break;
++            case '1': 
++                kes_dmsg_print_handle("<1>",3);
++                break;
++            case '2': 
++                kes_dmsg_print_handle("<2>",3);
++                break;
++            case '3': 
++                kes_dmsg_print_handle("<3>",3);
++                break;
++            case '4': 
++                kes_dmsg_print_handle("<4>",3);
++                break;
++            case '5': 
++                kes_dmsg_print_handle("<5>",3);
++                break;
++            case '6': 
++                kes_dmsg_print_handle("<6>",3);
++                break;
++            case '7': 
++                kes_dmsg_print_handle("<7>",3);
++                break;
++            default:
++                break;
++        }
++    }
++    
++    if(kes_dmsg_print_handle)
++    {
++        if(text_len && text[text_len] == '\n')
++        {
++            kes_dmsg_print_handle(text,text_len+1);
++        }
++        else
++        {
++            kes_dmsg_print_handle(text,text_len);
++        }
++    }
++
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++    
+ 	printed_len += text_len;
+ 
+ 	/*
+diff -urN a/mm/page_alloc.c b/mm/page_alloc.c
+--- a/mm/page_alloc.c	2014-09-11 00:08:06.725907574 -0700
++++ b/mm/page_alloc.c	2014-09-11 00:44:43.489446353 -0700
+@@ -81,6 +81,10 @@
+ EXPORT_PER_CPU_SYMBOL(_numa_mem_);
+ #endif
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++extern int (*kes_traps_print_handle)(const char * fmt, ...);
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ /*
+  * Array of node states.
+  */
+@@ -2889,7 +2893,17 @@
+ static inline void show_node(struct zone *zone)
+ {
+ 	if (IS_ENABLED(CONFIG_NUMA))
++    {   
+ 		printk("Node %d ", zone_to_nid(zone));
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("Node %d ", zone_to_nid(zone));	
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
++    }
+ }
+ 
+ void si_meminfo(struct sysinfo *val)
+@@ -2999,6 +3013,16 @@
+ 			printk("CPU %4d: hi:%5d, btch:%4d usd:%4d\n",
+ 			       cpu, pageset->pcp.high,
+ 			       pageset->pcp.batch, pageset->pcp.count);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("CPU %4d: hi:%5d, btch:%4d usd:%4d\n",
++                    cpu, pageset->pcp.high,
++                    pageset->pcp.batch, pageset->pcp.count);	
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
+ 		}
+ 	}
+ 
+@@ -3028,6 +3052,37 @@
+ 		global_page_state(NR_BOUNCE),
+ 		global_page_state(NR_FREE_CMA_PAGES));
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++        	kes_traps_print_handle("active_anon:%lu inactive_anon:%lu isolated_anon:%lu\n"
++        		" active_file:%lu inactive_file:%lu isolated_file:%lu\n"
++        		" unevictable:%lu"
++        		" dirty:%lu writeback:%lu unstable:%lu\n"
++        		" free:%lu slab_reclaimable:%lu slab_unreclaimable:%lu\n"
++        		" mapped:%lu shmem:%lu pagetables:%lu bounce:%lu\n"
++        		" free_cma:%lu\n",
++        		global_page_state(NR_ACTIVE_ANON),
++        		global_page_state(NR_INACTIVE_ANON),
++        		global_page_state(NR_ISOLATED_ANON),
++        		global_page_state(NR_ACTIVE_FILE),
++        		global_page_state(NR_INACTIVE_FILE),
++        		global_page_state(NR_ISOLATED_FILE),
++        		global_page_state(NR_UNEVICTABLE),
++        		global_page_state(NR_FILE_DIRTY),
++        		global_page_state(NR_WRITEBACK),
++        		global_page_state(NR_UNSTABLE_NFS),
++        		global_page_state(NR_FREE_PAGES),
++        		global_page_state(NR_SLAB_RECLAIMABLE),
++        		global_page_state(NR_SLAB_UNRECLAIMABLE),
++        		global_page_state(NR_FILE_MAPPED),
++        		global_page_state(NR_SHMEM),
++        		global_page_state(NR_PAGETABLE),
++        		global_page_state(NR_BOUNCE),
++        		global_page_state(NR_FREE_CMA_PAGES));        
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	for_each_populated_zone(zone) {
+ 		int i;
+ 
+@@ -3095,10 +3150,102 @@
+ 			zone->pages_scanned,
+ 			(zone->all_unreclaimable ? "yes" : "no")
+ 			);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("%s"
++                    " free:%lukB"
++                    " min:%lukB"
++                    " low:%lukB"
++                    " high:%lukB"
++                    " active_anon:%lukB"
++                    " inactive_anon:%lukB"
++                    " active_file:%lukB"
++                    " inactive_file:%lukB"
++                    " unevictable:%lukB"
++                    " isolated(anon):%lukB"
++                    " isolated(file):%lukB"
++                    " present:%lukB"
++                    " managed:%lukB"
++                    " mlocked:%lukB"
++                    " dirty:%lukB"
++                    " writeback:%lukB"
++                    " mapped:%lukB"
++                    " shmem:%lukB"
++                    " slab_reclaimable:%lukB"
++                    " slab_unreclaimable:%lukB"
++                    " kernel_stack:%lukB"
++                    " pagetables:%lukB"
++                    " unstable:%lukB"
++                    " bounce:%lukB"
++                    " free_cma:%lukB"
++                    " writeback_tmp:%lukB"
++                    " pages_scanned:%lu"
++                    " all_unreclaimable? %s"
++                    "\n",
++                    zone->name,
++                    K(zone_page_state(zone, NR_FREE_PAGES)),
++                    K(min_wmark_pages(zone)),
++                    K(low_wmark_pages(zone)),
++                    K(high_wmark_pages(zone)),
++                    K(zone_page_state(zone, NR_ACTIVE_ANON)),
++                    K(zone_page_state(zone, NR_INACTIVE_ANON)),
++                    K(zone_page_state(zone, NR_ACTIVE_FILE)),
++                    K(zone_page_state(zone, NR_INACTIVE_FILE)),
++                    K(zone_page_state(zone, NR_UNEVICTABLE)),
++                    K(zone_page_state(zone, NR_ISOLATED_ANON)),
++                    K(zone_page_state(zone, NR_ISOLATED_FILE)),
++                    K(zone->present_pages),
++                    K(zone->managed_pages),
++                    K(zone_page_state(zone, NR_MLOCK)),
++                    K(zone_page_state(zone, NR_FILE_DIRTY)),
++                    K(zone_page_state(zone, NR_WRITEBACK)),
++                    K(zone_page_state(zone, NR_FILE_MAPPED)),
++                    K(zone_page_state(zone, NR_SHMEM)),
++                    K(zone_page_state(zone, NR_SLAB_RECLAIMABLE)),
++                    K(zone_page_state(zone, NR_SLAB_UNRECLAIMABLE)),
++                    zone_page_state(zone, NR_KERNEL_STACK) *
++                    THREAD_SIZE / 1024,
++                    K(zone_page_state(zone, NR_PAGETABLE)),
++                    K(zone_page_state(zone, NR_UNSTABLE_NFS)),
++                    K(zone_page_state(zone, NR_BOUNCE)),
++                    K(zone_page_state(zone, NR_FREE_CMA_PAGES)),
++                    K(zone_page_state(zone, NR_WRITEBACK_TEMP)),
++                    zone->pages_scanned,
++                    (zone->all_unreclaimable ? "yes" : "no")
++                    );
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 		printk("lowmem_reserve[]:");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("lowmem_reserve[]:");	
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 		for (i = 0; i < MAX_NR_ZONES; i++)
+-			printk(" %lu", zone->lowmem_reserve[i]);
++        {      
++            printk(" %lu", zone->lowmem_reserve[i]);
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle(" %lu", zone->lowmem_reserve[i]);	
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */            
++        }
+ 		printk("\n");
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("\n");	
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++        
+ 	}
+ 
+ 	for_each_populated_zone(zone) {
+@@ -3110,6 +3257,13 @@
+ 		show_node(zone);
+ 		printk("%s: ", zone->name);
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("%s: ", zone->name);	
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 		spin_lock_irqsave(&zone->lock, flags);
+ 		for (order = 0; order < MAX_ORDER; order++) {
+ 			struct free_area *area = &zone->free_area[order];
+@@ -3127,16 +3281,38 @@
+ 		spin_unlock_irqrestore(&zone->lock, flags);
+ 		for (order = 0; order < MAX_ORDER; order++) {
+ 			printk("%lu*%lukB ", nr[order], K(1UL) << order);
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++            if(kes_traps_print_handle)
++            {
++                kes_traps_print_handle("%lu*%lukB ", nr[order], K(1UL) << order);	
++            }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++            
+ 			if (nr[order])
+ 				show_migration_types(types[order]);
+ 		}
+ 		printk("= %lukB\n", K(total));
++
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++        if(kes_traps_print_handle)
++        {
++            kes_traps_print_handle("= %lukB\n", K(total));	
++        }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
+ 	}
+ 
+ 	hugetlb_show_meminfo();
+ 
+ 	printk("%ld total pagecache pages\n", global_page_state(NR_FILE_PAGES));
+ 
++/* Begin: Added by zhouke, for kes. 2014-08-25. */
++    if(kes_traps_print_handle)
++    {
++        kes_traps_print_handle("%ld total pagecache pages\n", global_page_state(NR_FILE_PAGES));	
++    }
++/* End:   Added by zhouke, for kes. 2014-08-25. */
++
+ 	show_swap_cache_info();
+ }
+ 

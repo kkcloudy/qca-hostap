@@ -1,0 +1,121 @@
+diff -urN a//arch/mips/ath79/dev-eth.c b//arch/mips/ath79/dev-eth.c
+--- a//arch/mips/ath79/dev-eth.c	2014-10-30 02:41:48.000000000 +0800
++++ b//arch/mips/ath79/dev-eth.c	2014-10-30 02:44:06.000000000 +0800
+@@ -205,9 +205,13 @@
+ 	case ATH79_SOC_AR9330:
+ 	case ATH79_SOC_AR9331:
+ 	case ATH79_SOC_QCA9533:
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++#if 0
+ /* Begin: Added by zhouke, for qsdk ar71xx 625 patch. 2014-10-10. */
+  	case ATH79_SOC_QCA9563:
+ /* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-10. */
++#endif
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
+ 		mdio_dev = &ath79_mdio1_device;
+ 		mdio_data = &ath79_mdio1_data;
+ 		break;
+@@ -217,6 +221,9 @@
+ 	case ATH79_SOC_AR9344:
+ 	case ATH79_SOC_QCA9556:
+ 	case ATH79_SOC_QCA9558:
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++ 	case ATH79_SOC_QCA9563:	// WJL 9563 + 8033
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
+ 		if (id == 0) {
+ 			mdio_dev = &ath79_mdio0_device;
+ 			mdio_data = &ath79_mdio0_data;
+@@ -253,13 +260,19 @@
+ 	case ATH79_SOC_AR9331:
+ 		mdio_data->builtin_switch = 1;
+ 		break;
+-
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++#if 0
+ /* Begin: Added by zhouke, for qsdk ar71xx 625 patch. 2014-10-10. */
+ 	case ATH79_SOC_QCA9563:
+ 		mdio_data->builtin_switch = 1;
+ 		break;
+ /* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-10. */
+-
++#else
++	case ATH79_SOC_QCA9563:
++		mdio_data->builtin_switch = 0;	// WJL : 9563 + 8033
++		break;
++#endif
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
+ 	case ATH79_SOC_AR9341:
+ 	case ATH79_SOC_AR9342:
+ 	case ATH79_SOC_AR9344:
+@@ -386,10 +399,20 @@
+ {
+ 	void __iomem *base;
+ 	u32 val = ath79_get_eth_pll(0, speed);
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++    u32 t;
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
+ 
+ 	base = ioremap_nocache(AR71XX_PLL_BASE, AR71XX_PLL_SIZE);
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++#if 0
+ 	__raw_writel(val, base + AR934X_PLL_ETH_XMII_CONTROL_REG);
+-	iounmap(base);
++#else
++    t =  __raw_readl(base + QCA956X_PLL_ETH_XMII_CONTROL_REG);
++    __raw_writel(val | t, base + QCA956X_PLL_ETH_XMII_CONTROL_REG);	// WJL : 9563 + 8033
++#endif
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
++    iounmap(base);
+ }
+ 
+ static void qca955x_set_speed_xmii(int speed)
+@@ -662,7 +685,14 @@
+ /* Begin: Added by zhouke, for qsdk ar71xx 625 patch. 2014-10-10. */
+         case ATH79_SOC_QCA9563:
+ /* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-10. */
++
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++#if 0
+ 			pdata->phy_if_mode = PHY_INTERFACE_MODE_MII;
++#else
++            pdata->phy_if_mode = PHY_INTERFACE_MODE_SGMII;	// WJL - 9563 SGMII
++#endif
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
+ 			break;
+ 
+ 		case ATH79_SOC_AR7242:
+@@ -1141,7 +1171,16 @@
+ /* Begin: Added by zhouke, for qsdk ar71xx 625 patch. 2014-10-10. */
+         case ATH79_SOC_QCA9563:
+ /* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-10. */
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++#if 0
+ 			pdata->mii_bus_dev = &ath79_mdio1_device.dev;
++#else
++            if (id == 0)
++                pdata->mii_bus_dev = &ath79_mdio0_device.dev;
++            else
++                pdata->mii_bus_dev = &ath79_mdio1_device.dev;
++#endif
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-10. */
+ 			break;
+ 
+ 		case ATH79_SOC_QCA9556:
+diff -urN a//arch/mips/include/asm/mach-ath79/ar71xx_regs.h b//arch/mips/include/asm/mach-ath79/ar71xx_regs.h
+--- a//arch/mips/include/asm/mach-ath79/ar71xx_regs.h	2014-10-29 21:42:55.000000000 +0800
++++ b//arch/mips/include/asm/mach-ath79/ar71xx_regs.h	2014-10-30 02:45:04.000000000 +0800
+@@ -151,6 +151,14 @@
+ #define QCA956X_GMAC_SIZE	0x64
+ /* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-10. */
+ 
++/* Begin: Added by zhouke, for qsdk ar71xx afi patch. 2014-10-29. */
++#define QCA956X_GMAC_SGMII_BASE	(AR71XX_APB_BASE + 0x00070000)
++#define QCA956X_GMAC_SGMII_SIZE	0x64
++#define QCA956X_PLL_BASE	(AR71XX_APB_BASE + 0x00050000)
++#define QCA956X_PLL_SIZE	0x50
++#define QCA956X_PLL_ETH_XMII_CONTROL_REG		0x30
++/* End:    Added by zhouke, for qsdk ar71xx patch.    2014-10-29. */
++
+ #define AR9300_OTP_BASE		0x14000
+ #define AR9300_OTP_STATUS	0x15f18
+ #define AR9300_OTP_STATUS_TYPE		0x7

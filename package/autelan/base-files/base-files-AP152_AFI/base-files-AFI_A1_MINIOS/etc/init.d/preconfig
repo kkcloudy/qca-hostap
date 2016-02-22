@@ -1,0 +1,373 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+
+MODEL="AFi-A1"
+MAC="00:00:00:00:00:00"
+SN="000000000000"
+
+
+RECOVERY_DOAMIN=afi.autelan.com
+
+kes_service() {
+
+	echo "**************** insmod kes.ko"
+	
+if [ -f /proc/kes_debug_switch ] && [ -f /proc/kes_dmsg_switch ];then
+	cat /proc/kes_dmsg > /tmp/kes_dmsg.log
+	cat /proc/kes_debug > /tmp/kes_debug.log
+	cat /proc/kes_traps > /tmp/kes_traps.log
+	echo 1 > /proc/kes_dmsg_switch
+	echo 1 > /proc/kes_debug_switch
+else
+	touch /tmp/kes_load_failed
+fi
+
+}
+
+check_product_message()
+{
+
+        if [ "$PRODUCT_MODEL" = "" ] || [ "$PRODUCT_MODEL" = "product.model not exist" ]; then
+                PRODUCT_MODEL=$MODEL
+                echo "There is no product.model in the product section of the system."
+                logger -s "There is no product.model in the product section of the system."
+        fi
+
+        if [ "$PRODUCT_MAC" = "" ] || [ "$PRODUCT_MAC" = "product.mac not exist" ]; then
+                PRODUCT_MAC=$MAC
+                echo "There is no product.mac in the product section of the system."
+                logger -s "There is no product.mac in the product section of the system."
+        fi
+
+        if [ "$PRODUCT_SN" = "" ] || [ "$PRODUCT_SN" = "product.sn not exist" ]; then
+                PRODUCT_SN=$SN
+                echo "There is no product.sn in the product section of the system."
+                logger -s "There is no product.sn in the product section of the system."
+        fi
+
+}
+
+report_to_ac()
+{
+	PRODUCT_MODEL="`partool -part mtd8 -show product.model`" > /dev/null 2>&1
+	PRODUCT_MAC="`partool -part mtd8 -show product.mac`" > /dev/null 2>&1
+	PRODUCT_SN="`partool -part mtd8 -show product.sn`" > /dev/null 2>&1
+	SYSTEM_START="`partool -part mtd2 -show system.start`" > /dev/null 2>&1
+	SERVER_PORT="80"
+	MYIP="`ifconfig br-wan | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`" > /dev/null 2>&1	
+	VERSION="`showver`"
+	SERVER_ADDR_FROM_AC="$(partool -part mtd2 -show recovery.domain.ac)"
+
+	check_product_message	
+
+	cd /tmp
+	echo $SERVER_ADDR_FROM_AC > addr_from_ac
+	
+	i=1
+	SERVER_ADDR=$(cut -d , -f $i addr_from_ac)
+	while :
+	do
+		SERVER_ADDR=$(cut -d , -f $i addr_from_ac)
+		if [ "$SERVER_ADDR" = "" ]; then
+			echo "cannot get domain from ac"
+			break
+		fi
+		
+		#echo "SERVER_ADDR $SERVER_ADDR"
+		
+		cd /tmp
+		#wget -O addrinfo http://$SERVER_ADDR/md5sums
+		wget -O addrinfo "http://$SERVER_ADDR:9082/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&key=$1"  >> /tmp/message.info
+
+		
+		#if [ -z addrinfo ] || [ ! -f addrinfo ]; then
+		#	i=$(($i+1))
+		#else
+		#	echo "get domain from ac"
+		#	break
+		#fi
+		
+		if [ $? -ne 0 ]; then
+			i=$(($i+1))
+		else
+			echo "get domain from ac"
+			break
+		fi
+	done
+}
+
+set_logserver_addr()
+{
+	WGET="wget -c -T 20 -O"
+	SERVER_ADDR=""
+	SERVER_PORT="80"
+	PRODUCT_MODEL="`partool -part mtd8 -show product.model`" > /dev/null 2>&1
+	PRODUCT_MAC="`partool -part mtd8 -show product.mac`" > /dev/null 2>&1
+	PRODUCT_SN="`partool -part mtd8 -show product.sn`" > /dev/null 2>&1
+	MYIP="`ifconfig eth0 | grep 'inet addr:' | grep -v '127.0.0.1' | cut -d: -f2 | awk '{print $1}'`" > /dev/null 2>&1
+	i=1
+	
+	SERVER_ADDR_FROM_AC="$(partool -part mtd2 -show recovery.domain.ac)"
+	if [ "$SERVER_ADDR_FROM_AC" = "" ] || [ "$SERVER_ADDR_FROM_AC" = "recovery.domain.ac not exist" ]; then
+		/sbin/logread -f -r 192.168.6.11 514 -p /var/run/logread.2.pid -u &   #afi.autelan.com ip=192.168.6.11
+#		/sbin/logread -f -r 192.168.46.225 514 -p /var/run/logread.2.pid -u &
+		echo "recovery.domain.ac ==NULL" >> /tmp/upgrade_message.log
+		return
+	fi
+	
+	cd /tmp
+	echo $SERVER_ADDR_FROM_AC > addr_from_ac
+	SERVER_ADDR=$(cut -d , -f $i addr_from_ac)
+	while :
+	do
+		SERVER_ADDR=$(cut -d , -f $i addr_from_ac)
+		if [ "$SERVER_ADDR" = "" ]; then
+				/sbin/logread -f -r 192.168.6.11 514 -p /var/run/logread.2.pid -u &   #afi.autelan.com ip=192.168.6.11
+#				/sbin/logread -f -r 192.168.46.225 514 -p /var/run/logread.2.pid -u &
+				echo "SERVER_ADDR ==NULL" >> /tmp/upgrade_message.log
+				return
+		fi
+		
+		cd /tmp
+		ping -w 5 $SERVER_ADDR
+		
+		if [ $? -ne 0 ]; then
+			i=$(($i+1))
+		else
+			$WGET addrinfo "http://$SERVER_ADDR:$SERVER_PORT/information.php?product=$PRODUCT_MODEL&mac=$PRODUCT_MAC&sn=$PRODUCT_SN&myip=$MYIP&key=workos_sysupgrade"
+			if [ $? -ne 0 ]; then
+				i=$(($i+1))
+			else
+				/sbin/logread -f -r $SERVER_ADDR 514 -p /var/run/logread.2.pid -u &
+#				/sbin/logread -f -r 192.168.46.225 514 -p /var/run/logread.2.pid -u &
+				rm  /tmp/addrinfo
+				break
+			fi
+		fi
+	done
+}
+
+get_start_state()
+{
+	SYSTEM_START="`partool -part mtd2 -show system.start`" > /dev/null 2>&1
+	if [ "$SYSTEM_START" = "upgrade" ] ;then
+		report_to_ac sysupgrade_start_successfull
+		/usr/bin/partool -part mtd2 -new system.start normal
+	fi
+	if [ "$SYSTEM_START" = "recovery" ] ;then
+		report_to_ac sysupgrede_successfull_from_minios
+		/usr/bin/partool -part mtd2 -new system.start normal
+	fi
+
+}
+
+
+resume_osenv()
+{
+	local value
+	value="`showver | cut -c 1-5`"
+	
+
+        /usr/bin/partool -part mtd2 -empty
+	/usr/bin/partool -part mtd2 -new system.ha single
+
+	/usr/bin/partool -part mtd2 -new software.version  $value
+        /usr/bin/partool -part mtd2 -new system.platform newos
+        /usr/bin/partool -part mtd2 -new system.state  ok
+
+	value="`uci get -c /etc/.system/ baton.wtpd.current_ac`"	
+	if [ "$value" != "" ];then
+        	/usr/bin/partool -part mtd2 -new recovery.domain.ac  $value
+	fi	
+	
+        /usr/bin/partool -part mtd2 -new system.failed_count 0
+	/usr/bin/partool -part mtd2 -new recovery.domain  $RECOVERY_DOAMIN
+}
+
+check_product_env()
+{	
+	local PRODUCT_MAC
+	local PRODUCT_SN
+	local PRODUCT_MODEL
+	local PRODUCT_VENDOR
+
+	/usr/bin/partool -part mtd8 -show
+	if [ $? -ne 0 ];then
+		logger "mtd8 has been destroyed" -p 5
+		return 
+	fi
+	
+	PRODUCT_MAC="`/usr/bin/partool -part mtd8 -show product.mac`"
+	PRODUCT_SN="`/usr/bin/partool -part mtd8 -show product.sn`"
+	PRODUCT_MODEL="`/usr/bin/partool -part mtd8 -show product.model`"
+	PRODUCT_VENDOR="`/usr/bin/partool -part mtd8 -show product.vendor`"
+	
+	if [ "$PRODUCT_MAC" = "" ] || [ "$PRODUCT_MAC" = "product.mac not exist" ];then
+		logger "product.mac not exist" -p 5
+	fi	
+	if [ "$PRODUCT_SN" = "" ] || [ "$PRODUCT_SN" = "product.sn not exist" ];then
+		logger "product.sn not exist" -p 5
+	fi	
+	if [ "$PRODUCT_MODEL" = "" ] || [ "$PRODUCT_MODEL" = "product.model not exist" ];then
+		logger "product.model not exist" -p 5
+	fi	
+	
+	if [ "$PRODUCT_VENDOR" = "" ] || [ "$PRODUCT_VENDOR" = "product.vendor not exist" ];then
+		logger "product.vendor not exist" -p 5
+	fi
+	
+}
+
+check_os_env()
+{
+	local value
+	local OSENV_HA
+	local OSENV_VERSION
+	local OSENV_PLATFORM
+	local OSENV_STATE
+	local OSENV_DOMAIN_AC
+	local OSENV_FAILED_COUNT
+	local OSENV_RECOVERY_DOMAIN
+
+	/usr/bin/partool -part mtd2 -show
+	if [ $? -ne 0 ];then
+		resume_osenv
+		logger "[check_os_env]:osenv has been resumed." -p 5
+		return
+	fi
+	
+	OSENV_HA="`/usr/bin/partool -part mtd2 -show system.ha`"
+	OSENV_VERSION="`/usr/bin/partool -part mtd2 -show software.version`"
+	OSENV_PLATFORM="`/usr/bin/partool -part mtd2 -show system.platform`"
+	OSENV_STATE="`/usr/bin/partool -part mtd2 -show system.state`"
+	OSENV_DOMAIN_AC="`/usr/bin/partool -part mtd2 -show recovery.domain.ac`"
+	OSENV_FAILED_COUNT="`/usr/bin/partool -part mtd2 -show system.failed_count`"
+	OSENV_RECOVERY_DOMAIN="`/usr/bin/partool -part mtd2 -show recovery.domain`"
+
+	if [ "$OSENV_HA" = "" ] || [ "$OSENV_HA" = "system.ha not exist" ] ; then
+		logger "[check_os_env]:There is no system.ha in the osenv section" -p 5
+		/usr/bin/partool -part mtd2 -new system.ha single	
+	fi
+	if [ "$OSENV_VERSION" = "" ] || [ "$OSENV_VERSION" = "software.version not exist" ] ; then
+		logger "[check_os_env]:There is no software.version in the osenv section" -p 5
+		value="`showver | cut -c 1-5`"
+		/usr/bin/partool -part mtd2 -new software.version  $value
+	fi
+
+	if [ "$OSENV_STATE" = "" ] || [ "$OSENV_STATE" = "system.state not exist" ] ; then
+		logger "[check_os_env]:There is no system.state in the osenv section" -p 5
+		/usr/bin/partool -part mtd2 -new system.state  ok
+	fi
+
+	if [ "$OSENV_PLATFORM" = "" ] || [ "$OSENV_PLATFORM" = "system.platform not exist" ] ; then
+		logger "[check_os_env]:There is no system.platform in the osenv section" -p 5
+		/usr/bin/partool -part mtd2 -new system.platform  newos
+	fi
+
+	if [ "$OSENV_DOMAIN_AC" = "" ] || [ "$OSENV_DOMAIN_AC" = "recovery.domain.ac not exist" ] ; then
+		logger "[check_os_env]:There is no recovery.domain.ac in the osenv section" -p 5
+		value="`uci get -c /etc/.system/ baton.wtpd.current_ac`"
+	        if [ "$value" != "" ];then
+                	/usr/bin/partool -part mtd2 -new recovery.domain.ac  $value
+       		fi
+
+	fi
+
+	if [ "$OSENV_FAILED_COUNT" = "" ] || [ "$OSENV_FAILED_COUNT" = "system.failed_count not exist" ] ; then
+		logger "[check_os_env]:There is no system.failed_count in the osenv section" -p 5
+		/usr/bin/partool -part mtd2 -new system.failed_count 0
+	fi
+
+	if [ "$OSENV_RECOVERY_DOMAIN" = "" ] || [ "$OSENV_RECOVERY_DOMAIN" = "recovery.domain not exist" ] ; then
+		logger "[check_os_env]:There is no recovery.domain in the osenv section" -p 5
+		/usr/bin/partool -part mtd2 -new recovery.domain  $RECOVERY_DOAMIN
+	fi
+	
+}
+
+check_upgrade_executable_permission()
+{
+	local PM
+        if [ ! -e /sbin/auto-sysupgrade ] || [ ! -e /sbin/autelan-sysupgrade ] || [ ! -e /sbin/sysupgrade ] || \
+        [ ! -e /sbin/start-upgrade ];then
+                echo "lack of upgrade file"
+		logger "lack of upgrade file" -p 6
+        else
+                echo "ok"
+        fi
+        PM=`ls -l /sbin/auto-sysupgrade | cut -c 4`
+        if [ $PM != x ];then
+                chmod +x /sbin/auto-sysupgrade
+                echo "auto-sysupgrade +x"
+		logger "auto-sysupgrade's permission has been modified by +x"  -p 6
+        fi
+        PM=`ls -l /sbin/autelan-sysupgrade | cut -c 4`
+        if [ $PM != x ];then
+                chmod +x /sbin/autelan-sysupgrade
+                echo "autelan-sysupgrade +x"
+		logger "autelan-sysupgrade's permission has been modified by +x" -p 6
+        fi
+        PM=`ls -l /sbin/sysupgrade | cut -c 4`
+        if [ $PM != x ];then
+                chmod +x /sbin/sysupgrade
+                echo "sysupgrade +x"
+		logger "sysupgrade's permission has been modified by +x"  -p 6
+        fi
+        PM=`ls -l /sbin/start-upgrade | cut -c 4`
+        if [ $PM != x ];then
+                chmod +x /sbin/start-upgrade
+                echo "start-upgrade +x"
+		logger "start-upgrade's permission has been modified by +x" -p 6
+        fi
+}
+
+close_allled()
+{
+        echo none > /sys/class/leds/ap152_afi:green/trigger
+        echo none > /sys/class/leds/ap152_afi:red/trigger
+        echo none > /sys/class/leds/ap152_afi:blue/trigger
+}
+
+start() {
+
+	/sbin/udhcpc -i eth0
+	echo "eth0 has been configured by udhcpc." >> /tmp/message.info
+
+#	ifconfig eth0 192.168.46.228 netmask 255.255.255.128	
+	
+#	echo "nameserver 192.168.1.7" >> /tmp/resolv.conf.auto	
+#	echo "nameserver 192.168.1.8" >> /tmp/resolv.conf.auto	
+	partool -part mtd2 -show
+	if [ $? -ne 0 ];then
+		resume_osenv
+		logger "The osenv has been resumed." -p 5
+	fi	
+
+	set_logserver_addr
+	logger "logserver addr has been set"
+	
+	check_os_env	
+	check_product_env	
+	check_upgrade_executable_permission	
+	/sbin/auto-sysupgrade
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,9 @@
+config system
+        option hostname OpenWrt
+        option timezone UTC
+
+config led 'led_red'
+	option trigger 'timer'
+	option delay_on '600'
+	option delay_off '600'
+	option sysfs 'ap152_afi:red'

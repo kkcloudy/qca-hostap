@@ -1,0 +1,21 @@
+diff -urN a//net/core/dev_ioctl.c b//net/core/dev_ioctl.c
+--- a//net/core/dev_ioctl.c	2014-12-19 20:01:29.000000000 +0800
++++ b//net/core/dev_ioctl.c	2014-12-19 20:06:13.000000000 +0800
+@@ -314,7 +314,7 @@
+ 	 */
+ 	default:
+ 		if ((cmd >= SIOCDEVPRIVATE &&
+-		    cmd <= SIOCDEVPRIVATE + 15) ||
++			cmd <= SIOCDEVPRIVATE + 31) ||  //AUTELAN-Modified by zhouke for the max ioclt numer from 'SIOCDEVPRIVATE + 15' to 'SIOCDEVPRIVATE + 31' 2014-12-19
+ 		    cmd == SIOCBONDENSLAVE ||
+ 		    cmd == SIOCBONDRELEASE ||
+ 		    cmd == SIOCBONDSETHWADDR ||
+@@ -547,7 +547,7 @@
+ 	default:
+ 		if (cmd == SIOCWANDEV ||
+ 		    (cmd >= SIOCDEVPRIVATE &&
+-		     cmd <= SIOCDEVPRIVATE + 15)) {
++			 cmd <= SIOCDEVPRIVATE + 31)) {  //AUTELAN-Modified by zhouke for the max ioclt numer from 'SIOCDEVPRIVATE + 15' to 'SIOCDEVPRIVATE + 31' 2014-12-19
+ 			dev_load(net, ifr.ifr_name);
+ 			rtnl_lock();
+ 			ret = dev_ifsioc(net, &ifr, cmd);

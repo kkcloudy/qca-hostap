@@ -1,0 +1,236 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2010 Jo-Philipp Wich
+
+START=50
+USE_PROCD=1
+WIFIDOG_BIN="/usr/bin/wifidog"
+WDCTL_BIN="/usr/bin/wdctl"
+
+configure_option()
+{
+	local cfg="$1"
+	local option="$2"
+	local opt="$3"
+	local wifidog_conf_path="$4"
+	local val
+
+	config_get val "$cfg" "$option"
+	[ "X$val" != "X" ] && echo -e "$opt $val" >> "$wifidog_conf_path"
+}
+
+configure_authserver()
+{
+	local authserver="$1" 
+	local wifidog_conf_path="$2"
+
+	echo -e "AuthServer {" >> "$wifidog_conf_path"
+
+	configure_option "$authserver" "hostname" "\tHostname" "$wifidog_conf_path"
+	configure_option "$authserver" "sslavailable" "\tSSLAvailable" "$wifidog_conf_path"
+	configure_option "$authserver" "sslport" "\tSSLPort" "$wifidog_conf_path"
+	configure_option "$authserver" "httpport" "\tHTTPPort" "$wifidog_conf_path"
+	configure_option "$authserver" "path" "\tPath" "$wifidog_conf_path"
+	configure_option "$authserver" "loginscriptpathfragment" "\tLoginScriptPathFragment" "$wifidog_conf_path"
+	configure_option "$authserver" "portalscriptpathfragment" "\tPortalScriptPathFragment" "$wifidog_conf_path"
+	configure_option "$authserver" "msgscriptpathfragment" "\tMsgScriptPathFragment" "$wifidog_conf_path"
+	configure_option "$authserver" "pingscriptpathfragment" "\tPingScriptPathFragment" "$wifidog_conf_path"
+	configure_option "$authserver" "authscriptpathfragment" "\tAuthScriptPathFragment" "$wifidog_conf_path"
+
+	echo "}" >> "$wifidog_conf_path"
+}
+
+configure_rule()
+{
+	local rule="$1" wifidog_conf_path="$2"
+	local action ipaddress ipmask proto fw_rule
+	
+	config_get action "$rule" action
+	config_get proto "$rule" proto
+	config_get port "$rule" port
+	config_get ipaddress "$rule" ipaddress
+	config_get ipmask "$rule" ipmask
+
+	fw_rule="FirewallRule $action $proto"
+	[ "X$port" != "X" ] && fw_rule="$fw_rule port $port"
+	[ "X$ipaddress" != "X" ] && {
+		if [ "X$ipaddress" = "X0" ]; then
+			fw_rule="$fw_rule to 0.0.0.0"
+		else
+			fw_rule="$fw_rule to $ipaddress"
+		fi	
+		[ "X$ipmask" != "X" ] && fw_rule="$fw_rule/$ipmask"
+	}
+	echo -e "\t$fw_rule" >> "$wifidog_conf_path"
+}
+
+configure_ruleset()
+{
+	local ruleset="$1" wifidog_conf_path="$2"
+	local fw_ruleset="$ruleset"
+	local type var
+	
+	config_get type "$ruleset" "type"
+	[ "X$type" != "Xglobal" ] && fw_ruleset="$type-users"
+	
+	echo "FirewallRuleSet $fw_ruleset {" >> "$wifidog_conf_path"
+
+	config_get rule "$ruleset" "rule"
+	for var in $rule; do
+		configure_rule "$var" "$wifidog_conf_path"
+	done
+	
+	echo "}" >> "$wifidog_conf_path"
+}
+
+create_wifidog_configure_file()
+{
+	local instance="$1"
+	local wifidog_conf_path="$2"
+	local trustedmac authserver ruleset var
+
+	config_get gw_id "$instance" "gatewayid"
+	[ "X$gw_id" != "X" ] && echo -e "GatewayID $gw_id" > "$wifidog_conf_path"
+
+	configure_option "$instance" "externalinterface" "ExternalInterface" "$wifidog_conf_path"
+	configure_option "$instance" "gatewayinterface" "GatewayInterface" "$wifidog_conf_path"
+	configure_option "$instance" "gatewayaddress" "GatewayAddress" "$wifidog_conf_path"
+	configure_option "$instance" "htmlmessagefile" "HtmlMessageFile" "$wifidog_conf_path"
+	configure_option "$instance" "daemon" "Daemon" "$wifidog_conf_path"
+	configure_option "$instance" "gatewayport" "GatewayPort" "$wifidog_conf_path"
+	configure_option "$instance" "httpdname" "HTTPDName" "$wifidog_conf_path"
+	configure_option "$instance" "httpdmaxconn" "HTTPDMaxConn" "$wifidog_conf_path"
+	configure_option "$instance" "httpdrealm" "HTTPDRealm" "$wifidog_conf_path"
+	configure_option "$instance" "httpdusername" "HTTPDUserName" "$wifidog_conf_path"
+	configure_option "$instance" "httpdpassword" "HTTPDPassword" "$wifidog_conf_path"
+	configure_option "$instance" "checkinterval" "CheckInterval" "$wifidog_conf_path"
+	configure_option "$instance" "clienttimeout" "ClientTimeout" "$wifidog_conf_path"
+	configure_option "$instance" "bridgeport" "BridgePort" "$wifidog_conf_path"
+	configure_option "$instance" "wdctlsock" "WdctlSocket" "$wifidog_conf_path"
+	config_get trustedmac "$instance" "trustedmac"
+	[ "X$trustedmac" != "X" ] && trustedmac=`echo $trustedmac | sed s/' '/,/g` && echo -e "TrustedMACList $trustedmac" >> "$wifidog_conf_path"
+
+	config_get authserver "$instance" authserver
+	configure_authserver "$authserver" "$wifidog_conf_path"
+
+	config_get ruleset "$instance" ruleset	
+	for var in $ruleset; do
+		configure_ruleset "$var" "$wifidog_conf_path"
+	done
+	
+}
+
+start_instance()
+{
+	local instance="$1"
+	local instance_name wifidog_conf_path
+	
+	config_get instance_name "$instance" name
+	wifidog_conf_path="/tmp/wifidog.conf.$instance_name"
+
+	create_wifidog_configure_file "$instance" "$wifidog_conf_path"
+	procd_open_instance
+	procd_set_param command "$WIFIDOG_BIN" -c "$wifidog_conf_path"
+	procd_set_param respawn
+	procd_close_instance
+	sleep 3
+}
+
+service_triggers()
+{
+        procd_add_reload_trigger "wifidog"
+}
+
+start_service()
+{
+        config_load wifidog
+        config_foreach start_instance instance
+}
+
+stop_instance_name()
+{
+	local instance_name="$1"
+	local pid 
+
+	pid=`ps | grep \[w]ifidog.conf.$instance_name | awk -F ' ' '{print $1}'`
+
+	kill $pid
+	rm /tmp/wifidog.conf.$instance_name
+	rm /tmp/wdctl.sock.$instance_name
+	sleep 1
+}
+
+stop_service()
+{
+	local instance_name val
+
+	instance_name=`ps | grep /[w]ifidog.conf | awk -F '.' '{print $3}' | awk -F' ' '{print $1}'`
+	for val in $instance_name; do
+		stop_instance_name $val
+	done
+}
+
+reload_service()
+{
+	local instance_name val
+
+	instance_name=`ps | grep /[w]ifidog.conf | awk -F '.' '{print $3}' | awk -F' ' '{print $1}'`
+	for val in $instance_name; do
+		stop_instance_name $val
+	done
+	config_load wifidog
+	config_foreach start_instance instance
+}
+
+restart_instance()
+{
+	local instance="$1"
+	local wifidog_conf_path instance_name wdctlsock
+	
+	config_get instance_name "$instance" name
+	wifidog_conf_path="/tmp/wifidog.conf.$instance_name"
+
+	rm "$wifidog_conf_path"
+	create_wifidog_configure_file "$1" "$wifidog_conf_path"
+
+	config_get wdctlsock "$instance" wdctlsock
+	$WDCTL_BIN -s "$wdctlsock" restart	
+	sleep 3
+}
+
+restart()
+{
+	local running_instance_name configure_instance new_instance
+	local cfgtype section need_stopping pid
+	local running_val configure_val new_val name_val
+
+	config_load wifidog
+	running_instance_name=`ps | grep /[w]ifidog.conf | awk -F'.' '{print $3}' | awk -F' ' '{print $1}'`
+
+	for section in $CONFIG_SECTIONS; do
+		config_get cfgtype "$section" TYPE
+		[ "X$cfgtype" != "Xinstance" ] && continue
+		configure_instance="$configure_instance $section"
+	done
+
+	new_instance="$configure_instance"
+	for running_val in $running_instance_name; do
+		need_stopping="1"
+		for configure_val in $configure_instance; do
+			config_get name_val "$configure_val" name
+			[ "X$running_val" = "X$name_val" ] && {
+				need_stopping="0"
+				restart_instance "$configure_val"
+				new_instance=`echo $new_instance | sed s/$configure_val//g`
+				break
+			}
+		done
+		[ "X$need_stopping" = "X1" ] && {
+			stop_instance_name "$running_val"
+		}
+	done
+
+	for new_val in $new_instance; do
+		start_instance "$new_val"
+	done
+}
+
