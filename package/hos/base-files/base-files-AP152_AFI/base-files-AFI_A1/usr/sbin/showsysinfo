@@ -1,5 +1,5 @@
 #!/bin/sh
-WRCPUTOOL="/usr/bin/partool -part mtd8 -show"
+WRCPUTOOL="/usr/bin/partool -part mtd5 -show"
 COMPANY_NAME="`$WRCPUTOOL product.vendor`"
 PRODUCT_TYPE="`$WRCPUTOOL product.model`"
 SERIAL_NUMBER="`$WRCPUTOOL product.sn`"
