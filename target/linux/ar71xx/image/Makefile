@@ -267,7 +267,7 @@ eap300v2_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env),320k(custom),1
 db120_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,6336k(rootfs),1408k(kernel),64k(nvram),64k(art)ro,7744k@0x50000(firmware)
 ap151_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1088k(kernel),6720k(rootfs),64k(art)ro,16000k@0x50000(firmware)
 ap152_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1088k(kernel),6720k(rootfs),64k(art)ro,16000k@0x50000(firmware)
-ap152_afi_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,64k(os-env),2048k(minios),1088k(kernel),12288k(rootfs),448k(reserve),64k(product_info),64k(art)ro,13376k@0x260000(firmware),16384k@0x000000(full_flash)
+ap152_afi_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1088k(kernel),14848k(rootfs),64k(hard_info),64k(art)ro,15936k@0x50000(firmware),16384k@0x000000(full_flash)
 cameo_ap94_mtdlayout=mtdparts=spi0.0:256k(uboot)ro,64k(config)ro,6208k(firmware),64k(caldata)ro,1600k(unknown)ro,64k@0x7f0000(caldata_copy)
 cameo_ap94_mtdlayout_fat=mtdparts=spi0.0:256k(uboot)ro,64k(config)ro,7808k(firmware),64k(caldata)ro,64k@0x660000(caldata_orig),6208k@0x50000(firmware_orig)
 esr900_mtdlayout=mtdparts=spi0.0:192k(u-boot)ro,64k(u-boot-env)ro,1408k(kernel),13248k(rootfs),1024k(manufacture)ro,64k(backup)ro,320k(storage)ro,64k(caldata)ro,14656k@0x40000(firmware)

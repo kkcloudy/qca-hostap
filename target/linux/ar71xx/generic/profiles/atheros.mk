@@ -66,18 +66,18 @@ ifeq ($(strip ${AT_PRODUCT}),AE5000_E2CN2_MINIOS)
         PACKAGES:=-kmod-ath9k -komd-ath5k -kmod-ath -hostapd -wpa-supplicant \
                 -firewall -odhcpd -dnsmasq -wpad-mini \
                 qca-spectral qca-hostapd-cli qca-wpa-cli qca-wpa-supplicant\
-		autelan-partool libautelan-partool 
+		hos-partool libhos-partool 
 		
 		
 else
         PACKAGES:=-kmod-ath9k -komd-ath5k -kmod-ath -hostapd -wpa-supplicant \
                 -firewall -odhcpd -dnsmasq -wpad-mini\
                 qca-spectral qca-hostapd-cli qca-wpa-cli qca-wpa-supplicant \
-		autelan-appkey autelan-btt autelan-partool \
-                libautelan-appkey libautelan-partool \
+		hos-appkey hos-btt hos-partool \
+                libhos-appkey libhos-partool \
                 syncd kmod-kes kmod-packet_trace horst libncurses ethtool fping \
                 kmod-fs-nfs  kmod-fs-nfs-common \
-                autelan-apmonitor libauteos auteos
+                hos-apmonitor libauteos auteos
 endif
 endef
 
@@ -94,11 +94,11 @@ define Profile/APV5
                 kmod-qca-wifi-perf kmod-qca-wifi-perf qca-hostap \
                 qca-spectral qca-hostapd-cli qca-wpa-cli \
                 qca-wpa-supplicant tid kmod-tid_kmod \
-                autelan-appkey autelan-btt autelan-partool pro_ctl_util\
-                autelan-um libautelan-appkey libautelan-partool \
+                hos-appkey hos-btt hos-partool pro_ctl_util\
+                hos-um libhos-appkey libhos-partool \
                 syncd kmod-kes kmod-packet_trace horst libncurses ethtool fping uplink \
                 wifidog kmod-fs-nfs  kmod-fs-nfs-common \
-                autelan-apmonitor y-assistant kmod-y_assistant_kmod libauteos
+                hos-apmonitor y-assistant kmod-y_assistant_kmod libauteos
 endef
 
 define Profile/APV5/Description
@@ -147,33 +147,33 @@ endef
 $(eval $(call Profile,AP152))
 
 define Profile/AP152_AFI
-	NAME:=Autelan AP152_AFI reference board
+	NAME:=HOS AP152_AFI reference board
 	PACKAGES:=-kmod-ath9k -komd-ath5k -kmod-ath -hostapd -wpa-supplicant \
 		-firewall -odhcpd -dnsmasq -wpad-mini\
 		kmod-qca-wifi-perf kmod-qca-wifi-perf qca-hostap \
 		qca-spectral qca-hostapd-cli qca-wpa-cli \
 		qca-wpa-supplicant tid kmod-tid_kmod \
-		autelan-appkey autelan-btt autelan-partool \
-		autelan-um libautelan-appkey libautelan-partool \
+		hos-appkey hos-btt hos-partool \
+		hos-um libhos-appkey libhos-partool \
 		kmod-kes horst libncurses ethtool fping \
 		wifidog kmod-fs-nfs  kmod-fs-nfs-common autossh
 endef
 
 define Profile/AP152_AFI/Description
-	Package set optimized for the Autelan AP152_AFI reference board.
+	Package set optimized for the HOS AP152_AFI reference board.
 endef
 
 $(eval $(call Profile,AP152_AFI))
 
 
 define Profile/AFI_A1_MINI
-	NAME:=Autelan AFi-A1 reference board
+	NAME:=HOS AFi-A1 reference board
 	PACKAGES:=-kmod-ath9k -komd-ath5k -kmod-ath -hostapd -wpa-supplicant \
 		-firewall -odhcpd -dnsmasq -wpad-mini 
 endef
 
 define Profile/AFI_A1_MINI/Description
-	Package set optimized for the Autelan AFi-A1 reference board.
+	Package set optimized for the HOS AFi-A1 reference board.
 endef
 
 $(eval $(call Profile,AFI_A1_MINI))

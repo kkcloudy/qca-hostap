@@ -108,9 +108,9 @@ define Package/base-files/install
 		fi \
 	)
 	#zhouke add for autelan base-files
-	if [ -d $(TOPDIR)/package/autelan/base-files/base-files-$(PROFILE)/. ]; then	\
-		if [ -d $(TOPDIR)/package/autelan/base-files/base-files-$(PROFILE)/base-files-$(AT_PRODUCT)/. ]; then \
-			$(CP) $(TOPDIR)/package/autelan/base-files/base-files-$(PROFILE)/base-files-$(AT_PRODUCT)/* $(1)/;\
+	if [ -d $(TOPDIR)/package/hos/base-files/base-files-$(PROFILE)/. ]; then	\
+		if [ -d $(TOPDIR)/package/hos/base-files/base-files-$(PROFILE)/base-files-$(AT_PRODUCT)/. ]; then \
+			$(CP) $(TOPDIR)/package/hos/base-files/base-files-$(PROFILE)/base-files-$(AT_PRODUCT)/* $(1)/;\
 		fi;	\
 	fi	
 	$(VERSION_SED) \
