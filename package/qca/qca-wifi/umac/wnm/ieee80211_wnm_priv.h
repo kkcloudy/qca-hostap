@@ -65,6 +65,8 @@ int ieee80211_recv_bstm_query(wlan_if_t vap, wlan_node_t ni,
 
 int ieee80211_send_bstm_req(wlan_if_t vap, wlan_node_t ni,
                                         struct ieee80211_bstm_reqinfo* bstm_reqinfo);
+int ieee80211_send_bstm_req_target(wlan_if_t vap, wlan_node_t ni,
+                                   struct ieee80211_bstm_reqinfo_target* bstm_reqinfo);
 
 int ieee80211_recv_fms_req(wlan_if_t vap, wlan_node_t ni,
                                    u_int8_t *frm, int frm_len);

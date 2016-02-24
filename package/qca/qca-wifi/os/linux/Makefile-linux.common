@@ -49,10 +49,6 @@ ifndef PERF_PWR_OFFLOAD_DIR_PATH
 export PERF_PWR_OFFLOAD_DIR_PATH=$(WLAN_TOP)/firmware
 endif
 
-ifndef ATOPT_DIR_PATH
-export ATOPT_DIR_PATH=$(WLAN_TOP)/ATOPT
-endif
-
 ifeq ($(strip ${BUS}),AHB)
 COPTS += -DATH_AHB
 BUSNAME=ahb
@@ -197,21 +193,6 @@ ifeq ($(ATH_SUPPORT_SPECTRAL),1)
 INCS +=-I$(WLAN_TOP)/lmac/spectral
 endif
 
-ifeq ($(ATOPT_PROC_COMMAND), 1)
-INCS +=	-I$(WLAN_TOP)/ATOPT/command
-endif
-ifeq ($(ATOPT_THINAP), 1)
-INCS += -I$(WLAN_TOP)/ATOPT/thinap
-endif
-ifeq ($(ATOPT_TRAFFIC_LIMIT), 1)
-INCS +=	-I$(WLAN_TOP)/ATOPT/traffic_limit
-endif
-ifeq ($(ATOPT_DRV_MONITOR), 1)
-INCS += -I$(ATOPT_DIR_PATH)/drv_monitor
-endif
-ifeq ($(ATOPT_SYNC_INFO), 1)
-INCS +=	-I$(WLAN_TOP)/ATOPT/sync_info
-endif
 ifneq ($(BUILD_X86),y)
 COPTS += -Wno-undef
 else

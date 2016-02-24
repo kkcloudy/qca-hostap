@@ -636,11 +636,13 @@ ol_tx_ll_cachedhdr(ol_txrx_vdev_handle vdev,  adf_nbuf_t netbuf )
         adf_nbuf_unmap_single( vdev->osdev, (adf_nbuf_t) netbuf, ADF_OS_DMA_TO_DEVICE);
         ol_vap_txdiscard_stats_update(vdev->osif_vdev, netbuf);
         adf_nbuf_free(netbuf);
+        goto out ;
     }
+    return 0;
 out :
 
     ATH_HYFI_NOTIFY_LOW_ON_BUFFER(pdev->ctrl_pdev, (pdev->tx_desc.pool_size - pdev->stats.pub.tx.desc_in_use));
-    return 0;
+    return -1;
 
 }
 adf_nbuf_t ol_tx_reinject_cachedhdr(

@@ -296,7 +296,6 @@ tkip_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen,struct ieee80211_rx_
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_CRYPTO, wh->i_addr2,
                            "%s", "missing ExtIV for TKIP cipher");
         mac_stats->ims_rx_tkipformat++;
-		IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_tkipformat); //zhaoyang1 transplants statistics 2015-01-27
         return 0;
     }
     /*
@@ -328,7 +327,6 @@ tkip_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen,struct ieee80211_rx_
                   __func__, ctx->rx_rsc, k->wk_keyrsc[tid], tid);
         ieee80211_notify_replay_failure(vap, wh, k, ctx->rx_rsc);
         mac_stats->ims_rx_tkipreplay++;
-		IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_tkipreplay); //zhaoyang1 transplants statistics 2015-01-27
         return 0;
     }
     /*

@@ -21,6 +21,11 @@ enum ieee80211_phymode ieee80211_chan2mode(const struct ieee80211_channel *chan)
 u_int ieee80211_mhz2ieee(struct ieee80211com *ic, u_int freq, u_int flags);
 u_int ieee80211_ieee2mhz(struct ieee80211com *ic, u_int chan, u_int flags);
 struct ieee80211_channel *ieee80211_find_channel(struct ieee80211com *ic, int freq, u_int32_t flags);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void ieee80211_print_nolhistory(struct ieee80211com *ic);
+#endif
+
 struct ieee80211_channel *ieee80211_doth_findchan(struct ieee80211vap *vap, u_int8_t chan);
 struct ieee80211_channel *ieee80211_find_dot11_channel(struct ieee80211com *ic, int ieee, enum ieee80211_phymode mode);
 bool ieee80211_is_same_frequency_band(const struct ieee80211_channel *chan1, const struct ieee80211_channel *chan2);

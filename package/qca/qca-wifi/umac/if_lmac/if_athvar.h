@@ -239,10 +239,6 @@ struct ath_softc_net80211 {
     u_int32_t int_scheduled_cnt;
     u_int32_t pre_int_scheduled_cnt;
 #endif
-#if ATOPT_PROC_COMMAND
-    struct ctl_table_header *sc_sysctl_header;
-    struct ctl_table        *sc_sysctls;
-#endif
 };
 #define ATH_SOFTC_NET80211(_ic)     ((struct ath_softc_net80211 *)(_ic))
 

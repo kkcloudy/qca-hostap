@@ -415,23 +415,28 @@ ol_tx_reinject(
 extern void ol_vap_tx_lock(void *);
 #define OL_VDEV_TX(_vdev, _msdu, _oshandle) \
 { \
-	ol_vap_tx_lock(_vdev->osif_vdev); \
-	ol_tx_ll_cachedhdr(_vdev, _msdu); \
-	ol_vap_tx_unlock(_vdev->osif_vdev); \
+        ol_vap_tx_lock(_vdev->osif_vdev); \
+        if (!(ol_tx_ll_cachedhdr(_vdev, _msdu))){ \
+           TXRX_STATS_MSDU_INCR(vdev->pdev, rx.forwarded, msdu); \
+        } \
+        ol_vap_tx_unlock(_vdev->osif_vdev); \
 }
 #elif QCA_OL_11AC_FAST_PATH
 
 #define OL_VDEV_TX(_vdev, _msdu, _oshandle) \
-           OL_TX_LL_WRAPPER(_vdev, _msdu, _oshandle);
-
+        if ((! OL_TX_LL_WRAPPER(_vdev, _msdu, _oshandle))) { \
+           TXRX_STATS_MSDU_INCR(vdev->pdev, rx.forwarded, msdu); \
+           }\
 #else
 #define OL_VDEV_TX(_vdev, _msdu, _oshandle) \
 {\
-    adf_nbuf_map_single(_oshandle, _msdu, ADF_OS_DMA_TO_DEVICE);\
-    if (vdev->tx(_vdev, _msdu))  { \
-        adf_nbuf_unmap_single(_oshandle, _msdu, ADF_OS_DMA_TO_DEVICE);\
-        adf_nbuf_free(_msdu); \
-    }\
+        adf_nbuf_map_single(_oshandle, _msdu, ADF_OS_DMA_TO_DEVICE);\
+        if (vdev->tx(_vdev, _msdu))  { \
+          adf_nbuf_unmap_single(_oshandle, _msdu, ADF_OS_DMA_TO_DEVICE);\
+          adf_nbuf_free(_msdu); \
+        } else { \
+          TXRX_STATS_MSDU_INCR(vdev->pdev, rx.forwarded, msdu); \
+        } \	
 }
 
 #endif /* QCA_OL_11AC_FAST_PATH */

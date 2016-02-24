@@ -209,18 +209,6 @@ struct ieee80211_stats {
 };
 #endif
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-struct ieee80211_autelan_mgmt_debug {
-#define IEEE80211_PARAM_MGMT_DEBUG_SET_SWITCH 1
-#define IEEE80211_PARAM_MGMT_DEBUG_GET_SWITCH 2
-
-    unsigned char   type;           /* request type*/
-    unsigned int    arg;
-};
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
 /*
  * Max size of optional information elements.  We artificially
  * constrain this; it's limited only by the max frame size (and
@@ -393,28 +381,6 @@ struct ieee80211req_sta_stats {
 	struct ieee80211_nodestats is_stats;
 };
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-struct ieee80211_channel_utility {
-	unsigned long timestamps_sec;
-	u_int32_t cyclecount;
-	u_int32_t rxclearcount;
-	u_int32_t rxfrmaecount;
-	u_int32_t txfrmaecount;
-};
-struct req_ch_utility_head
-{
-    size_t ch_utility_ptr;
-    size_t  space;
-};
-
-struct req_channel_utility
-{
-    struct req_ch_utility_head cu_h;
-    struct ieee80211_channel_utility *cu;
-};
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
-
 /*
  * Station information block; the mac address is used
  * to retrieve other data like stats, unicast key, etc.
@@ -460,6 +426,7 @@ struct ieee80211req_sta_info {
 	/* variable length IE data */
     u_int8_t isi_maxrate_per_client; /* Max rate per client */
 	u_int16_t   isi_stamode;        /* Wireless mode for connected sta */
+ 	u_int32_t isi_ext_cap;        /* Extended capabilities */
 };
 
 enum {
@@ -572,6 +539,15 @@ enum {
     IEEE80211_DBGREQ_MU_SCAN             =    36, /* do a MU scan */
     IEEE80211_DBGREQ_LTEU_CFG            =    37, /* LTEu specific configuration */
     IEEE80211_DBGREQ_AP_SCAN             =    38, /* do a AP scan */
+    IEEE80211_DBGREQ_ATF_DEBUG_SIZE = 39,    /* Set the ATF history size */
+    IEEE80211_DBGREQ_ATF_DUMP_DEBUG = 40,    /* Dump the ATF history */
+    IEEE80211_DBGREQ_SETQOSMAPCONF       =    41, /* set QoS map configuration */
+    /* bss transition management request, targetted to a particular AP (or set of APs) */
+    IEEE80211_DBGREQ_SENDBSTMREQ_TARGET  =    42,
+    /* Get data rate related info for a VAP or a client */
+    IEEE80211_DBGREQ_BSTEERING_GET_DATARATE_INFO = 43,
+    /* Enable/Disable band steering events on a VAP */
+    IEEE80211_DBGREQ_BSTEERING_ENABLE_EVENTS = 44,
 };
 
 typedef struct ieee80211req_acs_r{
@@ -611,6 +587,20 @@ typedef enum _ieee80211_tr069_cmd_ {
     TR069_SET_BSRATE         = 15,
     TR069_GET_BSRATE         = 16,
     TR069_GETSUPPORTEDFREQUENCY  = 17,
+    TR069_GET_PLCP_ERR_CNT   = 18,
+    TR069_GET_FCS_ERR_CNT    = 19,
+    TR069_GET_PKTS_OTHER_RCVD = 20,
+    TR069_GET_FAIL_RETRANS_CNT = 21,
+    TR069_GET_RETRY_CNT      = 22,
+    TR069_GET_MUL_RETRY_CNT  = 23,
+    TR069_GET_ACK_FAIL_CNT   = 24,
+    TR069_GET_AGGR_PKT_CNT   = 25,
+    TR069_GET_STA_BYTES_SENT = 26,
+    TR069_GET_STA_BYTES_RCVD = 27,
+    TR069_GET_DATA_SENT_ACK  = 28,
+    TR069_GET_DATA_SENT_NOACK = 29,
+    TR069_GET_CHAN_UTIL      = 30,
+    TR069_GET_RETRANS_CNT    = 31,
 }ieee80211_tr069_cmd;
 
 typedef struct {
@@ -694,6 +684,7 @@ struct ieee80211req_athdbg {
         ieee80211_rrm_tsmreq_info_t    tsmrpt;
         ieee80211_rrm_nrreq_info_t     neigrpt;
         struct ieee80211_bstm_reqinfo   bstmreq;
+        struct ieee80211_bstm_reqinfo_target bstmreq_target;
         ieee80211_tspec_info     tsinfo;
         ieee80211_rrm_chloadreq_info_t chloadrpt;
         ieee80211_rrm_stastats_info_t  stastats;
@@ -703,6 +694,7 @@ struct ieee80211req_athdbg {
         ieee80211req_rrmstats_t        rrmstats_req;
         ieee80211req_acs_t             acs_rep;
         ieee80211req_tr069_t           tr069_req;
+        struct ieee80211_qos_map       qos_map;
         ieee80211_bsteering_param_t    bsteering_param;
         ieee80211_bsteering_dbg_param_t bsteering_dbg_param;
         ieee80211_bsteering_rssi_req_t bsteering_rssi_req;
@@ -710,6 +702,7 @@ struct ieee80211req_athdbg {
         u_int8_t bsteering_enable;
         u_int8_t bsteering_overload;
         u_int8_t bsteering_rssi_num_samples;
+        ieee80211_bsteering_datarate_info_t bsteering_datarate_info;
         ieee80211req_mu_scan_t         mu_scan_req;
         ieee80211req_lteu_cfg_t        lteu_cfg;
         ieee80211req_ap_scan_t         ap_scan_req;
@@ -1207,8 +1200,8 @@ enum {
     IEEE80211_PARAM_11NG_VHT_INTEROP         = 353,  /* 2.4ng Vht Interop */
     IEEE80211_PARAM_RX_SIGNAL_DBM            = 354,  /*get rx signal strength in dBm*/
 #if QCA_AIRTIME_FAIRNESS
-    IEEE80211_PARAM_ATF_OPT                 = 355,   /* set airtime feature */
-    IEEE80211_PARAM_ATF_PER_UNIT            = 356,
+    IEEE80211_PARAM_ATF_OPT                  = 355,   /* set airtime feature */
+    IEEE80211_PARAM_ATF_PER_UNIT             = 356,
 #endif
     IEEE80211_PARAM_SCAN_REPEAT_PROBE_TIME   = 357,
     IEEE80211_PARAM_SCAN_REST_TIME           = 358,
@@ -1216,11 +1209,18 @@ enum {
     IEEE80211_PARAM_SCAN_PROBE_DELAY         = 360,
     IEEE80211_PARAM_MU_DELAY                 = 361,
     IEEE80211_PARAM_WIFI_TX_POWER            = 362,
-	IEEE80211_PARAM_CH_UTILITY = 375,/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-    IEEE80211_PARAM_MONITOR         = 376,
-    IEEE80211_PARAM_SCANCHAN_INDEX         = 377,
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
+#if QCA_AIRTIME_FAIRNESS
+    IEEE80211_PARAM_ATF_TXBUF_MAX            = 363,
+    IEEE80211_PARAM_ATF_TXBUF_MIN            = 364,
+    IEEE80211_PARAM_ATF_TXBUF_SHARE          = 365,
+    IEEE80211_PARAM_ATF_MAX_CLIENT           = 366,
+#endif
+    IEEE80211_PARAM_GETADDBAOPER             = 367,
+    IEEE80211_PARAM_BSS_CHAN_INFO            = 368,
+    IEEE80211_PARAM_TXRX_VAP_STATS           = 369,    /* single FW stat */
+    IEEE80211_PARAM_HC_BSSLOAD              = 370,
+    IEEE80211_PARAM_OSEN                    = 371,
+    IEEE80211_PARAM_SCAN_STATUS              = 372,  /* Get last scan complete reason */
 };
 /*
  * New get/set params for p2p.
@@ -1359,31 +1359,22 @@ struct ieee80211_ioc_channel {
 #define IEEE80211_IOCTL_P2P_BIG_PARAM   (SIOCDEVPRIVATE+14)
 #define SIOCDEVVENDOR                   (SIOCDEVPRIVATE+15)    /* Used for ATH_SUPPORT_LINUX_VENDOR */
 #define	IEEE80211_IOCTL_GET_SCAN_SPACE  (SIOCDEVPRIVATE+16)
+#if ATOPT_IOCTL
+#define IEEE80211_IOCTL_HAN_PRIV		(SIOCDEVPRIVATE+17)
+#define ATH_IOCTL_HAN_PRIV				(SIOCDEVPRIVATE+18)
+#endif
 
-#if QCA_AIRTIME_FAIRNESS 
 #define IEEE80211_IOCTL_ATF_ADDSSID     0xFF01
 #define IEEE80211_IOCTL_ATF_DELSSID     0xFF02
 #define IEEE80211_IOCTL_ATF_ADDSTA      0xFF03
 #define IEEE80211_IOCTL_ATF_DELSTA      0xFF04
 #define IEEE80211_IOCTL_ATF_SHOWATFTBL  0xFF05
 #define IEEE80211_IOCTL_ATF_SHOWAIRTIME 0xFF06
-#endif
-
-/*AUTELAN-Begin:Added by WangJia for traffic limit. 2012-11-02, transplant by zhouke */
-#if ATOPT_TRAFFIC_LIMIT
-#define	IEEE80211_IOCTL_TRAFFIC_LIMIT	(SIOCDEVPRIVATE+18) /*autelan private traffic limit*/
-#endif
-#define IEEE80211_IOCTL_CHANNEL_UTILITY (SIOCDEVPRIVATE+21) /* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-/* AUTELAN-End:Added by WangJia for traffic limit. 2012-11-02, transplant by zhouke  */
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-#define IEEE80211_IOCTL_MGMT_DEBUG      (SIOCDEVPRIVATE+23) /*AUTELAN-Added: Added by dongzw for mgmt debug, transplant by duanmingzhe */
-#define	IEEE80211_IOCTL_PACKET_TRACE	(SIOCDEVPRIVATE+26)	//AUTELAN-zhaoenjuan add for packet_trace
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
-#define	IEEE80211_IOCTL_SCAN_INFO	    (SIOCDEVPRIVATE+27) //AUTELAN-Begin:Added by tuqiang for monitor switch
+#define IEEE80211_IOCTL_ATF_FLUSHTABLE  0xFF07                 /* Used to Flush the ATF table entries */
+#define IEEE80211_IOCTL_ATF_ADDGROUP    0xFF08
+#define IEEE80211_IOCTL_ATF_CONFIGGROUP 0xFF09
+#define IEEE80211_IOCTL_ATF_DELGROUP    0xFF0a
+#define IEEE80211_IOCTL_ATF_SHOWGROUP   0xFF0b
 
 struct ieee80211_clone_params {
 	char		icp_name[IFNAMSIZ];	/* device name */
@@ -1760,6 +1751,7 @@ enum {
     IEEE80211_EV_DEAUTH_IND_AP,
     IEEE80211_EV_DISASSOC_IND_AP,
     IEEE80211_EV_WAPI,
+    IEEE80211_EV_TX_MGMT,
     IEEE80211_EV_CHAN_CHANGE,
     IEEE80211_EV_MU_RPT,
     IEEE80211_EV_SCAN,
@@ -1843,16 +1835,5 @@ struct event_data_scan {
     u_int8_t        scan_req_id;               /* AP scan request id, copied from the request */
     scan_status_t   scan_status;               /* whether the AP scan was successful or not */
 };
-
-/*AUTELAN-Begin:zhaoenjuan add for packet_trace*/
-struct ieee80211_autelan_packet_trace{
-
-#define SET_MAC			1
-#define GET_MAC			2
-	unsigned char   type;  			/* request type*/
-	unsigned int 	arg1;
-	u_int8_t macaddr[IEEE80211_ADDR_LEN];
-};
-/*AUTELAN-End:zhaoenjuan add for packet_trace*/
 
 #endif /* _NET80211_IEEE80211_IOCTL_H_ */

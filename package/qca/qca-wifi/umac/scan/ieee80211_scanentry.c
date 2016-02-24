@@ -1640,6 +1640,20 @@ ieee80211_scan_entry_add(wlan_if_t                            vaphandle,
     bool new_ap=0;
     hash = STA_HASH(macaddr);
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    /*
+     * If Radar found on the channel (of this entry) then do not add the entry.
+     * Even though the channels were removed from the Channel Scan list, perhaps,
+     * because of the power leak in the adjacent channels it appears to be coming from
+     * the removed channels.
+     */
+    if(ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) {
+        if(IEEE80211_IS_CHAN_RADAR(scan_entry_parameters->chan)) {
+            return NULL;
+        }
+    }
+#endif
+
     spin_lock(&(scan_table->st_lock));
 
     {

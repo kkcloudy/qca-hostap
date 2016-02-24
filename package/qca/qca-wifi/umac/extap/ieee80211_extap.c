@@ -130,6 +130,13 @@ print_ipv6_pkt(char *s, wlan_if_t vap, struct ether_header *eh)
 #endif /* EXTAP_DEBUG */
 
 #if eaipv6
+
+static inline int is_ipv6_addr_multicast(const adf_net_ipv6_addr_t *addr)
+{
+            return (addr->s6_addr32[0] & htonl(0xff000000U)) == htonl(0xff000000U);
+}
+
+
 static void
 ieee80211_extap_in_ipv6(wlan_if_t vap, struct ether_header *eh)
 {
@@ -149,10 +156,13 @@ ieee80211_extap_in_ipv6(wlan_if_t vap, struct ether_header *eh)
 				ha->addr, ATH_MITBL_IPV6);
 			return;
 		case ADF_ND_NADVT:	/* ARP Response */
+			if((is_ipv6_addr_multicast(&nd->nd_target)) || (nd->nd_icmph.icmp6_dataun.u_nd_advt.override))
+			{
 			ha = (eth_icmp6_lladdr_t *)nd->nd_opt;
 			/* save target ip */
 			mi_add(&vap->iv_ic->ic_miroot, nd->nd_target.s6_addr,
 				ha->addr, ATH_MITBL_IPV6);
+			}
 			/*
 			 * Unlike ipv4, source IP and MAC is not present.
 			 * Nothing to restore in the packet
@@ -401,6 +411,9 @@ ieee80211_extap_out_ipv6(wlan_if_t vap, struct ether_header *eh)
 #endif
 			break;
 		case ADF_ND_NADVT:	/* ARP Response */
+			if((is_ipv6_addr_multicast(&nd->nd_target)) || (nd->nd_icmph.icmp6_dataun.u_nd_advt.override))
+			{
+
 			ha = (eth_icmp6_lladdr_t *)nd->nd_opt;
 			/* save target ip */
 			mi_add(&vap->iv_ic->ic_miroot, nd->nd_target.s6_addr,
@@ -408,7 +421,7 @@ ieee80211_extap_out_ipv6(wlan_if_t vap, struct ether_header *eh)
 #if recheck
 			eadbg2(ha->addr, vap->iv_myaddr);
 			IEEE80211_ADDR_COPY(ha->addr, vap->iv_myaddr);
-
+			}
 			nd->nd_icmph.icmp6_cksum = 0;
 			nd->nd_icmph.icmp6_cksum =
 				adf_csum_ipv6(&iphdr->ipv6_saddr, &iphdr->ipv6_daddr,

@@ -489,6 +489,8 @@ printstats(FILE *fd, const struct ath_stats *stats)
     STAT_11N(rx_rb_on,           "rb on");
     STAT_11N(rx_rb_off,          "rb off");
     STAT_11N(rx_dsstat_err,      "rx descriptor status corrupted");
+    STAT_11N(tx_deducted_tokens, "tx tokens deducted");
+    STAT_11N(tx_unusable_tokens, "tx tokens unusable");
 
     /* Per Queue Statistics */
     for (i=0;i<10;++i) {

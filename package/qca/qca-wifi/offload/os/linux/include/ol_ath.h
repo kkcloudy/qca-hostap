@@ -36,24 +36,30 @@ struct ol_attach_t {
 
 /* AR9888 Revision 2 */
 #define AR9888_REV2_VERSION                 0x4100016c /* __VER_MINOR_ 1, __BUILD_NUMBER_ 364 */
-#define AR9888_REV2_FIRMWARE_FILE           "athwlan.bin"
-#define AR9888_REV2_UTF_FIRMWARE_FILE       "utf.bin"
-#define AR9888_REV2_BOARD_DATA_FILE         "fakeBoardData_AR6004.bin"
-#define AR9888_REV2_OTP_FILE                 "otp.bin"
+#define AR9888_REV2_FIRMWARE_FILE           "AR9888/athwlan.bin"
+#define AR9888_REV2_UTF_FIRMWARE_FILE       "AR9888/utf.bin"
+#define AR9888_REV2_BOARD_DATA_FILE         "AR9888/fakeBoardData_AR6004.bin"
+#define AR9888_REV2_OTP_FILE                "AR9888/otp.bin"
+#define AR9888_REV2_MAX_CL_FIRMWARE_FILE    "AR9888/max_clients.bin"
+#define AR9888_REV2_LTEU_FIRMWARE_FILE      "AR9888/lteu.bin"
+
+#if QCA_AIRTIME_FAIRNESS
+#define AR9888_REV2_ATF_FIRMWARE_FILE       "AR9888/atf.bin"
+#endif
 
 /* AR9888 Developer version */
 #define AR9888_DEV_VERSION                  0x4100270f /* __VER_MINOR_ 1, __BUILD_NUMBER_ 9999 */
-#define AR9888_DEV_FIRMWARE_FILE            "athwlan.bin"
-#define AR9888_DEV_UTF_FIRMWARE_FILE        "utf.bin"
-#define AR9888_DEV_BOARD_DATA_FILE          "fakeBoardData_AR6004.bin"
-#define AR9888_DEV_OTP_FILE                 "otp.bin"
+#define AR9888_DEV_FIRMWARE_FILE            "AR9888/athwlan.bin"
+#define AR9888_DEV_UTF_FIRMWARE_FILE        "AR9888/utf.bin"
+#define AR9888_DEV_BOARD_DATA_FILE          "AR9888/fakeBoardData_AR6004.bin"
+#define AR9888_DEV_OTP_FILE                 "AR9888/otp.bin"
 
 /* AR9887 Revision 1 */
 #define AR9887_REV1_VERSION                 0x4100016d 
-#define AR9887_REV1_FIRMWARE_FILE           "athwlan.bin"
-#define AR9887_REV1_UTF_FIRMWARE_FILE       "utf.bin"
-#define AR9887_REV1_BOARD_DATA_FILE         "fakeBoardData_AR6004.bin"
-#define AR9887_REV1_OTP_FILE                 "otp.bin"
+#define AR9887_REV1_FIRMWARE_FILE           "AR9887/athwlan.bin"
+#define AR9887_REV1_UTF_FIRMWARE_FILE       "AR9887/utf.bin"
+#define AR9887_REV1_BOARD_DATA_FILE         "AR9887/fakeBoardData_AR6004.bin"
+#define AR9887_REV1_OTP_FILE                "AR9887/otp.bin"
 
 #define AR6320_REV1_VERSION                 0x4000280F
 #define AR6320_REV1_FIRMWARE_FILE           "athwlan.bin"

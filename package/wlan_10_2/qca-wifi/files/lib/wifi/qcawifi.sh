@@ -70,7 +70,6 @@ xtod() {
         return $dnum
 }
 
-
 find_qcawifi_phy() {
 	local device="$1"
 
@@ -198,7 +197,6 @@ scan_qcawifi() {
 
 load_qcawifi() {
 	local umac_args
-        local lmac_args
 
 	config_get_bool testmode qcawifi testmode
 	[ -n "$testmode" ] && append umac_args "testmode=$testmode"
@@ -224,14 +222,20 @@ load_qcawifi() {
 	config_get atf_mode qcawifi atf_mode
 	[ -n "$atf_mode" ] && append umac_args "atf_mode=$atf_mode"
 
+        config_get atf_msdu_desc qcawifi atf_msdu_desc
+        [ -n "$atf_msdu_desc" ] && append umac_args "atf_msdu_desc=$atf_msdu_desc"
+	
+	config_get atf_peers qcawifi atf_peers
+        [ -n "$atf_peers" ] && append umac_args "atf_peers=$atf_peers"
+
+	config_get atf_max_vdevs qcawifi atf_max_vdevs
+        [ -n "$atf_max_vdevs" ] && append umac_args "atf_max_vdevs=$atf_max_vdevs"
+
 	config_get lteu_support qcawifi lteu_support
 	[ -n "$lteu_support" ] && append umac_args "lteu_support=$lteu_support"
 
-        if [ -f /jffs/.mac-policy ];then
-                append lmac_args "new_dispatch_mac=1"
-        else
-                append lmac_args "new_dispatch_mac=0"
-        fi	
+	config_get max_peers qcawifi max_peers
+	[ -n "$max_peers" ] && append umac_args "max_peers=$max_peers"
 
 	for mod in $(cat /etc/modules.d/33-qca-wifi*); do
 
@@ -242,12 +246,7 @@ load_qcawifi() {
 					return 1
 				}
 			};;
-			ath_dev) [ -d /sys/module/${mod} ] || { \
-				insmod ${mod} ${lmac_args} || { \
-					unload_qcawifi
-					return 1
-				}
-			};;
+
 			*) [ -d /sys/module/${mod} ] || { \
 				insmod ${mod} || { \
 					unload_qcawifi
@@ -257,24 +256,10 @@ load_qcawifi() {
 
 		esac
 	done
-	
-    #add by chenxf for set ap workmode
-        #local workmode="`/sbin/uci get system.runmode.ap_mode`"
-       	local workmode=$(cat /tmp/sysinfo/osinfo) 
-	if [ $workmode = "thin-ac" ]; then
-                echo 1 > /proc/sys/dev/wifi0/thinap
-		insmod capwap_split_fast
-        elif [ $workmode = "fat-ac" ]; then
-                echo 0 > /proc/sys/dev/wifi0/thinap
-        fi
-
-    	/etc/init.d/syncd reload
 }
 
 
 unload_qcawifi() {
-	/etc/init.d/syncd stop
-	rmmod capwap_split_fast
 	for mod in $(cat /etc/modules.d/33-qca-wifi* | sed '1!G;h;$!d'); do
 		[ -d /sys/module/${mod} ] && rmmod ${mod}
 	done
@@ -317,61 +302,6 @@ disable_qcawifi() {
 	[ ${nrvaps} -gt 0 ] || unload_qcawifi
 
 	return 0
-}
-
-autelan_wifi_config() {
-
-	# join5g config
-	config_get join5g_enable "$device" join5g_enable
-		case "$join5g_enable" in
-		1)
-			echo 1 > /proc/sys/dev/wifi0/join5g_enable
-		;;
-		0)
-			echo 0 > /proc/sys/dev/wifi0/join5g_enable
-		;;
-		*)
-			echo 0 > /proc/sys/dev/wifi0/join5g_enable
-		;;
-	esac
-
-}
-
-autelan_vap_config() {
-	# mgmt debug config 
-	config_get debug_mgmt "$vif" debug_mgmt
-		case "$debug_mgmt" in
-		1)
-			autelan mgmt_debug $ifname set_mgmt_debug 1
-		;;
-		0)
-			autelan mgmt_debug $ifname set_mgmt_debug 0
-		;;
-		*)
-			autelan mgmt_debug $ifname set_mgmt_debug 0
-		;;
-	esac
-
-	# traffic limit config 
-	config_get peruserrate "$vif" peruserrate "0"
-	config_get vaprate "$vif" vaprate  "0"                  
-	config_get upvaprate "$vif" upvaprate    "0"            
-	config_get downvaprate "$vif" downvaprate "0"
-	config_get downperuserrate "$vif" downperuserrate "0"
-	config_get upperuserrate "$vif" upperuserrate  "0"                           
-
-	autelan traffic_limit "$ifname" set_vap_flag $vaprate > /dev/null 2>&1
-	autelan traffic_limit "$ifname" set_every_node_flag $peruserrate > /dev/null 2>&1
-
-	[ "$vaprate" -gt 0 ] && {
-		[ "$upvaprate" -gt 0 ] && autelan traffic_limit "$ifname" set_vap "$upvaprate" > /dev/null 2>&1
-		[ "$downvaprate" -gt 0 ] && autelan traffic_limit "$ifname" set_vap_send "$downvaprate" > /dev/null 2>&1
-	}
-	[ "$peruserrate" -gt 0 ] && {
-		[ "$upperuserrate" -gt 0 ] && autelan traffic_limit "$ifname" set_every_node "$upperuserrate" > /dev/null 2>&1
-		[ "$downperuserrate" -gt 0 ] && autelan traffic_limit "$ifname" set_every_node_send "$downperuserrate" > /dev/null 2>&1
-	}
-	
 }
 
 enable_qcawifi() {
@@ -590,8 +520,10 @@ enable_qcawifi() {
 	config_get mcast_echo "$device" mcast_echo
 	[ -n "$mcast_echo" ] && iwpriv "$phy" mcast_echo "${mcast_echo}"
 
-	autelan_wifi_config
-	
+	config_get staDFSEn "$device" staDFSEn
+	[ -n "$staDFSEn" ] && iwpriv "$phy" staDFSEn "${staDFSEn}"
+
+
 	for vif in $vifs; do
 		local vif_txpower= nosbeacon= wlanaddr=""
 		config_get ifname "$vif" ifname
@@ -1114,6 +1046,9 @@ enable_qcawifi() {
 
 		config_get enh_ind "$vif" enh_ind
 		[ -n "$enh_ind" ] && iwpriv "$ifname" enh-ind "$enh_ind"
+
+		config_get osen "$vif" osen
+		[ -n "$osen" ] && iwpriv "$ifname" osen "$osen"
 	done
 
 	for vif in $vifs; do
@@ -1279,7 +1214,6 @@ enable_qcawifi() {
 					}
 				fi
 		esac
-		autelan_vap_config
 		ifconfig "$ifname" up
 	done
 }

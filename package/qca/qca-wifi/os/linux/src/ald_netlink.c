@@ -208,8 +208,7 @@ static void ald_nl_receive(struct sock *sk, int len)
 
         vap = osifp->os_if;
 		if(vap == NULL) {
-            kfree_skb(skb);
-            return;
+            goto out;
 		}
 
         if (ald_nl->ald_pid != pid)

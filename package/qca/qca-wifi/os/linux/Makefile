@@ -44,7 +44,7 @@ endif
 ifeq ($(ATH_SW_WOW_SUPPORT),1)
 obj-m += $(DEPTH)/wow/
 endif
-obj-m += $(DEPTH)/ATOPT/command/
+
 all: hal_build
 	echo $(INCS)
 ifneq ($(BUILD_X86),y)
@@ -55,6 +55,8 @@ ifeq ($(strip ${QCA_PARTNER_MAKE_F_SUPPORT}),1)
 	cd $(DEPTH)/lmac/ath_pktlog && make -f Kbuild
 	cd $(DEPTH)/lmac/ratectrl && make -f Kbuild
 	cd $(DEPTH)/lmac/dfs && make -f Kbuild
+	cd $(DEPTH)/lmac/spectral && make -f Kbuild
+	cd $(DEPTH)/lmac/tx99 && make -f Kbuild
 	cd $(DEPTH)/umac && make -f Kbuild
 else
 	$(MAKE) -C $(KERNELPATH) SUBDIRS=$(shell pwd) modules

@@ -59,20 +59,9 @@
 #include <acfg_drv_event.h>
 #endif
 
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
+#if ATOPT_IOCTL
+#include <han_ioctl.h>
 #endif
-#if ATOPT_PROC_COMMAND
-#include <at_proc_command.h>
-extern void at_wifi_sysctl_register(struct ath_softc_net80211 * scn);
-extern void at_wifi_sysctl_unregister(struct ath_softc_net80211 * scn);
-#endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-extern struct timer_list sync_info_timer;
-extern void sync_info_timer_fn(void);
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 /*
  * Maximum acceptable MTU
  * MAXFRAMEBODY - WEP - QOS - RSN/WPA:
@@ -632,9 +621,7 @@ ath_netdev_hardstart_generic(struct sk_buff *skb, struct net_device *dev)
             goto bad;
     }
 #endif
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_3_FRAME_MODE,skb, __func__, __LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
+
     error = ath_tx_send(skb);
 
 #ifdef notyet /* This should be ported from 7.3 */
@@ -1013,6 +1000,24 @@ static char *find_ath_std_ioctl_name(int param)
     return("Unknown IOCTL");
 }
 
+#if ATOPT_IOCTL
+static int
+ath_ioctl_han_priv(struct ath_softc_net80211 *scn, struct iwreq *iwr)
+{
+	struct han_ioctl_priv_args a;
+	int error = 0;
+	
+	memset(&a, 0x00, sizeof(a));
+	if (copy_from_user(&a, iwr->u.data.pointer, sizeof(a)))
+		return -EFAULT;
+	switch (a.type) {
+
+		default:
+			return -EFAULT;
+	}
+	return error;
+}
+#endif
 
 static int
 ath_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
@@ -1222,6 +1227,7 @@ ath_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
             profile = (struct ieee80211_profile *)kmalloc(
                             sizeof (struct ieee80211_profile), GFP_KERNEL);
             if (profile == NULL) {
+                error = -ENOMEM;
                 break;
             }
             OS_MEMSET(profile, 0, sizeof (struct ieee80211_profile));
@@ -1258,16 +1264,11 @@ ath_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
         error = acfg_handle_ioctl(dev, ifr->ifr_data);
         break;
 #endif
-
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    case SIOCSATHSYNCINFO:
-        return ath_ioctl_autelan_sync_info(dev, (struct iwreq *)ifr);
-    case SIOCSATHCONNECTRULE:
-        return ath_ioctl_autelan_connect_rule(dev, (struct iwreq *)ifr);
+#if ATOPT_IOCTL
+	case ATH_IOCTL_HAN_PRIV:
+		error = ath_ioctl_han_priv(scn, (struct iwreq *)ifr);
+		break;
 #endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
     default:
         error = -EINVAL;
         break;
@@ -1316,14 +1317,16 @@ ath_getstats(struct net_device *dev)
             + as->ast_tx_encap
             + as->ast_tx_nonode
             + as->ast_tx_nobufmgt;
-    /* Add tx beacons, tx mgmt, tx, 11n tx */
-    stats->tx_packets = as->ast_be_xmit
-            + as->ast_tx_mgmt
+    /* Add tx mgmt(includes beacon), tx, 11n tx */
+    stats->tx_packets = as->ast_tx_mgmt
             + as->ast_tx_packets
             + ans->tx_pkts;
-    /* Add rx, 11n rx (rx mgmt is included) */
-    stats->rx_packets = as->ast_rx_packets
-            + ans->rx_pkts;
+    /* 11n rx (rx mgmt is included) */
+    stats->rx_packets = ans->rx_pkts;
+
+    /* TX and RX bytes (includes mgmt.) */
+    stats->tx_bytes = as->ast_tx_bytes;
+    stats->rx_bytes = as->ast_rx_bytes;
 
     for (wmode = 0; wmode < WIRELESS_MODE_MAX; wmode++) {
         ps = scn->sc_ops->get_phy_stats(scn->sc_dev, wmode);
@@ -1656,6 +1659,8 @@ __ath_attach(u_int16_t devid, struct net_device *dev, HAL_BUS_CONTEXT *bus_conte
     printk("CABMinfree = %d\n", ath_params.CABMinfree);
     printk("UAPSDMinfree = %d\n", ath_params.UAPSDMinfree);
     printk("ATH_TXBUF=%d\n", ATH_TXBUF);
+#elif QCA_AIRTIME_FAIRNESS
+    printk("ATH_TXBUF=%d\n", ATH_TXBUF);
 #endif
 
     /* show that no dedicated amem instance has been created yet */
@@ -1691,11 +1696,6 @@ __ath_attach(u_int16_t devid, struct net_device *dev, HAL_BUS_CONTEXT *bus_conte
 
     ath_adhoc_netlink_init();
 
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    sync_netlink_init();
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 #if ATH_RXBUF_RECYCLE
     ath_rxbuf_recycle_init(osdev);
 #endif
@@ -1881,24 +1881,6 @@ __ath_attach(u_int16_t devid, struct net_device *dev, HAL_BUS_CONTEXT *bus_conte
 #if ATH_SUPPORT_FLOWMAC_MODULE
     ath_flowmac_attach(scn->sc_dev);
 #endif
-#if ATOPT_PROC_COMMAND
-    at_wifi_sysctl_register(scn);    
-#endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    if (memcmp(dev->name, "wifi0", 5) == 0)
-    {
-        init_timer(&(sync_info_timer));
-        sync_info_timer.function = (void *)sync_info_timer_fn;
-        sync_info_timer.data = (unsigned long) 0;
-        sync_info_timer.expires = jiffies + HZ * 10;
-        add_timer(&(sync_info_timer));
-    }
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_TRAFFIC_LIMIT
-    ieee80211_traffic_limit_init(dev,ic);
-#endif
 #ifdef CONFIG_COMCERTO_CUSTOM_SKB_LAYOUT
     /* Enable custom skb, by default */
     scn->custom_skb_enabled = 1;
@@ -1955,15 +1937,6 @@ __ath_detach(struct net_device *dev)
     ath_dynamic_sysctl_unregister(ATH_DEV_TO_SC(scn->sc_dev));
 #endif
 #endif
-#if ATOPT_TRAFFIC_LIMIT
-    ieee80211_traffic_limit_deinit(dev);
-#endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    del_timer(&sync_info_timer);
-    sync_netlink_delete();
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 
 #ifndef NO_SIMPLE_CONFIG
     unregister_simple_config_callback(dev->name);
@@ -1990,9 +1963,6 @@ __ath_detach(struct net_device *dev)
 
 
     ath_adhoc_netlink_delete();
-#if ATOPT_PROC_COMMAND
-    at_wifi_sysctl_unregister(scn);    
-#endif
 
 #if ATH_BAND_STEERING
     ath_band_steering_netlink_delete();

@@ -171,7 +171,11 @@ ieee80211_send_proberesp(struct ieee80211_node *ni, u_int8_t *macaddr,
     }
     IEEE80211_VAP_UNLOCK(vap);
 
+#if ATH_SUPPORT_HS20
+    if (add_wpa_ie && !vap->iv_osen) {
+#else
     if (add_wpa_ie) {
+#endif
         if (RSN_AUTH_IS_RSNA(rsn))
             frm = ieee80211_setup_rsn_ie(vap, frm);
     }
@@ -200,8 +204,10 @@ ieee80211_send_proberesp(struct ieee80211_node *ni, u_int8_t *macaddr,
         if (!(ic->ic_flags & IEEE80211_F_COEXT_DISABLE)) {
             frm = ieee80211_add_obss_scan(frm, ni);
         }
-        frm = ieee80211_add_extcap(frm, ni);
     }
+
+    /* Add extended capbabilities, if applicable */
+    frm = ieee80211_add_extcap(frm, ni);
 
     /*  VHT capable  */
       /* Add vht cap for 2.4G mode, if 256QAM is enabled */
@@ -435,7 +441,7 @@ ieee80211_recv_probereq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
      * send the correct proble response to Station. 
      *
      */
-
+#if !ATOPT_ORI_ATHEROS_BUG
     if(IEEE80211_MATCH_SSID(vap->iv_bss, ssid)  == 1)  //ssid not match
     {
         struct ieee80211vap *tmpvap = NULL;
@@ -462,6 +468,10 @@ ieee80211_recv_probereq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
         }
 
     }
+#else
+	if(IEEE80211_MATCH_SSID(vap->iv_bss, ssid)  == 1) //ssid not match
+		return -EINVAL;
+#endif
 
     if (IEEE80211_VAP_IS_HIDESSID_ENABLED(vap) && (ssid[1] == 0)) {
         IEEE80211_DISCARD(vap, IEEE80211_MSG_INPUT,

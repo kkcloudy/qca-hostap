@@ -883,8 +883,10 @@ ol_ieee80211_remove_node_grp(struct MC_GRP_MEMBER_LIST *grp_member_list,
 {
     int action = IGMP_ACTION_DELETE_MEMBER, wildcard = IGMP_WILDCARD_SINGLE;
     struct MC_SNOOP_LIST *snp_list;
+    snp_list = &vap->iv_me->ieee80211_me_snooplist;
 
     if (!(vap->iv_ic->ic_is_mode_offload(vap->iv_ic))) {
+        atomic_inc(&snp_list->msl_group_member_limit);
         return;
     }
     vap->iv_ic->ic_mcast_group_update(vap->iv_ic, action, wildcard, (u_int8_t *)&grp_member_list->grpaddr, 
@@ -1094,6 +1096,9 @@ ieee80211_me_SnoopConvert(struct ieee80211vap *vap, wbuf_t wbuf)
                     (wbuf_header(wbuf) + sizeof (struct ether_header));
                     src_ip_addr = ntohl(ip->saddr);
                     grp_addr = ntohl(ip->daddr);
+            }
+            else{
+                return -1;  /*ether_type is not equal to 0x0800,instead of dropping packets sending as multicast*/
             }
         }
     }

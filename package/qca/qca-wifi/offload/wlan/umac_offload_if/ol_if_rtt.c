@@ -259,7 +259,6 @@ wmi_error_report_event_handle(ol_scn_t scn, u_int8_t *data,
 
     //The developer may change add another code or use a completely different logic to handle this
 
-    adf_os_print("%s\n",error_indicator[*((WMI_RTT_ERROR_INDICATOR *)data)] );
     /* Only 3 type of frames are used for Measurement type , 
        even though  RTT measurement type is 3 bit header */
     adf_os_print("Measuremnet Type is %s \n", (frame_type < 3)? measurement_type[frame_type]:"Invalid frame type");

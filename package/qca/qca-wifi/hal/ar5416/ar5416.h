@@ -586,6 +586,8 @@ struct ath_hal_5416 {
     u_int32_t   ah_cycleCount;
     u_int32_t   ah_ctlBusy;
     u_int32_t   ah_extBusy;
+    u_int32_t   ah_Rf;
+    u_int32_t   ah_Tf;
 
     /* HT CWM state */
     HAL_HT_EXTPROTSPACING ah_extprotspacing;
@@ -1009,6 +1011,7 @@ extern  void ar5416StopMacTrace(struct ath_hal *ah);
 #endif /* AR5416_EMULATION */
 extern  void ar5416GetDescInfo(struct ath_hal *ah, HAL_DESC_INFO *desc_info);
 extern  int8_t ar5416Get11nExtBusy(struct ath_hal *ah);
+extern  u_int32_t ar5416GetChBusyPct(struct ath_hal *ah);
 extern  void ar5416Set11nMac2040(struct ath_hal *ah, HAL_HT_MACMODE mode);
 extern  HAL_HT_RXCLEAR ar5416Get11nRxClear(struct ath_hal *ah);
 extern  void ar5416Set11nRxClear(struct ath_hal *ah, HAL_HT_RXCLEAR rxclear);

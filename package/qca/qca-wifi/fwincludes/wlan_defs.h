@@ -21,6 +21,10 @@
 
 #define MAX_SPATIAL_STREAM   3
 
+ /*
+ * Added for the Swift + 10.4 coexistence. This macro will be used by target.
+ */
+#define MAX_SPATIAL_STREAM_AR988X   MAX_SPATIAL_STREAM
 
 typedef enum {
     MODE_11A        = 0,   /* 11a Mode */
@@ -189,13 +193,19 @@ typedef struct {
     } while (0)
 
 #define NUM_SCHED_ENTRIES           2
+
+ /*
+ * Added for the Swift + 10.4 coexistence. This macro will be used by target.
+ */
+#define NUM_SCHED_ENTRIES_AR988X   NUM_SCHED_ENTRIES
+
 #define NUM_DYN_BW_MAX              4
 /* Current Product only uses 20/40/80 */
 #define NUM_DYN_BW                  3
 
 #define NUM_DYN_BW_MASK             0x3
 
-#define PROD_SCHED_BW_ENTRIES       (NUM_SCHED_ENTRIES * NUM_DYN_BW)
+#define PROD_SCHED_BW_ENTRIES       (NUM_SCHED_ENTRIES_AR988X * NUM_DYN_BW)
 typedef A_UINT8 A_RATE;
 
 #if NUM_DYN_BW  > 3
@@ -204,15 +214,15 @@ typedef A_UINT8 A_RATE;
 #endif
 
 typedef struct{
-    A_UINT32    psdu_len    [NUM_DYN_BW * NUM_SCHED_ENTRIES];
-    A_UINT16    flags       [NUM_DYN_BW * NUM_SCHED_ENTRIES];
-    A_RATE      rix         [NUM_DYN_BW * NUM_SCHED_ENTRIES];
-    A_UINT8     tpc         [NUM_DYN_BW * NUM_SCHED_ENTRIES];
-    A_UINT8     num_mpdus   [NUM_DYN_BW * NUM_SCHED_ENTRIES];
-    A_UINT32    antmask     [NUM_SCHED_ENTRIES];
+    A_UINT32    psdu_len    [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
+    A_UINT16    flags       [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
+    A_RATE      rix         [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
+    A_UINT8     tpc         [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
+    A_UINT8     num_mpdus   [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
+    A_UINT32    antmask     [NUM_SCHED_ENTRIES_AR988X];
     A_UINT32    txbf_cv_ptr;
     A_UINT16    txbf_cv_len;
-    A_UINT8     tries       [NUM_SCHED_ENTRIES];
+    A_UINT8     tries       [NUM_SCHED_ENTRIES_AR988X];
     A_UINT8     num_valid_rates;
     A_UINT8     paprd_mask;
     A_UINT8     rts_rix;
@@ -225,15 +235,15 @@ typedef struct{
 } RC_TX_RATE_SCHEDULE;
 
 typedef struct{
-    A_UINT16    flags       [NUM_DYN_BW * NUM_SCHED_ENTRIES];
-    A_RATE      rix         [NUM_DYN_BW * NUM_SCHED_ENTRIES];
+    A_UINT16    flags       [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
+    A_RATE      rix         [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
 #ifdef DYN_TPC_ENABLE
-    A_UINT8     tpc         [NUM_DYN_BW * NUM_SCHED_ENTRIES];
+    A_UINT8     tpc         [NUM_DYN_BW * NUM_SCHED_ENTRIES_AR988X];
 #endif
 #ifdef SECTORED_ANTENNA
-    A_UINT32    antmask     [NUM_SCHED_ENTRIES];
+    A_UINT32    antmask     [NUM_SCHED_ENTRIES_AR988X];
 #endif
-    A_UINT8     tries       [NUM_SCHED_ENTRIES];
+    A_UINT8     tries       [NUM_SCHED_ENTRIES_AR988X];
     A_UINT8     num_valid_rates;
     A_UINT8     rts_rix;
     A_UINT8     sh_pream;

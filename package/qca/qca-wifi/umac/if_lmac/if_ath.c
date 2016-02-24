@@ -53,10 +53,6 @@ extern unsigned long ath_ignoredfs_enable;      /* defined in ah_osdep.c  */
 
 extern void ieee80211_cts_done(bool txok);
 
-#if ATOPT_MAC_RULE
-unsigned int ic_mac = 0,vap_mac = 0;
-extern int new_dispatch_mac;
-#endif
 #if ATH_SUPPORT_WRAP
 /*
  * WRAP hardware crypto configuration options.
@@ -390,6 +386,8 @@ static void ath_net80211_txbf_loforceon_update(struct ieee80211com *ic,bool lofo
 #endif
 static int ath_net80211_get_rx_signal_dbm(struct ieee80211com *ic, int8_t *signal_dbm);
 static void ath_net80211_node_pspoll(struct ieee80211_node* ni, bool value);
+static int ath_net80211_tr69_process_request(struct ieee80211vap *vap, int cmdid, void * arg1, void *arg2); 
+
 #if ATH_DEBUG
 /*
  * dprintf - it will end up calling the ath_print function defined in
@@ -872,28 +870,9 @@ static void ath_vap_iter_vap_create(void *arg, wlan_if_t vap)
     if (avn->av_is_psta)
         return;
 #endif
-#if ATOPT_MAC_RULE
-    if (new_dispatch_mac == 0)
-    {
-        ieee80211vap_get_macaddr(vap, myaddr);
-        ATH_GET_VAP_ID(myaddr, wlan_vap_get_hw_macaddr(vap), id);
-        (*pid_mask) |= (1 << id);
-    }
-    else if (new_dispatch_mac == 1)
-    {
-        vap_mac = 0;	
-        ieee80211vap_get_macaddr(vap, myaddr);
-        memcpy(&vap_mac, &(vap->iv_myaddr[3]), 1);
-        vap_mac = vap_mac >> 24;
-        if (vap_mac < ic_mac)
-            vap_mac += 0x100;
-        (*pid_mask) |= (1 << NEW_ATH_GET_VAP_ID(ic_mac, vap_mac));
-    }
-#else
     ieee80211vap_get_macaddr(vap, myaddr);
     ATH_GET_VAP_ID(myaddr, wlan_vap_get_hw_macaddr(vap), id);
     (*pid_mask) |= (1 << id);
-#endif
 }
 
 /**
@@ -923,14 +902,6 @@ ath_vap_create(struct ieee80211com *ic,
 #if ATH_SUPPORT_WRAP
     struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
     int ret;
-#endif
-#if ATOPT_MAC_RULE
-        ic_mac = 0;
-        if (new_dispatch_mac == 1)
-        {
-            memcpy(&ic_mac, &(ic->ic_myaddr[3]), 1);
-            ic_mac = ic_mac >> 24;
-        }
 #endif
 
     DPRINTF(scn, ATH_DEBUG_STATE,
@@ -1174,27 +1145,9 @@ ath_vap_create(struct ieee80211com *ic,
     scn->sc_ops->config_interface(scn->sc_dev, id, &ath_vap_config);
 
     /* set up MAC address */
-#if ATOPT_MAC_RULE
-        if (new_dispatch_mac == 0)
-        {
-            ieee80211vap_get_macaddr(vap, myaddr);
-            ATH_SET_VAP_BSSID(myaddr, wlan_vap_get_hw_macaddr((wlan_if_t)vap), id);
-            ieee80211vap_set_macaddr(vap, myaddr);
-        }
-        else if (new_dispatch_mac == 1)
-        {
-            vap_mac = 0;
-            memcpy(&vap_mac, &(vap->iv_myaddr[3]), 1);
-            vap_mac = vap_mac >> 24;
-            NEW_ATH_SET_VAP_BSSID(vap_mac, id);
-            vap_mac = vap_mac << 24;
-            memcpy(&(vap->iv_myaddr[3]), &vap_mac, 1);
-        }
-#else
     ieee80211vap_get_macaddr(vap, myaddr);
     ATH_SET_VAP_BSSID(myaddr, wlan_vap_get_hw_macaddr((wlan_if_t)vap), id);
     ieee80211vap_set_macaddr(vap, myaddr);
-#endif
 
 #if ATH_SUPPORT_WRAP
 #if ATH_SUPPORT_WRAP_BRIDGE
@@ -1259,6 +1212,7 @@ ath_vap_create(struct ieee80211com *ic,
 
     /* set user selected channel width to an invalid value by default */
     vap->iv_chwidth = IEEE80211_CWM_WIDTHINVALID;
+
     vap->iv_up = ath_vap_up;
     vap->iv_join = ath_vap_join;
     vap->iv_down = ath_vap_down;
@@ -1292,35 +1246,19 @@ ath_vap_create(struct ieee80211com *ic,
 
     /* init IEEE80211_DPRINTF control object */
     ieee80211_dprintf_init(vap);
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	{
-        struct rate_count   init_value[] = {
-            {0, 2},
-            {0, 4},
-            {0, 11},
-            {0, 22},
-            {0, 12},
-            {0, 18},
-            {0, 24},
-            {0, 36},
-            {0, 48},
-            {0, 72},
-            {0, 96},
-            {0, 108},
-        };
 
-        memset(vap->iv_stats.is_tx_mcs_count, 0, sizeof(vap->iv_stats.is_tx_mcs_count));    
-        memset(vap->iv_stats.is_rx_mcs_count, 0, sizeof(vap->iv_stats.is_rx_mcs_count));
-        
-        memcpy(vap->iv_stats.is_tx_rate_index, init_value, sizeof(init_value));
-        memcpy(vap->iv_stats.is_rx_rate_index, init_value, sizeof(init_value));    
-    }
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
     /* complete setup */
     (void) ieee80211_vap_attach(vap);
 
     if (opmode == IEEE80211_M_STA)
         scn->sc_nstavaps++;
+
+#if UMAC_SUPPORT_WNM
+#if ATH_BAND_STEERING
+    /* configure wnm default settings */
+    ieee80211_vap_wnm_set(vap);
+#endif
+#endif
 
     /* Note that if it was pre allocated, we need an explicit ath_vap_free_macaddr to free it. */
 
@@ -1731,16 +1669,18 @@ ath_net80211_node_get_extradelimwar(ieee80211_node_t n)
 {
     struct ieee80211_node *ni = (struct ieee80211_node *)n;
 #if ATH_SUPPORT_WRAP
-    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ni->ni_ic);
-    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
 
 #define PROXYSTA_HW_CRYPT_MIN_DELIMS 5
     /*
      * Hardware ProxySTA requires a minimum aggregation
      * delimiters between subframes when encryption is used.
      */
-    if (ni && sc->sc_enableproxysta) {
-        return PROXYSTA_HW_CRYPT_MIN_DELIMS;
+    if (ni) {
+        struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ni->ni_ic);
+        struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+        if (sc->sc_enableproxysta) {
+            return PROXYSTA_HW_CRYPT_MIN_DELIMS;
+        }
     }
 #endif
     /*
@@ -1916,6 +1856,29 @@ ath_net80211_enable_radar(struct ieee80211com *ic, int no_cac)
     }
 #endif
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+static void
+ath_net80211_enable_sta_radar(struct ieee80211com *ic, int no_cac)
+{
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_dfs_radar_tab_info rinfo;
+
+    /* Fetch current radar patterns from the lmac */
+    OS_MEMZERO(&rinfo, sizeof(rinfo));
+    /* XXX ew, void */
+    scn->sc_ops->radar_get_info(scn->sc_dev, (void *) &rinfo);
+
+    /*
+     * Set the regulatory domain, radar pulse table and enable
+     * radar events if required.
+     */
+
+    if(!scn->sc_isscan) {
+        dfs_radar_enable(ic, &rinfo, no_cac);
+    }
+}
+#endif
 
 static int
 ath_net80211_set_channel(struct ieee80211com *ic)
@@ -3423,7 +3386,13 @@ __ath_key_set(struct ieee80211vap *vap,
         HAL_CIPHER_UNUSED,	/* IEEE80211_CIPHER_WAPI    */
 #endif
         HAL_CIPHER_CKIP,	/* IEEE80211_CIPHER_CKIP    */
-        HAL_CIPHER_UNUSED,  /* IEEE80211_CIPHER_AES_CMAC */
+        HAL_CIPHER_UNUSED,      /* IEEE80211_CIPHER_AES_CMAC */
+        HAL_CIPHER_UNUSED,      /* IEEE80211_CIPHER_AES_CCM 256 */
+        HAL_CIPHER_UNUSED,      /*IEEE80211_CIPHER_AES_CMAC */ 
+        HAL_CIPHER_UNUSED,      /* IEEE80211_CIPHER_AES_GCM */
+        HAL_CIPHER_UNUSED,      /* IEEE80211_CIPHER_AES_GCM 256 */
+        HAL_CIPHER_UNUSED,      /* IEEE80211_CIPHER_AES_GMAC */
+        HAL_CIPHER_UNUSED,      /* IEEE80211_CIPHER_AES_GMAC */
         HAL_CIPHER_CLR,		/* IEEE80211_CIPHER_NONE    */
     };
     const struct ieee80211_cipher *cip = k->wk_cipher;
@@ -4852,10 +4821,7 @@ ath_tx_send(wbuf_t wbuf)
         DPRINTF(scn,ATH_DEBUG_ANY,"%s: ieee80211_encap failed \n",__func__);
         goto bad;
     }
-	
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
     /*
      * If node is HT capable, then send out ADDBA if
      * we haven't done so.
@@ -5011,6 +4977,7 @@ ath_tx_mgt_send(struct ieee80211com *ic, wbuf_t wbuf)
         if (!error) {
             HTC_WBUF_TX_MGT_ACTION_FRAME_NODE_FREE(ni);
             sc->sc_stats.ast_tx_mgmt++;
+            sc->sc_stats.ast_tx_bytes += wbuf_get_pktlen(wbuf);
             return 0;
         } else {
           DPRINTF(scn,ATH_DEBUG_ANY,"%s: send mgt frame failed \n",__func__);
@@ -5054,7 +5021,6 @@ static void
 ath_net80211_tx_node_kick_event(struct ieee80211_node *ni, u_int8_t *consretry,wbuf_t wbuf)
 {
 
-
 #if ATH_SUPPORT_WIFIPOS
     if(wbuf_is_pos(wbuf) || wbuf_is_keepalive(wbuf)){
          *consretry--;
@@ -5069,8 +5035,7 @@ ath_net80211_tx_node_kick_event(struct ieee80211_node *ni, u_int8_t *consretry,w
             (ni != ni->ni_vap->iv_bss)) {
 
         if (((ni->ni_flags & IEEE80211_NODE_NAWDS) == 0) &&
-                ( *consretry >= ni->ni_vap->iv_sko_th) &&
-                (!ieee80211_vap_wnm_is_set(ni->ni_vap))) {
+                ( *consretry >= ni->ni_vap->iv_sko_th)) {
             if (ni->ni_vap->iv_sko_th != 0) {
                         ieee80211_kick_node(ni);
                     }
@@ -5094,7 +5059,6 @@ void ath_net80211_tx_complete_compact(struct ieee80211_node *ni, wbuf_t wbuf)
     if (wbuf_get_cts_frame(wbuf))
         ieee80211_cts_done(1);
 #endif
-
     /* only management and null data frames have the handler function */
     if (type == IEEE80211_FC0_TYPE_MGT || subtype == IEEE80211_FC0_SUBTYPE_NODATA) {
         wbuf_get_complete_handler(wbuf,(void **)&handler,&arg);
@@ -5209,8 +5173,6 @@ ath_net80211_tx_complete(wbuf_t wbuf, ieee80211_tx_status_t *tx_status, bool all
     ts.ts_flowmac_flags |= IEEE80211_TX_FLOWMAC_DONE;
 #endif
 	ts.ts_rateKbps = tx_status->rateKbps;
-	ts.ts_ratecode = tx_status->ratecode; //zhaoyang1 transplants statistics 2015-01-27
-	
 #if ATH_FRAG_TX_COMPLETE_DEFER
     while (currfrag) {
         nextfrag = wbuf_next(currfrag);
@@ -5992,7 +5954,13 @@ static void ath_vap_iter_update_txpow(void *arg, wlan_if_t vap)
     u_int16_t txpowlevel = *((u_int16_t *) arg);
     ni = ieee80211vap_get_bssnode(vap);
     ASSERT(ni);
+
+#if ATH_BAND_STEERING
+    ieee80211_bsteering_send_txpower_change_event(vap,txpowlevel);
+#endif
+
     ieee80211node_set_txpower(ni, txpowlevel);
+
 }
 
 static void
@@ -6060,18 +6028,6 @@ ath_net80211_get_chainnoisefloor(struct ieee80211com *ic, struct ieee80211_chann
 
     scn->sc_ops->get_chainnoisefloor(scn->sc_dev, chan->ic_freq,  ath_chan2flags(chan), nfBuf);
 }
-
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-u_int32_t ath_net80211_get_channel_utility(struct ieee80211com *ic, u_int32_t *rxc_pcnt, u_int32_t *rxf_pcnt, u_int32_t *txf_pcnt)
-{
-	struct ath_softc_net80211	*scn = ATH_SOFTC_NET80211(ic);
-	u_int32_t result;
-
-	result = scn->sc_ops->get_channel_utility(scn->sc_dev, rxc_pcnt, rxf_pcnt, txf_pcnt);
-	return result;
-}
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
 #if ATH_SUPPORT_VOW_DCS
 static void
 ath_net80211_disable_dcsim(struct ieee80211com *ic)
@@ -6340,21 +6296,47 @@ ath_bsteering_rssi_update(ieee80211_handle_t ieee, u_int8_t *sta_mac_addr, u_int
     ieee80211_bsteering_direct_attach_rssi_update(ic,sta_mac_addr, tx_status,rssi);
     return;
 }
+static void
+ath_bsteering_rate_update(ieee80211_handle_t ieee, u_int8_t *sta_mac_addr, u_int8_t tx_status,u_int32_t rateKbps)
+{
+    struct ieee80211com *ic = NET80211_HANDLE(ieee);
+    ieee80211_bsteering_direct_attach_txrate_update(ic,sta_mac_addr,tx_status,rateKbps);
+    return;
+}
 
 #if QCA_AIRTIME_FAIRNESS
 static void
-ath_net80211_atf_strict_scheduling(ieee80211_handle_t ieee, u_int32_t enable)
+ath_net80211_atf_scheduling(ieee80211_handle_t ieee, u_int32_t sched)
 {
     struct ieee80211com *ic = NET80211_HANDLE(ieee);
-	ic->ic_atf_strictsched = enable;
+    ic->ic_atf_sched = sched;
 }
 
 static u_int32_t
-ath_net80211_get_atf_strict_scheduling(ieee80211_handle_t ieee)
+ath_net80211_get_atf_scheduling(ieee80211_handle_t ieee)
 {
     struct ieee80211com *ic = NET80211_HANDLE(ieee);
-	return ic->ic_atf_strictsched;
+	return ic->ic_atf_sched;
 }
+
+static u_int8_t
+ath_net80211_get_atf_allocations(ieee80211_node_t node, u_int32_t *tx_tokens,
+                                 u_int32_t *alloted_tx_tokens, u_int32_t *unassigned_txtokens)
+{
+    struct ieee80211_node *ni = (struct ieee80211_node *)node;
+    *tx_tokens = ni->shadow_tx_tokens;
+    *alloted_tx_tokens = ni->ni_ic->ic_shadow_alloted_tx_tokens;
+    *unassigned_txtokens = ni->ni_ic->ic_txtokens_common;
+    return ni->ni_ic->atf_commit;
+}
+
+static void
+ath_net80211_atf_obss_scale(ieee80211_handle_t ieee, u_int32_t scale)
+{
+    struct ieee80211com *ic = NET80211_HANDLE(ieee);
+    ic->atf_obss_scale = scale;
+}
+
 #endif
 
 #if ATH_SUPPORT_WIFIPOS
@@ -8096,7 +8078,7 @@ wrap_psta_input_multicast(struct ath_softc_net80211 *scn, wbuf_t wbuf,
      * consumed by ath_dev, indicate it up to the stack.
      */
     type = scn->sc_ops->rx_proc_frame(scn->sc_dev, ATH_NODE_NET80211(ni)->an_sta,
-                                      IEEE80211_NODE_USEAMPDU(ni),
+                                      IEEE80211_NODE_ISAMPDU(ni),
                                       wbuf, rx_status, &status);
 
     /* For OWL specific HW bug, 4addr aggr needs to be denied in
@@ -8125,27 +8107,11 @@ wrap_psta_input_multicast(struct ath_softc_net80211 *scn, wbuf_t wbuf,
 }
 #endif
 
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-int ath_net80211_copy2monitor(struct ieee80211com *ic, wbuf_t wbuf, ieee80211_rx_status_t *rx_status)
-{
-	wbuf_t wbuf1;
-	wbuf1 = wbuf_copy(wbuf);
-	if(wbuf1 == NULL)
-		return 0;
-
-	ath_net80211_rx_monitor(ic, wbuf1, rx_status);
-	return 0;
-}
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
-
 int
 ath_net80211_rx(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status_t *rx_status, u_int16_t keyix)
 {
     struct ieee80211com *ic = NET80211_HANDLE(ieee);
     struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
-	/* AUTELAN-Added-Begin : &tuqiang monitor switch */
-    struct ath_softc          *sc  =  ATH_DEV_TO_SC(scn->sc_dev);
-	/* AUTELAN-Added-End : tuqiang@autelan.com */
     struct ieee80211_node *ni;
     struct ieee80211_frame *wh;
     int type;
@@ -8153,19 +8119,10 @@ ath_net80211_rx(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status_t *rx_
     struct ieee80211_qosframe_addr4      *whqos_4addr;
     int tid;
     int frame_type, frame_subtype;
-	
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
 #if USE_MULTIPLE_BUFFER_RCV
 	wbuf_t wbuf_last;
 #endif
-
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-	if(sc->sc_allow_promisc){
-		ath_net80211_copy2monitor(ic, wbuf, rx_status);
-	}
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
 
     if (ic->ic_opmode == IEEE80211_M_MONITOR) {
 		ath_net80211_rx_monitor(ic, wbuf, rx_status);
@@ -8274,9 +8231,7 @@ ath_net80211_rx(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status_t *rx_
         if (ieee80211_crypto_handle_keymiss(ic, wbuf, &rs))
             return -1;
     }
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
     wh = (struct ieee80211_frame *) wbuf_header (wbuf);
     frame_type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
     frame_subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
@@ -8310,6 +8265,16 @@ ath_net80211_rx(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status_t *rx_
          */
         ni = ieee80211_find_rxnode(ic, (struct ieee80211_frame_min *)
                                    wbuf_header(wbuf));
+#if ATOPT_ORI_ATHEROS_BUG
+		if (IEEE80211_FC0_TYPE_MGT == frame_type && 
+			(IEEE80211_FC0_SUBTYPE_AUTH == frame_subtype ||
+			 IEEE80211_FC0_SUBTYPE_PROBE_REQ == frame_subtype)) {
+			if (ni) {
+				ieee80211_free_node(ni);
+				ni = NULL;
+			}
+		}
+#endif
         if (ni == NULL) {
             struct ieee80211_rx_status rs;
 
@@ -8399,7 +8364,7 @@ ath_net80211_rx(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status_t *rx_
      * consumed by ath_dev, indicate it up to the stack.
      */
     type = scn->sc_ops->rx_proc_frame(scn->sc_dev, ATH_NODE_NET80211(ni)->an_sta,
-                                      IEEE80211_NODE_USEAMPDU(ni),
+                                      IEEE80211_NODE_ISAMPDU(ni),
                                       wbuf, rx_status, &status);
 
 
@@ -8745,8 +8710,8 @@ static void ath_net80211_rate_node_update(ieee80211_handle_t ieee, ieee80211_nod
             capflag |=  ATH_RC_CW40_FLAG;
         }
         }
-        if (((ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI40) && (ic_cw_width == IEEE80211_CWM_WIDTH40)) ||
-            ((ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20) && (ic_cw_width == IEEE80211_CWM_WIDTH20))) {
+        if (((ni->ni_chwidth == IEEE80211_CWM_WIDTH20) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20)) ||
+            ((ni->ni_chwidth == IEEE80211_CWM_WIDTH40) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI40))) {
             capflag |= ATH_RC_SGI_FLAG;
         }
 
@@ -8854,8 +8819,8 @@ static void ath_net80211_rate_newstate(ieee80211_handle_t ieee, ieee80211_if_t i
     }
     }
     if (ni) {
-        if (((ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI40) && (ic_cw_width == IEEE80211_CWM_WIDTH40)) ||
-            ((ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20) && (ic_cw_width == IEEE80211_CWM_WIDTH20))) {
+        if (((ni->ni_chwidth == IEEE80211_CWM_WIDTH20) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20)) ||
+            ((ni->ni_chwidth == IEEE80211_CWM_WIDTH40) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI40))) {
             capflag |= ATH_RC_SGI_FLAG;
         }
 
@@ -9432,11 +9397,14 @@ struct ieee80211_ops net80211_ops = {
     ath_net80211_print_keyerror,              /* print_keyerror */
 #endif
 #if ATH_BAND_STEERING
-    ath_bsteering_rssi_update,               /*band steering update from tx done path */
+    ath_bsteering_rssi_update,               /*bsteering_rssi_update */
+    ath_bsteering_rate_update,               /* bbsteering_rate_update */
 #endif
 #if QCA_AIRTIME_FAIRNESS
-    ath_net80211_atf_strict_scheduling,         /* atf_strict_scheduling */
-    ath_net80211_get_atf_strict_scheduling,     /* get_atf_strict_scheduling */
+    ath_net80211_atf_scheduling,                /* atf_scheduling */
+    ath_net80211_get_atf_scheduling,            /* get_atf_scheduling */
+    ath_net80211_get_atf_allocations,           /* get_atf_allocations */
+    ath_net80211_atf_obss_scale,                /* atf_obss_scale */
 #endif
 };
 
@@ -9983,13 +9951,19 @@ static void ath_net80211_atf_get_unused_txtoken( struct ieee80211com *ic,struct 
     scn->sc_ops->ath_atf_get_unused_txtoken(an, unused_token);
 }
 
-static void ath_net80211_atf_update_node_txtoken( struct ieee80211com *ic,struct ieee80211_node *ni)
+static void ath_net80211_atf_update_node_txtoken( struct ieee80211com *ic,struct ieee80211_node *ni, struct atf_stats *stats)
 {
     struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
     struct ath_node *an;
 
     an = (struct ath_node *)((ATH_NODE_NET80211(ni))->an_sta);
-    scn->sc_ops->ath_atf_update_node_txtoken(an, ni->tx_tokens);
+    scn->sc_ops->ath_atf_update_node_txtoken(an, ni->tx_tokens, stats);
+}
+
+static void ath_net80211_atf_tokens_unassigned( struct ieee80211com *ic, u_int32_t tokens_unassigned)
+{
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    scn->sc_ops->ath_atf_tokens_unassigned(scn->sc_dev, tokens_unassigned);
 }
 
 static void ath_net80211_atf_set( struct ieee80211com *ic, u_int8_t enable)
@@ -10004,6 +9978,33 @@ static void ath_net80211_atf_clear( struct ieee80211com *ic, u_int8_t disable)
     struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
 
     scn->sc_ops->ath_atf_clear(scn->sc_dev, disable);
+}
+
+static void ath_net80211_atf_node_resume(struct ieee80211com *ic, struct ieee80211_node *ni)
+{
+    struct ath_node *an;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+
+    an = (struct ath_node *)((ATH_NODE_NET80211(ni))->an_sta);
+    scn->sc_ops->ath_atf_node_resume(an);
+}
+
+static u_int32_t ath_net80211_node_buf_held(struct ieee80211_node *ni)
+{
+    struct ath_node *an;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ni->ni_ic);
+
+    an = (struct ath_node *)((ATH_NODE_NET80211(ni))->an_sta);
+    return scn->sc_ops->ath_node_buf_held(an);
+}
+
+static void ath_net80211_atf_capable_node( struct ieee80211com *ic, struct ieee80211_node *ni, u_int8_t val)
+{
+    struct ath_node *an;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+
+    an = (struct ath_node *)((ATH_NODE_NET80211(ni))->an_sta);
+    scn->sc_ops->ath_atf_capable_node(an, val);
 }
 #endif
 
@@ -10473,6 +10474,9 @@ ath_attach(u_int16_t devid, void *base_addr,
     scn->pl_dev = (struct pktlog_handle_t *)
                     adf_os_mem_alloc(NULL,
                     sizeof(struct pktlog_handle_t));
+    if(scn->pl_dev == NULL){
+        return -ENOMEM;
+    }
     scn->pl_dev->pl_funcs = NULL;
     //ath_pktlog_get_dev_name(scn->sc_osdev, &(scn->pl_dev->name));
     scn->pl_dev->scn = (ath_generic_softc_handle) scn;
@@ -10887,6 +10891,11 @@ ath_attach(u_int16_t devid, void *base_addr,
     ic->ic_led_scan_end = ath_net80211_led_leave_scan;
     ic->ic_set_channel = ath_net80211_set_channel;
     ic->ic_enable_radar = ath_net80211_enable_radar;
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    ic->ic_enable_sta_radar = ath_net80211_enable_sta_radar;
+#endif
+
 #if ATH_SUPPORT_WIFIPOS
     ic->ic_lean_set_channel = ath_net80211_lean_set_channel;
     ic->ic_pause_node = ath_net80211_pause_node;
@@ -10961,6 +10970,13 @@ ath_attach(u_int16_t devid, void *base_addr,
     ic->ic_atf_set_enable = ath_net80211_atf_set;
     ic->ic_atf_set_disable = ath_net80211_atf_clear;
     ic->ic_atf_get_unused_txtoken = ath_net80211_atf_get_unused_txtoken;
+    ic->ic_atf_node_resume = ath_net80211_atf_node_resume;
+    ic->ic_node_buf_held = ath_net80211_node_buf_held;
+    ic->atf_txbuf_max = ATF_MAX_BUFS;
+    ic->atf_txbuf_min = ATF_MIN_BUFS;
+    ic->atf_txbuf_share = 1;
+    ic->ic_atf_tokens_unassigned = ath_net80211_atf_tokens_unassigned;
+    ic->ic_atf_capable_node = ath_net80211_atf_capable_node;
 #endif
     /* Functions for the green_ap feature */
     ic->ic_green_ap_set_enable = ath_net80211_green_ap_set_enable;
@@ -11022,6 +11038,9 @@ ath_attach(u_int16_t devid, void *base_addr,
     ic->ic_get_ctl_by_country = ath_net80211_get_ctl_by_country;
     ic->ic_dfs_isdfsregdomain = ath_net80211_dfs_isdfsregdomain;
     ic->ic_dfs_usenol = ath_net80211_dfs_usenol;
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    ic->ic_dfs_print_nolhistory = ieee80211_print_nolhistory;
+#endif
     ic->ic_dfs_attached = ath_net80211_dfs_attached;
     ic->ic_get_dfsdomain = ath_net80211_getdfsdomain;
 
@@ -11156,7 +11175,6 @@ ath_attach(u_int16_t devid, void *base_addr,
 #endif
 
     ic->ic_scan_enable_txq = ath_net80211_scan_enable_txq;
-	ic->ic_get_channel_utility_once = ath_net80211_get_channel_utility;  /* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
     /* Attach AoW module */
     ath_aow_attach(ic, scn);
 
@@ -11177,13 +11195,14 @@ ath_attach(u_int16_t devid, void *base_addr,
     atomic_set(&(ic->ic_scan_entry_current_count),0);
     ic->ic_scan_entry_timeout = ATH_SCANENTRY_TIMEOUT;
     ic->ic_node_pspoll = ath_net80211_node_pspoll;
+    ic->ic_tr69_request_process = ath_net80211_tr69_process_request;
 #if ATH_BAND_STEERING
     ic->ic_bs_enable = ath_net80211_bs_enable;
     ic->ic_bs_set_overload = ath_net80211_bs_set_overload;
     ic->ic_bs_set_params = ath_net80211_bs_set_params;
 #endif
 
-    ic->ic_def_bintval_override = 0;
+    ic->ic_def_bintval_override = 1;
     return 0;
 }
 
@@ -12415,8 +12434,18 @@ int ath_net80211_enable_dfs(struct ieee80211com *ic, int *is_fastclk, void *p)
 int ath_net80211_disable_dfs(struct ieee80211com *ic, int no_cac)
 {
     struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    if (no_cac == 0) {
+        if(ic->ic_opmode == IEEE80211_M_STA) {
+        } else {
+            ieee80211_dfs_cac_cancel(ic);
+        }
+    }
+#else
     if (no_cac == 0)
-    ieee80211_dfs_cac_cancel(ic);
+        ieee80211_dfs_cac_cancel(ic);
+#endif
     return scn->sc_ops->ath_disable_dfs(scn->sc_dev);
 }
 
@@ -12534,6 +12563,12 @@ ath_net80211_dfs_clist_update(struct ieee80211com *ic, int cmd,
 		 */
 		if (nol_found) {
 			IEEE80211_CHAN_SET_RADAR(chan);
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            /* The history information is permannent .If the
+               not_found is false then we may clear earlier
+               history. So do not clear the channel radar history */
+			IEEE80211_CHAN_SET_HISTORY_RADAR(chan);
+#endif
 		} else {
 			IEEE80211_CHAN_CLR_RADAR(chan);
 		}
@@ -12799,13 +12834,245 @@ static void ath_net80211_node_pspoll(struct ieee80211_node *ni,bool value)
 
 }
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-int ath_net80211_get_ch_utility_all(struct ieee80211com *ic, char *p, u_int32_t *ch_utility_ptr, int sec5)
+static int
+ath_net80211_tr69_get_fail_retrans_cnt(struct ieee80211vap *vap, u_int32_t *failretranscnt)
 {
-	struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
-	struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
-	return scn->sc_ops->ath_get_channel_utility_all(scn->sc_dev, p, ch_utility_ptr, sec5);
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ath_vap_net80211 *avn = ATH_VAP_NET80211(vap);
+    struct ath_vap_dev_stats vapstats;
+
+    if (!avn || !sc)
+        return -1;
+
+    scn->sc_ops->get_vap_stats(scn->sc_dev, avn->av_if_id, &vapstats);
+    *failretranscnt = vapstats.av_tx_xretries;
+
+    return 0;
 }
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 
+static int
+ath_net80211_tr69_get_retry_cnt(struct ieee80211vap *vap, u_int32_t *retranscnt)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ath_vap_net80211 *avn = ATH_VAP_NET80211(vap);
+    struct ath_vap_dev_stats vapstats;
 
+    if (!avn || !sc)
+        return -1;
+
+    scn->sc_ops->get_vap_stats(scn->sc_dev, avn->av_if_id, &vapstats);
+    *retranscnt = vapstats.av_tx_retries;
+
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_mul_retry_cnt(struct ieee80211vap *vap, u_int32_t *retranscnt)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ath_vap_net80211 *avn = ATH_VAP_NET80211(vap);
+    struct ath_vap_dev_stats vapstats;
+
+    if (!avn || !sc)
+        return -1;
+
+    scn->sc_ops->get_vap_stats(scn->sc_dev, avn->av_if_id, &vapstats);
+    *retranscnt = vapstats.av_tx_mretries;
+
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_ack_fail_cnt(struct ieee80211vap *vap, u_int32_t *ackfailcnt)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ath_vap_net80211 *avn = ATH_VAP_NET80211(vap);
+    struct ath_vap_dev_stats vapstats;
+
+    if (!avn || !sc)
+        return -1;
+
+    scn->sc_ops->get_vap_stats(scn->sc_dev, avn->av_if_id, &vapstats);
+    *ackfailcnt = vapstats.av_ack_failures;
+
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_aggr_pkt_cnt(struct ieee80211vap *vap, u_int32_t *aggrpkts)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ath_vap_net80211 *avn = ATH_VAP_NET80211(vap);
+    struct ath_vap_dev_stats vapstats;
+
+    if (!avn || !sc)
+        return -1;
+
+    scn->sc_ops->get_vap_stats(scn->sc_dev, avn->av_if_id, &vapstats);
+    *aggrpkts = vapstats.av_aggr_pkt_count;
+
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_sta_bytes_sent(struct ieee80211vap *vap, u_int32_t *bytessent, u_int8_t *dstmac)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, dstmac);
+    if (ni == NULL) {
+        return -ENOENT;
+    }
+    *bytessent = ni->ni_stats.ns_tx_bytes_success;
+
+    ieee80211_free_node(ni);
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_sta_bytes_rcvd(struct ieee80211vap *vap, u_int32_t *bytesrcvd, u_int8_t *dstmac)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, dstmac);
+    if (ni == NULL) {
+        return -ENOENT;
+    }
+    *bytesrcvd = ni->ni_stats.ns_rx_bytes;
+    ieee80211_free_node(ni);
+    return 0;
+}
+
+#if 0
+static int
+ath_net80211_tr69_get_data_sent_ack(struct ieee80211vap *vap, struct ieee80211req_athdbg *req)
+{
+    ieee80211req_tr069_t * reqptr = &req->data.tr069_req;
+    u_int32_t *datasentack = (u_int32_t *)reqptr->data_addr;
+    //    strncpy(plcperrcnt,vap->iv_basic_rates,strlen(vap->iv_basic_rates));
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_data_sent_noack(struct ieee80211vap *vap, struct ieee80211req_athdbg *req)
+{
+    ieee80211req_tr069_t * reqptr = &req->data.tr069_req;
+    u_int32_t *datasentnoack = (u_int32_t *)reqptr->data_addr;
+    //    strncpy(plcperrcnt,vap->iv_basic_rates,strlen(vap->iv_basic_rates));
+    return 0;
+}
+#endif
+static int
+ath_net80211_tr69_get_chan_util(struct ieee80211vap *vap, u_int32_t *chanutil)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    u_int8_t ctlrxc, extrxc, rfcnt, tfcnt;
+    u_int32_t chanbusy;
+
+    chanbusy = scn->sc_ops->get_chbusyper(scn->sc_dev);
+
+    ctlrxc = chanbusy & 0xff;
+    extrxc = (chanbusy & 0xff00) >> 8;
+    rfcnt = (chanbusy & 0xff0000) >> 16;
+    tfcnt = (chanbusy & 0xff000000) >> 24;
+
+    if (vap->iv_ic->ic_curchan->ic_flags & IEEE80211_CHAN_HT20)
+        *chanutil = ctlrxc - tfcnt;
+    else
+        *chanutil = (ctlrxc + extrxc) - tfcnt;
+
+    return 0;
+}
+
+static int
+ath_net80211_tr69_get_retrans_cnt(struct ieee80211vap *vap, u_int32_t *retranscnt)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
+    struct ath_softc *sc = ATH_DEV_TO_SC(scn->sc_dev);
+    struct ath_vap_net80211 *avn = ATH_VAP_NET80211(vap);
+    struct ath_vap_dev_stats vapstats;
+
+    if (!avn || !sc)
+        return -1;
+
+    scn->sc_ops->get_vap_stats(scn->sc_dev, avn->av_if_id, &vapstats);
+    *retranscnt = vapstats.av_retry_count;
+
+    return 0;
+}
+
+static int ath_net80211_tr69_process_request(struct ieee80211vap *vap, int cmdid, void * arg1, void *arg2) 
+{
+	struct ieee80211com *ic = vap->iv_ic;
+
+	switch(cmdid){
+#if 0
+        case IEEE80211_TR069_GET_PLCP_ERR_CNT:
+			ath_net80211_tr69_get_plcp_err_cnt(dev, arg1);
+            break;
+        case IEEE80211_TR069_GET_FCS_ERR_CNT:
+			ath_net80211_tr69_get_fcs_err_cnt(dev, arg1);
+            break;
+        case IEEE80211_TR069_GET_PKTS_OTHER_RCVD:
+			ath_net80211_tr69_get_pkts_other_rcvd(dev, req);
+            break;
+#endif
+        case IEEE80211_TR069_GET_FAIL_RETRANS_CNT:
+			ath_net80211_tr69_get_fail_retrans_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_RETRY_CNT:
+			ath_net80211_tr69_get_retry_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_MUL_RETRY_CNT:
+			ath_net80211_tr69_get_mul_retry_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_ACK_FAIL_CNT:
+			ath_net80211_tr69_get_ack_fail_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_AGGR_PKT_CNT:
+			ath_net80211_tr69_get_aggr_pkt_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_STA_BYTES_SENT:
+			ath_net80211_tr69_get_sta_bytes_sent(vap, arg1, arg2);
+            break;
+        case IEEE80211_TR069_GET_STA_BYTES_RCVD:
+			ath_net80211_tr69_get_sta_bytes_rcvd(vap, arg1, arg2);
+            break;
+#if 0
+        case IEEE80211_TR069_GET_DATA_SENT_ACK:
+			ath_net80211_tr69_get_data_sent_ack(dev, arg1);
+            break;
+        case IEEE80211_TR069_GET_DATA_SENT_NOACK:
+			ath_net80211_tr69_get_data_sent_noack(dev, req);
+            break;
+#endif
+        case IEEE80211_TR069_GET_CHAN_UTIL:
+			ath_net80211_tr69_get_chan_util(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_RETRANS_CNT:
+			ath_net80211_tr69_get_retrans_cnt(vap, arg1);
+            break;
+        default:
+			break;
+    }
+    return 0;
+}

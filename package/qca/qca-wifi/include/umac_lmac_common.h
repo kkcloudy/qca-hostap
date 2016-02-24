@@ -99,8 +99,11 @@ struct sa_rate_info {
 #ifdef ATH_USB
 #define    ATH_BCBUF    8        /* should match ATH_USB_BCBUF defined in ath_usb.h */
 #else
-//zhaoyang1 redefines the rule of creating vap mac 2014-12-20
+#if ATOPT_MAC_RULE
 #define    ATH_BCBUF    8       /* number of beacon buffers for 16 VAP support */
+#else
+#define    ATH_BCBUF    16       /* number of beacon buffers for 16 VAP support */
+#endif
 #endif
 
 #if ATH_SUPPORT_WRAP
@@ -185,36 +188,18 @@ struct sa_rate_info {
  *
  */
 #if ATOPT_MAC_RULE
-/*Autelan-Begin: zhaoyang1 redefines the rule of creating vap mac 2014-12-20*/
 #define ATH_SET_VAP_BSSID_MASK(bssid_mask)      ((bssid_mask)[IEEE80211_ADDR_LEN - 1] &= ~(ATH_BCBUF-1))
-    
+
 #define ATH_GET_VAP_ID(bssid, hwbssid, id)                              \
-        do {                                                                \         
-           id = bssid[IEEE80211_ADDR_LEN - 1] & (ATH_BCBUF-1);              \
-        } while (0)
-        
-           
+    do {                                                                \         
+       id = bssid[IEEE80211_ADDR_LEN - 1] & (ATH_BCBUF-1);              \
+    } while (0) 
+
 #define ATH_SET_VAP_BSSID(bssid, hwbssid, id)                        \
-        do {                                                             \
-            (bssid)[IEEE80211_ADDR_LEN - 1] |= (id & (ATH_BCBUF - 1));  \
-        } while(0)
-#define NEW_ATH_SET_VAP_BSSID_MASK(bssid_mask, dispatch_mac)\
-	do {\
-		if (dispatch_mac == 1) {\
-		  (bssid_mask)[3] &= 0; 	\
-		} else if (dispatch_mac == 2) { \
-			(bssid_mask)[3] &= 0;\
-			(bssid_mask)[4] &= 0;\
-			(bssid_mask)[5] &= 0;\
-		}\
-	} while (0)
-#define NEW_ATH_GET_VAP_ID(wifi_bssid, vap_bssid)    (vap_bssid - wifi_bssid)
-#define NEW_ATH_SET_VAP_BSSID(bssid, id)\
-	do {\
-		if (id) \
-		bssid += id;\
-	} while (0)
-/*Autelan-End: zhaoyang1 redefines the rule of creating vap mac 2014-12-20*/
+    do {                                                             \
+        (bssid)[IEEE80211_ADDR_LEN - 1] |= (id & (ATH_BCBUF - 1));  \
+    } while(0)
+
 #else
 #define ATH_SET_VAP_BSSID_MASK(bssid_mask)      ((bssid_mask)[0] &= ~(((ATH_BCBUF-1) << 4) | 0x02))
 

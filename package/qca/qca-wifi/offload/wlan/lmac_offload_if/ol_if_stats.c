@@ -214,7 +214,15 @@ static void ol_ath_vap_iter_update_txpow(void *arg, wlan_if_t vap)
     u_int16_t txpowlevel = *((u_int32_t *) arg);
     ni = ieee80211vap_get_bssnode(vap);
     ASSERT(ni);
+#if ATH_BAND_STEERING
+    u_int16_t oldTxpow = ieee80211_node_get_txpower(ni);
+#endif
     ieee80211node_set_txpower(ni, txpowlevel);
+#if ATH_BAND_STEERING
+    if (txpowlevel != oldTxpow) {
+        ieee80211_bsteering_send_txpower_change_event(vap, txpowlevel);
+    }
+#endif
 }
 
 #define RSSI_INV     0x80 /*invalid RSSI */
@@ -263,12 +271,6 @@ wmi_unified_update_stats_event_handler(ol_scn_t scn, u_int8_t *data,
             scn->chan_nf = pdev_stats->chan_nf;
             scn->chan_tx_pwr = pdev_stats->chan_tx_pwr;
             wlan_iterate_vap_list(ic, ol_ath_vap_iter_update_txpow,(void *) &scn->chan_tx_pwr);
-            scn->scn_stats.ackRcvBad = pdev_stats->ackRcvBad;
-            scn->scn_stats.rtsBad = pdev_stats->rtsBad;
-            scn->scn_stats.rtsGood = pdev_stats->rtsGood;
-            scn->scn_stats.fcsBad = pdev_stats->fcsBad;
-            scn->scn_stats.noBeacons = pdev_stats->noBeacons;
-            scn->scn_stats.mib_int_count = pdev_stats->mib_int_count;
             OS_MEMCPY(&scn->ath_stats,
                        &pdev_stats->pdev_stats,
                        sizeof(pdev_stats->pdev_stats));
@@ -290,18 +292,31 @@ wmi_unified_update_stats_event_handler(ol_scn_t scn, u_int8_t *data,
             RSSI_CHAIN_STATS(pdev_ext_stats->rx_rssi_chain3, scn->scn_stats.rx_rssi_chain3);
             OS_MEMCPY(scn->scn_stats.tx_mcs,  pdev_ext_stats->tx_mcs, sizeof(scn->scn_stats.tx_mcs));
             scn->scn_stats.tx_rssi= pdev_ext_stats->ack_rssi;
+            scn->scn_stats.ackRcvBad = pdev_ext_stats->ackRcvBad;
+            scn->scn_stats.rtsBad = pdev_ext_stats->rtsBad;
+            scn->scn_stats.rtsGood = pdev_ext_stats->rtsGood;
+            scn->scn_stats.fcsBad = pdev_ext_stats->fcsBad;
+            scn->scn_stats.noBeacons = pdev_ext_stats->noBeacons;
+            scn->scn_stats.mib_int_count = pdev_ext_stats->mib_int_count;
             temp += sizeof(wmi_pdev_ext_stats);
     }
 
     if (ev->num_vdev_stats > 0) {
-        /*
-         * No vdev stats- not required currently.
-         *
-         *for (i = 0; i < ev->num_vdev_stats; i++) {
-         *    wmi_vdev_stats *vdev_stats = (wmi_vdev_stats *)temp;
-         *    temp += sizeof(wmi_vdev_stats);
-         *}
-         */
+        /* No vdev stats- not required currently. */
+
+          for (i = 0; i < ev->num_vdev_stats; i++) {
+            struct ieee80211vap *vap;
+            wmi_vdev_stats *vdev_stats = (wmi_vdev_stats *)temp;
+            struct ol_ath_vap_net80211 *avn;
+
+            vap = ol_ath_vap_get(scn, vdev_stats->vdev_id);
+            if(vap)
+            {
+                avn = OL_ATH_VAP_NET80211(vap);
+                OS_MEMCPY(&avn->vdev_stats, &vdev_stats->vdev_stats, sizeof(struct wal_dbg_vdev_stats));
+                temp += sizeof(wmi_vdev_stats);
+            }
+        }
     }
     if (ev->num_peer_stats > 0)
     {
@@ -316,15 +331,23 @@ wmi_unified_update_stats_event_handler(ol_scn_t scn, u_int8_t *data,
                 mac_stats =  ( ni == vap->iv_bss ) ? &vap->iv_multicast_stats : &vap->iv_unicast_stats;
                 ni->ni_rssi = peer_stats->peer_rssi;
 #if ATH_BAND_STEERING
-                if (peer_stats->peer_rssi_changed) {
-                    // New RSSI measurement
+                /* Only notify user space for valid (non-zero) RSSI or rate */
+                if (peer_stats->peer_rssi && peer_stats->peer_rssi_changed) {
+                    /* New RSSI measurement */
                     ieee80211_bsteering_record_rssi(ni, peer_stats->peer_rssi);
                 }
+                if (peer_stats->peer_tx_rate && (peer_stats->peer_tx_rate != ni->ni_stats.ns_last_tx_rate)) {
+                    /* Tx rate has changed */
+                    ieee80211_bsteering_update_rate(ni, peer_stats->peer_tx_rate);
+                }
 #endif
+                ni->ni_peer_chain_rssi = peer_stats->peer_chain_rssi;
                 (OL_ATH_NODE_NET80211(ni))->an_ni_rx_rate = peer_stats->peer_rx_rate;
                 (OL_ATH_NODE_NET80211(ni))->an_ni_tx_rate = peer_stats->peer_tx_rate;
                 ni->ni_stats.ns_last_rx_rate = peer_stats->peer_rx_rate;
                 ni->ni_stats.ns_last_tx_rate = peer_stats->peer_tx_rate;
+                ni->ni_stats.ns_dot11_tx_bytes = peer_stats->peer_tx_bytes;
+                ni->ni_stats.ns_dot11_rx_bytes = peer_stats->peer_rx_bytes;
                 mac_stats->ims_last_tx_rate  = peer_stats->peer_tx_rate;
                 mac_stats->ims_last_tx_rate_mcs = whal_kbps_to_mcs( mac_stats->ims_last_tx_rate,vap->iv_data_sgi,0,0
 );
@@ -368,6 +391,26 @@ ol_ath_net80211_get_cur_chan_stats(struct ieee80211com *ic, struct ieee80211_cha
     chan_stats->chan_clr_cnt = scn->chan_stats.chan_clr_cnt;
     chan_stats->cycle_cnt = scn->chan_stats.cycle_cnt;
     chan_stats->phy_err_cnt = scn->chan_stats.phy_err_cnt;
+}
+
+static void
+ol_ath_bss_chan_info_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void *context)
+{
+    wmi_pdev_bss_chan_info_event *chan_stats = (wmi_pdev_bss_chan_info_event *)data;
+
+    adf_os_print("BSS Chan info stats :\n");
+    adf_os_print("Frequency               : %d\n",chan_stats->freq);
+    adf_os_print("noise_floor             : %d\n",chan_stats->noise_floor);
+    adf_os_print("rx_clear_count_low      : %u\n",chan_stats->rx_clear_count_low);
+    adf_os_print("rx_clear_count_high     : %u\n",chan_stats->rx_clear_count_high);
+    adf_os_print("cycle_count_low         : %u\n",chan_stats->cycle_count_low);
+    adf_os_print("cycle_count_high        : %u\n",chan_stats->cycle_count_high);
+    adf_os_print("tx_cycle_count_low      : %u\n",chan_stats->tx_cycle_count_low);
+    adf_os_print("tx_cycle_count_high     : %u\n",chan_stats->tx_cycle_count_high);
+    adf_os_print("rx_cycle_count_low      : %u\n",chan_stats->rx_cycle_count_low);
+    adf_os_print("rx_cycle_count_high     : %u\n",chan_stats->rx_cycle_count_high);
+    adf_os_print("rx_bss_cycle_count_low  : %u\n",chan_stats->rx_bss_cycle_count_low);
+    adf_os_print("rx_bss_cycle_count_high : %u\n",chan_stats->rx_bss_cycle_count_high);
 }
 
 /*
@@ -437,6 +480,33 @@ ol_ath_request_stats(struct ieee80211com *ic,
 }
 
 static int32_t
+ol_ath_bss_chan_info_request(struct ieee80211com *ic,
+        void *cmd_param)
+{
+    struct ol_ath_softc_net80211 *scn = OL_ATH_SOFTC_NET80211(ic);
+
+    wmi_buf_t buf;
+    wmi_pdev_bss_chan_info_request *cmd_buf, *cmd;
+    u_int8_t len = sizeof(wmi_pdev_bss_chan_info_request);
+    cmd = (wmi_pdev_bss_chan_info_request *)cmd_param;
+    buf = wmi_buf_alloc(scn->wmi_handle, len);
+    if (!buf) {
+        adf_os_print("%s:wmi_buf_alloc failed\n", __FUNCTION__);
+        return EINVAL;
+    }
+    cmd_buf = (wmi_pdev_bss_chan_info_request *)wmi_buf_data(buf);
+    adf_os_mem_copy(cmd_buf, cmd, sizeof(wmi_pdev_bss_chan_info_request));
+
+    if (wmi_unified_cmd_send(scn->wmi_handle, buf, len,
+                WMI_PDEV_BSS_CHAN_INFO_REQUEST)) {
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+
+static int32_t
 ol_ath_send_rssi(struct ieee80211com *ic,
                 u_int8_t *macaddr, struct ieee80211vap *vap)
 {
@@ -445,6 +515,16 @@ ol_ath_send_rssi(struct ieee80211com *ic,
     cmd.stats_id = WMI_REQUEST_INST_STAT;
     WMI_CHAR_ARRAY_TO_MAC_ADDR(macaddr, &cmd.peer_macaddr);
     ol_ath_request_stats(ic, &cmd);
+
+    return 0;
+}
+
+static int32_t
+ol_ath_bss_chan_info_request_stats(struct ieee80211com *ic, int param)
+{
+    wmi_pdev_bss_chan_info_request cmd;
+    cmd.param = param;
+    ol_ath_bss_chan_info_request(ic, &cmd);
 
     return 0;
 }
@@ -553,16 +633,6 @@ process_rx_stats(void *pdev, adf_nbuf_t amsdu,
                 /*  Updating peer stats */
                 ni->ni_stats.ns_rx_data++;
                 ni->ni_stats.ns_rx_bytes += data_length;
-				/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-				if (is_mcast) {
-                     ni->ni_stats.ns_rx_mcast++;
-                     ni->ni_stats.ns_rx_mcast_bytes += data_length;
-                } else {
-                	ni->ni_stats.ns_rx_ucast ++;
-                    ni->ni_stats.ns_rx_ucast_bytes += data_length;
-		        }
-				/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-				
                 /*  Updating vap stats  */
                 mac_stats->ims_rx_data_packets++;
                 mac_stats->ims_rx_data_bytes += data_length;
@@ -606,15 +676,6 @@ process_rx_stats(void *pdev, adf_nbuf_t amsdu,
 				&vap->iv_unicast_stats;
 			mac_stats->ims_rx_fcserr++;
 		}
-
-		/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-		ni = ieee80211_vap_find_node(vap,peer->mac_addr.raw);
-             if (!ni)
-             	return A_ERROR;
-		ni->ni_stats.ns_rx_fcserr++;
-        /* remove extra node ref count added by find_node above */
-	    ieee80211_free_node(ni);
-		/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 	}
 	break;
     case HTT_RX_IND_MPDU_STATUS_TKIP_MIC_ERR:
@@ -801,14 +862,9 @@ process_tx_stats(struct ol_txrx_pdev_t *txrx_pdev,
 
             if (peer->bss_peer) {
                 ni->ni_stats.ns_tx_mcast += num_msdus;
-				ni->ni_stats.ns_tx_mcast_bytes += byte_cnt; //zhaoyang1 transplants statistics 2015-01-27
             } else {
                 ni->ni_stats.ns_tx_ucast += num_msdus;
-				ni->ni_stats.ns_tx_ucast_bytes += byte_cnt; //zhaoyang1 transplants statistics 2015-01-27
             }
-			ni->ni_stats.ns_tx_data  +=  num_msdus;
-	        ni->ni_stats.ns_tx_bytes  += byte_cnt; //zhaoyang1 transplants statistics 2015-01-27
-			
             ni->ni_stats.ns_tx_data_success += num_msdus;
             ni->ni_stats.ns_tx_bytes_success += byte_cnt;
             /* Right now, I am approx. the header length to 802.11 as the host never receives
@@ -1005,6 +1061,8 @@ ol_ath_stats_attach(struct ieee80211com *ic)
     ic->ic_ath_request_stats = ol_ath_request_stats;
     ic->ic_hal_get_chan_info = ol_ath_get_chan_info;
     ic->ic_ath_send_rssi = ol_ath_send_rssi;
+    ic->ic_ath_bss_chan_info_stats = ol_ath_bss_chan_info_request_stats;
+
     /* Enable and disable stats*/
     ic->ic_ath_enable_ap_stats = ol_ath_enable_ap_stats;
     /* register target stats event handler */
@@ -1013,6 +1071,8 @@ ol_ath_stats_attach(struct ieee80211com *ic)
     wmi_unified_register_event_handler(scn->wmi_handle,
                                         WMI_INST_RSSI_STATS_EVENTID,
                                         ol_ath_rssi_cb, NULL);
+    wmi_unified_register_event_handler(scn->wmi_handle, WMI_PDEV_BSS_CHAN_INFO_EVENT,
+                                        ol_ath_bss_chan_info_event_handler, NULL);
 	/* enable the pdev stats event */
     wmi_unified_pdev_set_param(scn->wmi_handle,
                                WMI_PDEV_PARAM_PDEV_STATS_UPDATE_PERIOD,
@@ -1040,6 +1100,7 @@ ol_ath_stats_detach(struct ieee80211com *ic)
     /* unregister target stats event handler */
     wmi_unified_unregister_event_handler(scn->wmi_handle, WMI_UPDATE_STATS_EVENTID);
 	wmi_unified_unregister_event_handler(scn->wmi_handle, WMI_INST_RSSI_STATS_EVENTID);
+    wmi_unified_unregister_event_handler(scn->wmi_handle, WMI_PDEV_BSS_CHAN_INFO_EVENT);
     /* disable target stats event */
     wmi_unified_pdev_set_param(scn->wmi_handle, WMI_PDEV_PARAM_PDEV_STATS_UPDATE_PERIOD, 0);
     wmi_unified_pdev_set_param(scn->wmi_handle, WMI_PDEV_PARAM_VDEV_STATS_UPDATE_PERIOD, 0);

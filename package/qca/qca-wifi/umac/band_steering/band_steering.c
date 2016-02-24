@@ -16,6 +16,7 @@
 #include <ieee80211_ioctl.h>  /* for ieee80211req_athdbg */
 #include <ieee80211_var.h>
 #include <ieee80211_acl.h>
+#include <ieee80211_rateset.h>
 
 #if ATH_BAND_STEERING
 
@@ -33,6 +34,13 @@ static void ieee80211_bsteering_send_rssi_measurement_event(struct ieee80211vap 
                                                             const u_int8_t *mac_addr,
                                                             u_int8_t rssi, bool is_debug);
 static OS_TIMER_FUNC(wlan_bsteering_inst_rssi_timeout_handler);
+static void ieee80211_bsteering_send_rrm_report_event(
+    struct ieee80211vap *vap, const struct bs_rrm_report_ind *report);
+static int ieee80211_bsteering_get_node_max_MCS(const struct ieee80211_node *ni);
+static int ieee80211_bsteering_get_max_MCS(enum ieee80211_phymode phymode,
+                                           u_int16_t rx_vht_mcs_map, u_int16_t tx_vht_mcs_map,
+                                           const struct ieee80211_rateset *htrates,
+                                           const struct ieee80211_rateset *basic_rates);
 
 /**
  * @brief Verify that the band steering handle is valid within the
@@ -63,6 +71,19 @@ u_int8_t ieee80211_bsteering_is_enabled(const struct ieee80211com *ic)
 }
 
 /**
+ * @brief Determine whether band steering events are enabled on
+ *        a VAP.
+ *
+ * @param [in] vap  VAP to check
+ *
+ * @return non-zero if it is enabled; otherwise 0
+ */
+u_int8_t ieee80211_bsteering_is_event_enabled(const struct ieee80211vap *vap)
+{
+    return atomic_read(&vap->iv_bs_enabled);
+}
+
+/**
  * @brief Determine whether the VAP handle is valid, has a valid band
  *        steering handle, is operating in a mode where band steering
  *        is relevant, and is not in the process of being deleted.
@@ -83,11 +104,9 @@ bool ieee80211_bsteering_is_vap_valid(const struct ieee80211vap *vap)
 /**
  * @brief Determine whether the VAP has band steering enabled.
  *
- * This is currently limited to just validating that the VAP has a valid
- * band steering handle and that it is operating in the right mode (AP mode).
- * Eventually it will be extended to also check that band steering has been
- * enabled on the VAP as well. Currently band steering is only enabled/disabled
- * at the radio level.
+ * Validate that the VAP has a valid band steering handle, that
+ * it is operating in the right mode (AP mode), and that band steering has been
+ * enabled on the VAP. 
  *
  * @param [in] vap  the VAP to check
  *
@@ -96,9 +115,8 @@ bool ieee80211_bsteering_is_vap_valid(const struct ieee80211vap *vap)
  */
 bool ieee80211_bsteering_is_vap_enabled(const struct ieee80211vap *vap)
 {
-    /* Eventually this should also check that band steering has been enabled
-       on the VAP*/
-    return ieee80211_bsteering_is_vap_valid(vap);
+    return (ieee80211_bsteering_is_vap_valid(vap) &&
+            ieee80211_bsteering_is_event_enabled(vap));
 }
 
 /**
@@ -149,7 +167,9 @@ int wlan_bsteering_set_params(struct ieee80211vap *vap,
         (req->data.bsteering_param.inactivity_timeout_normal <=
          req->data.bsteering_param.inactivity_check_period) ||
         (req->data.bsteering_param.inactivity_timeout_overload <=
-         req->data.bsteering_param.inactivity_check_period)) {
+         req->data.bsteering_param.inactivity_check_period) ||
+        (req->data.bsteering_param.high_tx_rate_crossing_threshold <=
+         req->data.bsteering_param.low_tx_rate_crossing_threshold)) {
         return -EINVAL;
     }
 
@@ -321,6 +341,9 @@ int wlan_bsteering_set_overload(struct ieee80211vap *vap,
     spin_lock_bh(&bsteering->bs_lock);
     bsteering->bs_vap_overload = req->data.bsteering_overload ? true : false;
 
+    /* Note: To avoid a possible deadlock, the lower layer should never
+       call a band steering function that grabs the band steering
+       spinlock while holding the peer lock. */
     vap->iv_ic->ic_bs_set_overload(vap->iv_ic, bsteering->bs_vap_overload);
 
     spin_unlock_bh(&bsteering->bs_lock);
@@ -517,6 +540,45 @@ int wlan_bsteering_enable(struct ieee80211vap *vap, const struct ieee80211req_at
     spin_unlock_bh(&bsteering->bs_lock);
     return retval;
 }
+
+/**
+ * @brief Enable/Disable band steering events on a VAP
+ *
+ * @pre  wlan_bsteering_enable must be called
+ *
+ * @param [inout] vap  the VAP whose band steering status
+ *                     changes
+ * @param [in] req  request from user space containing the flag indicating enable or disable
+ *
+ * @return EINVAL if band steering not initialized or enabled on
+ *         the radio, EALREADY if band steering on the VAP is
+ *         already in the requested state, otherwise return EOK
+ */
+int wlan_bsteering_enable_events(struct ieee80211vap *vap, const struct ieee80211req_athdbg *req)
+{
+    bool enabled;
+    if (!ieee80211_bsteering_is_req_valid(vap, req)) {
+        return -EINVAL;
+    }
+
+    /* Make sure band steering is enabled at the radio level first */
+    if (!(ieee80211_bsteering_is_enabled(vap->iv_ic))) {
+        return -EINVAL;
+    }
+
+    /* Make sure this isn't a set to the same state we are already in */
+    enabled = ieee80211_bsteering_is_event_enabled(vap);
+    if ((req->data.bsteering_enable && enabled) ||
+        (!req->data.bsteering_enable && !enabled)) {
+        return -EALREADY;
+    }
+
+    /* Set the state */
+    atomic_set(&vap->iv_bs_enabled, req->data.bsteering_enable);
+
+    return EOK;
+}
+
 /**
  * @brief Update whether probe responses should be withheld for a given
  *        MAC or not.
@@ -577,6 +639,143 @@ int wlan_bsteering_get_probe_resp_wh(struct ieee80211vap *vap,
     req->data.bsteering_probe_resp_wh =
         ieee80211_acl_flag_check(vap, req->dstmac,
                                  IEEE80211_ACL_FLAG_PROBE_RESP_WH);
+    return EOK;
+}
+
+/**
+ * @brief Get the maximum MCS supported by the client
+ *
+ * @param [in] ni  the STA to check for maximum MCS supported
+ *
+ * @return the maximum MCS supported by this client on success;
+ *         otherwise return -1
+ */
+static int ieee80211_bsteering_get_node_max_MCS(const struct ieee80211_node *ni) {
+    return ieee80211_bsteering_get_max_MCS(ni->ni_phymode, ni->ni_rx_vhtrates,
+                                           ni->ni_tx_vhtrates, &ni->ni_htrates,
+                                           &ni->ni_rates);
+}
+
+/**
+ * @brief Get the maximum MCS supported based on PHY mode and rate
+ *        information provided
+ *
+ * @param [in] phymode  the PHY mode the VAP/client is operating on
+ * @param [in] rx_vht_mcs_map  the VHT RX rate map if supported
+ * @param [in] tx_vht_mcs_map  the VHT TX rate map if supported
+ * @param [in] htrates  the HT rates supported
+ * @param [in] basic_rates  all other rates supported
+ *
+ * @return the maximum MCS supported on success; otherwise return -1
+ */
+static int ieee80211_bsteering_get_max_MCS(enum ieee80211_phymode phymode,
+                                           u_int16_t rx_vht_mcs_map, u_int16_t tx_vht_mcs_map,
+                                           const struct ieee80211_rateset *htrates,
+                                           const struct ieee80211_rateset *basic_rates) {
+    u_int8_t rx_max_MCS, tx_max_MCS, max_MCS;
+    switch (phymode) {
+        case IEEE80211_MODE_11AC_VHT20:
+        case IEEE80211_MODE_11AC_VHT40PLUS:
+        case IEEE80211_MODE_11AC_VHT40MINUS:
+        case IEEE80211_MODE_11AC_VHT40:
+        case IEEE80211_MODE_11AC_VHT80:
+            if (rx_vht_mcs_map && tx_vht_mcs_map) {
+                /* Refer to IEEE P802.11ac/D7.0 Figure 8-401bs for VHT MCS Map definition */
+                rx_max_MCS = rx_vht_mcs_map & 0x03;
+                tx_max_MCS = tx_vht_mcs_map & 0x03;
+                max_MCS = rx_max_MCS < tx_max_MCS ? rx_max_MCS : tx_max_MCS;
+                if (max_MCS < 0x03) {
+                   return 7 + max_MCS;
+                }
+            }
+            /* Invalid 11ac MCS, fallback to report 11n MCS */
+        case IEEE80211_MODE_11NA_HT20:
+        case IEEE80211_MODE_11NG_HT20:
+        case IEEE80211_MODE_11NA_HT40PLUS:
+        case IEEE80211_MODE_11NA_HT40MINUS:
+        case IEEE80211_MODE_11NG_HT40PLUS:
+        case IEEE80211_MODE_11NG_HT40MINUS:
+        case IEEE80211_MODE_11NG_HT40:
+        case IEEE80211_MODE_11NA_HT40:
+            if (htrates && htrates->rs_nrates) {
+                return htrates->rs_rates[htrates->rs_nrates - 1];
+            }
+            /* Invalid 11n MCS, fallback to basic rates */
+        default:
+            if (basic_rates && basic_rates->rs_nrates) {
+                return basic_rates->rs_rates[basic_rates->rs_nrates - 1] & IEEE80211_RATE_VAL;
+            }
+    }
+
+    return -1;
+}
+
+/**
+ * @brief Query the data rate related information of the VAP or client
+ *        as specified by the MAC address
+ *
+ * @param [in] vap  the VAP for which to get the value
+ * @param [inout] req  request from user space containing the VAP/station MAC
+ *                     address for which to get the data rate related info
+ *
+ * @return EINVAL if the request is malformed; otherwise EOK
+ */
+
+int wlan_bsteering_get_datarate_info(struct ieee80211vap *vap,
+                                     struct ieee80211req_athdbg *req)
+{
+    if (!ieee80211_bsteering_is_req_valid(vap, req)) {
+        return -EINVAL;
+    }
+
+    if (IEEE80211_ADDR_EQ(vap->iv_myaddr, req->dstmac)) {
+        struct ieee80211com *ic = vap->iv_ic;
+        req->data.bsteering_datarate_info.max_chwidth = ic->ic_cwm_get_width(ic);
+        req->data.bsteering_datarate_info.num_streams =
+                ieee80211_getstreams(ic, ic->ic_tx_chainmask);
+        req->data.bsteering_datarate_info.phymode = vap->iv_cur_mode;
+        /* Tx power is stored in half dBm */
+        req->data.bsteering_datarate_info.max_txpower = vap->iv_bss->ni_txpower / 2;
+        int max_MCS = ieee80211_bsteering_get_max_MCS(vap->iv_cur_mode,
+                                                      ic->ic_vhtcap_max_mcs.rx_mcs_set.mcs_map,
+                                                      ic->ic_vhtcap_max_mcs.tx_mcs_set.mcs_map,
+                                                      &ic->ic_sup_ht_rates[vap->iv_cur_mode],
+                                                      &ic->ic_sup_rates[vap->iv_cur_mode]);
+        if (max_MCS < 0) {
+            printk("%s: Requested VAP %02x:%02x:%02x:%02x:%02x:%02x has no valid rate info.",
+                   __func__, req->dstmac[0], req->dstmac[1], req->dstmac[2],
+                   req->dstmac[3], req->dstmac[4], req->dstmac[5]);
+            return -EINVAL;
+        } else {
+            req->data.bsteering_datarate_info.max_MCS = max_MCS;
+        }
+    } else {
+        struct ieee80211_node *ni = NULL;
+        ni = ieee80211_find_node(&vap->iv_ic->ic_sta, req->dstmac);
+        if (!ni) {
+            printk("%s: Requested STA %02x:%02x:%02x:%02x:%02x:%02x is not "
+                   "associated\n", __func__, req->dstmac[0], req->dstmac[1],
+                   req->dstmac[2], req->dstmac[3], req->dstmac[4], req->dstmac[5]);
+            return -EINVAL;
+        }
+
+        req->data.bsteering_datarate_info.max_chwidth = ni->ni_chwidth;
+        req->data.bsteering_datarate_info.num_streams = ni->ni_streams;
+        req->data.bsteering_datarate_info.phymode = ni->ni_phymode;
+        req->data.bsteering_datarate_info.max_txpower = ni->ni_max_txpower;
+        int max_MCS = ieee80211_bsteering_get_node_max_MCS(ni);
+        if (max_MCS < 0) {
+            printk("%s: Requested STA %02x:%02x:%02x:%02x:%02x:%02x has no valid rate info.",
+                   __func__, req->dstmac[0], req->dstmac[1], req->dstmac[2],
+                   req->dstmac[3], req->dstmac[4], req->dstmac[5]);
+            ieee80211_free_node(ni);
+            return -EINVAL;
+        } else {
+            req->data.bsteering_datarate_info.max_MCS = max_MCS;
+        }
+
+        ieee80211_free_node(ni);
+    }
     return EOK;
 }
 
@@ -667,8 +866,8 @@ int ieee80211_bsteering_detach(struct ieee80211com *ic)
     ieee80211_bsteering_direct_attach_destroy(ic);
     spin_lock_destroy(&bsteering->bs_lock);
 
+    ic->ic_bsteering = NULL;
     OS_FREE(bsteering);
-    bsteering = NULL;
     printk("%s: Band steering terminated\n", __func__);
     return EOK;
 }
@@ -694,6 +893,9 @@ ieee80211_bsteering_record_act_change(struct ieee80211com *ic,
     }
 
     ni = ieee80211_find_node(&ic->ic_sta, mac_addr);
+    if (ni == NULL) {
+        return;
+    }
 
     if(!ni)
         return;
@@ -707,49 +909,6 @@ ieee80211_bsteering_record_act_change(struct ieee80211com *ic,
     ieee80211_free_node(ni);
 }
 
-/**
- * @brief Determine the band of operation for the VAP based on its mode.
- *
- * @param vap  the VAP for which to resolve the band
- *
- * @return  the band steering index or BSTEERING_INVALID if it could not be
- *          resolved
- */
-static BSTEERING_BAND ieee80211_bsteering_resolve_band(struct ieee80211vap *vap)
-{
-    u_int32_t band_index;
-    switch (vap->iv_cur_mode) {
-    case IEEE80211_MODE_11A:
-    case IEEE80211_MODE_TURBO_A:
-    case IEEE80211_MODE_11NA_HT20:
-    case IEEE80211_MODE_11NA_HT40PLUS:
-    case IEEE80211_MODE_11NA_HT40MINUS:
-    case IEEE80211_MODE_11NA_HT40:
-    case IEEE80211_MODE_11AC_VHT20:
-    case IEEE80211_MODE_11AC_VHT40PLUS:
-    case IEEE80211_MODE_11AC_VHT40MINUS:
-    case IEEE80211_MODE_11AC_VHT40:
-    case IEEE80211_MODE_11AC_VHT80:
-        band_index = BSTEERING_5G;
-        break;
-    case IEEE80211_MODE_11B:
-    case IEEE80211_MODE_11G:
-    case IEEE80211_MODE_TURBO_G:
-    case IEEE80211_MODE_11NG_HT20:
-    case IEEE80211_MODE_11NG_HT40PLUS:
-    case IEEE80211_MODE_11NG_HT40MINUS:
-    case IEEE80211_MODE_11NG_HT40:
-        band_index = BSTEERING_24G;
-        break;
-    default:
-        band_index = BSTEERING_INVALID;
-        break;
-    }
-
-    return band_index;
-}
-
- 
 /**
  * @brief Generate an event indicating that a probe request was received.
  *
@@ -766,7 +925,6 @@ void ieee80211_bsteering_send_probereq_event(struct ieee80211vap *vap,
                                              const u_int8_t *mac_addr,
                                              u_int8_t rssi)
 {
-    u_int32_t band_index;
     struct bs_probe_req_ind probe;
 
     if(!ieee80211_bsteering_is_vap_enabled(vap) ||
@@ -774,13 +932,11 @@ void ieee80211_bsteering_send_probereq_event(struct ieee80211vap *vap,
         return;
     }
 
-    band_index = ieee80211_bsteering_resolve_band(vap);
-
     OS_MEMCPY(probe.sender_addr, mac_addr, IEEE80211_ADDR_LEN);
     probe.rssi = rssi;
     IEEE80211_DELIVER_BSTEERING_EVENT(vap, ATH_EVENT_BSTEERING_PROBE_REQ,
                                       sizeof(probe),
-                                      (const char *) &probe, band_index);
+                                      (const char *) &probe);
 }
 
 /**
@@ -798,7 +954,6 @@ void ieee80211_bsteering_send_auth_fail_event(struct ieee80211vap *vap,
                                               const u_int8_t *mac_addr, 
                                               u_int8_t rssi)
 {
-    u_int32_t band_index;
     struct bs_auth_reject_ind auth;
 
     if(!ieee80211_bsteering_is_vap_enabled(vap) ||
@@ -806,45 +961,232 @@ void ieee80211_bsteering_send_auth_fail_event(struct ieee80211vap *vap,
         return;
     }
 
-    band_index = ieee80211_bsteering_resolve_band(vap);
-
     OS_MEMCPY(auth.client_addr, mac_addr, IEEE80211_ADDR_LEN);
     auth.rssi = rssi;
     IEEE80211_DELIVER_BSTEERING_EVENT(vap,
                                       ATH_EVENT_BSTEERING_TX_AUTH_FAIL,
                                       sizeof(auth),
-                                      (const char *) &auth, band_index);
+                                      (const char *) &auth);
 }
 
 /**
- * @brief Inform the band steering module that a node is now authorized
- *        (associated and security handshake completed).
- *
- * This handles the case of a secured network as the normal
- * IWEVREGISTERED event is not generated on a secured network.
+ * @brief Inform the band steering module that a node is now 
+ *        associated
  *
  * @param [in] vap  the VAP on which the change occurred
- * @param [in] mac_addr  the MAC address of the client who had its
- *                       authorization status change
+ * @param [in] mac_addr  the MAC address of the client who 
+ *                       associated
+ * @param [in] isBTMSupported  set to true if BSS Transition 
+ *                             Management is supported by this
+ *                             STA (as indicated in the
+ *                             association request frame)
  */
-void ieee80211_bsteering_send_node_authorized_event(struct ieee80211vap *vap,
-                                                    const u_int8_t *mac_addr)
+void ieee80211_bsteering_send_node_associated_event(struct ieee80211vap *vap,
+                                                    const struct ieee80211_node *ni)
 {
-    u_int32_t band_index;
-    struct bs_node_authorized_ind auth;
+    struct bs_node_associated_ind assoc;
+
+    if(!ieee80211_bsteering_is_vap_enabled(vap) ||
+       !ieee80211_bsteering_is_enabled(vap->iv_ic) || !ni) {
+        return;
+    }
+
+    OS_MEMCPY(assoc.client_addr, ni->ni_macaddr, IEEE80211_ADDR_LEN);
+    assoc.isBTMSupported = (bool)(ni->ni_ext_capabilities & IEEE80211_EXTCAPIE_BSSTRANSITION);
+    assoc.isRRMSupported = (bool)(ni->ni_flags & IEEE80211_NODE_RRM);
+    assoc.datarate_info.max_chwidth = ni->ni_chwidth;
+    assoc.datarate_info.num_streams = ni->ni_streams;
+    assoc.datarate_info.phymode = ni->ni_phymode;
+    assoc.datarate_info.max_txpower = ni->ni_max_txpower;
+    int max_MCS = ieee80211_bsteering_get_node_max_MCS(ni);
+    assoc.datarate_info.max_MCS = max_MCS < 0 ? 0 : max_MCS;
+
+    IEEE80211_DELIVER_BSTEERING_EVENT(vap,
+                                      ATH_EVENT_BSTEERING_NODE_ASSOCIATED,
+                                      sizeof(assoc),
+                                      (const char *) &assoc);
+}
+
+/**
+ * @brief Notify band steering when an error RRM beacon report response is received
+ *
+ * It will generate a netlink event with error status if band steering is enabled.
+ *
+ * @param [in] vap  the VAP on which the report is received
+ * @param [1n] token  the dialog token matching the one provided in the request
+ * @param [in] macaddr  the MAC address of the reporter station
+ * @param [1n] mode  the measurement report mode contained in the response
+ */
+void ieee80211_bsteering_send_rrm_bcnrpt_error_event(
+        struct ieee80211vap *vap, u_int32_t token, u_int8_t *macaddr,
+        u_int8_t mode)
+{
+    struct bs_rrm_report_ind event = {0};
 
     if(!ieee80211_bsteering_is_vap_enabled(vap) ||
        !ieee80211_bsteering_is_enabled(vap->iv_ic)) {
         return;
     }
 
-    band_index = ieee80211_bsteering_resolve_band(vap);
+    event.rrm_type = BSTEERING_RRM_TYPE_BCNRPT;
+    event.measrpt_mode = mode;
+    event.dialog_token = token;
+    IEEE80211_ADDR_COPY(event.macaddr, macaddr);
 
-    OS_MEMCPY(auth.client_addr, mac_addr, IEEE80211_ADDR_LEN);
-    IEEE80211_DELIVER_BSTEERING_EVENT(vap,
-                                      ATH_EVENT_BSTEERING_NODE_AUTHORIZED,
-                                      sizeof(auth),
-                                      (const char *) &auth, band_index);
+    ieee80211_bsteering_send_rrm_report_event(vap, &event);
+}
+
+/**
+ * @brief Allocate memory to be filled with RRM beacon reports received
+ *
+ * The caller is responsible to call ieee80211_bsteering_dealloc_rrm_bcnrpt
+ * to free the allocated memory.
+ *
+ * @param [in] vap  the VAP on which the report is received
+ * @param [inout] reports  memory allocated enough to hold the requested
+ *                         number of beacon reports on success
+ * @return maximum number of beacon reports should be filled on success;
+ *         0 for error cases
+ */
+u_int8_t ieee80211_bsteering_alloc_rrm_bcnrpt(struct ieee80211vap *vap,
+                                              ieee80211_bcnrpt_t **reports)
+{
+    if (!reports) {
+        return 0;
+    }
+    *reports = NULL;
+
+    if(!ieee80211_bsteering_is_vap_enabled(vap) ||
+       !ieee80211_bsteering_is_enabled(vap->iv_ic)) {
+        return 0;
+    }
+
+    *reports = (ieee80211_bcnrpt_t *)OS_MALLOC(
+            vap->iv_ic->ic_osdev,
+            IEEE80211_BSTEERING_RRM_NUM_BCNRPT_MAX * sizeof(ieee80211_bcnrpt_t),
+            0);
+
+    if (*reports) {
+        OS_MEMZERO(*reports,
+                   IEEE80211_BSTEERING_RRM_NUM_BCNRPT_MAX * sizeof(ieee80211_bcnrpt_t));
+        return IEEE80211_BSTEERING_RRM_NUM_BCNRPT_MAX;
+    } else {
+        return 0;
+    }
+}
+
+/**
+ * @brief Free the allocated memory for RRM beacon reports
+ *
+ * @param [inout] reports  the memory to be freed
+ */
+void ieee80211_bsteering_dealloc_rrm_bcnrpt(ieee80211_bcnrpt_t **reports) {
+    if (reports) {
+        OS_FREE(*reports);
+        *reports = NULL;
+    }
+}
+
+/**
+ * @brief Generate an event when beacon report response is received
+ *
+ * It will generate a netlink event if at lease one report is received, and
+ * the beacon report memory will be wiped out for further reports.
+ *
+ * @param [in] vap  the VAP on which the report is received
+ * @param [1n] token  the dialog token matching the one provided in the request
+ * @param [in] macaddr  the MAC address of the reporter station
+ * @param [1nout] bcnrpt  the beacon report(s) received
+ * @param [1n] num_bcnrpt  number of the beacon report(s) to send
+ */
+void ieee80211_bsteering_send_rrm_bcnrpt_event(
+    struct ieee80211vap *vap, u_int32_t token, u_int8_t *macaddr,
+    ieee80211_bcnrpt_t *bcnrpt, u_int8_t num_bcnrpt) {
+    struct bs_rrm_report_ind event = {0};
+
+    if(!ieee80211_bsteering_is_vap_enabled(vap) ||
+       !ieee80211_bsteering_is_enabled(vap->iv_ic)) {
+        return;
+    }
+
+    event.rrm_type = BSTEERING_RRM_TYPE_BCNRPT;
+    event.measrpt_mode = IEEE80211_RRM_MEASRPT_MODE_SUCCESS;
+    event.dialog_token = token;
+    IEEE80211_ADDR_COPY(event.macaddr, macaddr);
+    OS_MEMCPY(&event.data, bcnrpt,
+              (num_bcnrpt <= IEEE80211_BSTEERING_RRM_NUM_BCNRPT_MAX ?
+                   num_bcnrpt : IEEE80211_BSTEERING_RRM_NUM_BCNRPT_MAX) *
+                  sizeof(ieee80211_bcnrpt_t));
+
+    ieee80211_bsteering_send_rrm_report_event(vap, &event);
+
+    OS_MEMZERO(bcnrpt,
+               IEEE80211_BSTEERING_RRM_NUM_BCNRPT_MAX * sizeof(ieee80211_bcnrpt_t));
+}
+
+/**
+ * @brief Generate an event indicating a Radio Resource Management report
+ *        is received
+ *
+ * @param [in] vap  the VAP on which the rrm report was received
+ * @param [in] report  the report to put in the event
+ */
+static void ieee80211_bsteering_send_rrm_report_event(
+    struct ieee80211vap *vap, const struct bs_rrm_report_ind *report) {
+
+    IEEE80211_DELIVER_BSTEERING_EVENT(vap, ATH_EVENT_BSTEERING_RRM_REPORT,
+                                      sizeof(*report), (const char*)report);
+}
+
+/**
+ * @brief Generate an event when a BSS Transition Management 
+ *        response frame is received
+ * 
+ * @param [in] vap  the VAP on which the frame is received
+ * @param [in] token  the dialog token matching the one provided in
+ *                    the request
+ * @param [in] macaddr  the MAC address of the sending station
+ * @param [in] bstm_resp  response frame information
+ */
+void ieee80211_bsteering_send_wnm_bstm_resp_event(struct ieee80211vap *vap, u_int32_t token,
+                                                  u_int8_t *macaddr, 
+                                                  struct bs_wnm_bstm_resp *bstm_resp) {
+    struct bs_wnm_event_ind event = {0};
+
+    if(!ieee80211_bsteering_is_vap_enabled(vap) ||
+       !ieee80211_bsteering_is_enabled(vap->iv_ic)) {
+        return;
+    }
+
+    event.wnm_type = BSTEERING_WNM_TYPE_BSTM_RESPONSE;
+    event.dialog_token = token;
+    IEEE80211_ADDR_COPY(event.macaddr, macaddr);
+    OS_MEMCPY(&event.data, bstm_resp, sizeof(struct bs_wnm_bstm_resp));
+
+    IEEE80211_DELIVER_BSTEERING_EVENT(vap, ATH_EVENT_BSTEERING_WNM_EVENT,
+                                      sizeof(struct bs_wnm_event_ind), (const char*)&event);
+}
+
+/**
+ * @brief Generate an event when Tx power change on a VAP
+ *
+ * @param [in] vap  the VAP on which Tx power changes
+ * @param [in] tx_power  the new Tx power
+ */
+void ieee80211_bsteering_send_txpower_change_event(struct ieee80211vap *vap,
+                                                   u_int16_t tx_power) {
+    struct bs_tx_power_change_ind event = {0};
+
+    if(!ieee80211_bsteering_is_vap_enabled(vap) ||
+       !ieee80211_bsteering_is_enabled(vap->iv_ic)) {
+        return;
+    }
+
+    /* Tx power is stored in half dBm */
+    event.tx_power = tx_power / 2;
+    IEEE80211_DELIVER_BSTEERING_EVENT(vap, ATH_EVENT_BSTEERING_TX_POWER_CHANGE,
+                                      sizeof(struct bs_tx_power_change_ind),
+                                      (const char *)&event);
 }
 
 /**
@@ -860,21 +1202,18 @@ void ieee80211_bsteering_send_activity_change_event(struct ieee80211vap *vap,
                                                            const u_int8_t *mac_addr,
                                                            bool activity)
 {
-    u_int32_t band_index;
     struct bs_activity_change_ind ind;
 
     if(!ieee80211_bsteering_is_enabled(vap->iv_ic)) {
         return;
     }
 
-    band_index = ieee80211_bsteering_resolve_band(vap);
-
     OS_MEMCPY(ind.client_addr, mac_addr, IEEE80211_ADDR_LEN);
     ind.activity = activity ? 1 : 0;
 
     IEEE80211_DELIVER_BSTEERING_EVENT(vap, ATH_EVENT_BSTEERING_CLIENT_ACTIVITY_CHANGE,
                                       sizeof(struct bs_activity_change_ind),
-                                      (const char *) &ind, band_index);
+                                      (const char *) &ind);
 }
 
 /**
@@ -894,11 +1233,8 @@ static void ieee80211_bsteering_send_utilization_event(struct ieee80211vap *vap,
                                                        u_int8_t chan_utilization,
                                                        bool is_debug)
 {
-    u_int32_t band_index;
     struct bs_chan_utilization_ind ind;
     ATH_BSTEERING_EVENT event = ATH_EVENT_BSTEERING_CHAN_UTIL;
-
-    band_index = ieee80211_bsteering_resolve_band(vap);
 
     ind.utilization = chan_utilization;
 
@@ -907,7 +1243,7 @@ static void ieee80211_bsteering_send_utilization_event(struct ieee80211vap *vap,
     }
 
     IEEE80211_DELIVER_BSTEERING_EVENT(vap, event, sizeof(ind),
-                                      (const char *) &ind, band_index);
+                                      (const char *) &ind);
 }
 
 /**
@@ -920,28 +1256,59 @@ static void ieee80211_bsteering_send_utilization_event(struct ieee80211vap *vap,
  * @param [in] mac_addr  the MAC address of the client
  * @param [in] rssi  the measured RSSI
  * @param [in] inact_xing  flag indicating if the RSSI crossed inactivity RSSI threshold.
- * @param [in] low_xing  flag indicating if the RSSI crossed low RSSI threshold
+ * @param [in] low_xing  flag indicating if the RSSI crossed low RSSI threshold 
+ * @param [in] rate_xing flag indicating if the RSSI crossed the
+ *                       rate RSSI threshold
  */
 static void ieee80211_bsteering_send_rssi_xing_event(struct ieee80211vap *vap,
                                                      const u_int8_t *mac_addr,
                                                      u_int8_t rssi,
-                                                     BSTEERING_RSSI_XING_DIRECTION inact_xing,
-                                                     BSTEERING_RSSI_XING_DIRECTION low_xing)
+                                                     BSTEERING_XING_DIRECTION inact_xing,
+                                                     BSTEERING_XING_DIRECTION low_xing,
+                                                     BSTEERING_XING_DIRECTION rate_xing)
 {
-    u_int32_t band_index;
     struct bs_rssi_xing_threshold_ind ind;
     ATH_BSTEERING_EVENT event = ATH_EVENT_BSTEERING_CLIENT_RSSI_CROSSING;
-
-    band_index = ieee80211_bsteering_resolve_band(vap);
 
     OS_MEMCPY(ind.client_addr, mac_addr, IEEE80211_ADDR_LEN);
     ind.rssi = rssi;
     ind.inact_rssi_xing = inact_xing;
     ind.low_rssi_xing = low_xing;
-
+    ind.rate_rssi_xing = rate_xing;
 
     IEEE80211_DELIVER_BSTEERING_EVENT(vap, event, sizeof(ind),
-                                      (const char *) &ind, band_index);
+                                      (const char *) &ind);
+}
+
+/**
+ * @brief Send an event to user space if the Tx rate crossed a
+ * threshold
+ *
+ * @pre vap has already been checked and confirmed to be valid 
+ *      and band steering has confirmed to be enabled
+ * 
+ * @param [in] vap the VAP that the client whose Tx rate is
+ *                 measured associated to
+ * @param [in] mac_addr the MAC address of the client
+ * @param [in] tx_rate the Tx rate
+ * @param [in] xing flag indicating the direction of the Tx
+ *                  rate crossing. 
+ */
+static void ieee80211_bsteering_send_tx_rate_xing_event(
+    struct ieee80211vap *vap,
+    const u_int8_t *mac_addr,
+    u_int32_t tx_rate,
+    BSTEERING_XING_DIRECTION xing)
+{
+    struct bs_tx_rate_xing_threshold_ind ind;
+    ATH_BSTEERING_EVENT event = ATH_EVENT_BSTEERING_CLIENT_TX_RATE_CROSSING;
+
+    OS_MEMCPY(ind.client_addr, mac_addr, IEEE80211_ADDR_LEN);
+    ind.tx_rate = tx_rate;
+    ind.xing = xing;
+
+    IEEE80211_DELIVER_BSTEERING_EVENT(vap, event, sizeof(ind),
+                                      (const char *) &ind);
 }
 
 /**
@@ -964,11 +1331,8 @@ static void ieee80211_bsteering_send_rssi_measurement_event(struct ieee80211vap 
                                                             u_int8_t rssi,
                                                             bool is_debug)
 {
-    u_int32_t band_index;
     struct bs_rssi_measurement_ind ind;
     ATH_BSTEERING_EVENT event = ATH_EVENT_BSTEERING_CLIENT_RSSI_MEASUREMENT;
-
-    band_index = ieee80211_bsteering_resolve_band(vap);
 
     OS_MEMCPY(ind.client_addr, mac_addr, IEEE80211_ADDR_LEN);
     ind.rssi = rssi;
@@ -978,7 +1342,32 @@ static void ieee80211_bsteering_send_rssi_measurement_event(struct ieee80211vap 
     }
 
     IEEE80211_DELIVER_BSTEERING_EVENT(vap, event, sizeof(ind),
-                                      (const char *) &ind, band_index);
+                                      (const char *) &ind);
+}
+
+/**
+ * @brief Send an event to user space when the Tx rate changes.
+ *        Note this is a debug only message.
+ *  
+ * @pre vap has already been checked and confirmed to be valid and band
+ *      steering has already been confirmed to be enabled
+ *
+ * @param [in] vap  the VAP that the client whose RSSI is measured associated to
+ * @param [in] mac_addr  the MAC address of the client
+ * @param [in] tx_rate the latest Tx rate
+ */
+static void ieee80211_bsteering_send_tx_rate_measurement_event(struct ieee80211vap *vap,
+                                                               const u_int8_t *mac_addr,
+                                                               u_int32_t tx_rate)
+{
+    struct bs_tx_rate_measurement_ind ind;
+    ATH_BSTEERING_EVENT event = ATH_EVENT_BSTEERING_DBG_TX_RATE;
+
+    OS_MEMCPY(ind.client_addr, mac_addr, IEEE80211_ADDR_LEN);
+    ind.tx_rate = tx_rate;
+
+    IEEE80211_DELIVER_BSTEERING_EVENT(vap, event, sizeof(ind),
+                                      (const char *) &ind);
 }
 
 /**
@@ -1001,7 +1390,6 @@ static void wlan_bsteering_measure_chan_util(void *arg, wlan_if_t vap)
 
     /* Check whether the VAP still exists and is in AP mode */
     if (vap == bsteering->bs_iv && ieee80211_bsteering_is_vap_valid(vap)) {
-        u_int32_t band_index = ieee80211_bsteering_resolve_band(vap);
 
         /* This check that the VAP is ready should be sufficient to ensure we do
            not trigger a scan while in DFS wait state.
@@ -1009,7 +1397,7 @@ static void wlan_bsteering_measure_chan_util(void *arg, wlan_if_t vap)
            Note that there is still a small possibility that the channel or state
            will change after we check this flag. I do not know how to avoid this
            at this time.*/
-        if (band_index != BSTEERING_INVALID && ieee80211_vap_ready_is_set(vap) &&
+        if (ieee80211_vap_ready_is_set(vap) &&
             !bsteering->bs_chan_util_requested && vap->iv_bsschan) {
             /* Remember the channel so we can ignore any callbacks that are
                not for our channel. */
@@ -1037,20 +1425,30 @@ static void wlan_bsteering_measure_chan_util(void *arg, wlan_if_t vap)
                     if(!vap->iv_ic->ic_is_mode_offload(vap->iv_ic)) {
                         wlan_instant_channel_load(vap);
                     }
-                    else
-                        printk("%s: Failed to start scan report on band %u; "
+                    else {
+                        printk("%s: Failed to start scan report on interface "
+                               "%02x:%02x:%02x:%02x:%02x:%02x; "
                                "will retry in next timer expiry\n",
-                               __func__, band_index);
+                               __func__, vap->iv_myaddr[0], vap->iv_myaddr[1],
+                               vap->iv_myaddr[2], vap->iv_myaddr[3],
+                               vap->iv_myaddr[4], vap->iv_myaddr[5]);
+                    }
                 }
             } else {
-                printk("%s: Failed to set channel list on band %u; "
+                printk("%s: Failed to set channel list on interface "
+                       " %02x:%02x:%02x:%02x:%02x:%02x; "
                        "will retry in next timer expiry\n",
-                       __func__, band_index);
+                       __func__, vap->iv_myaddr[0], vap->iv_myaddr[1],
+                       vap->iv_myaddr[2], vap->iv_myaddr[3],
+                       vap->iv_myaddr[4], vap->iv_myaddr[5]);
             }
         } else {
-            printk("%s: Already waiting for utilization, VAP is not ready, "
-                   "or bsschan is invalid on band %u: %p\n",
-                   __func__, band_index, vap->iv_bsschan);
+            printk("%s: Failed to set channel list on interface "
+                   " %02x:%02x:%02x:%02x:%02x:%02x; "
+                   "will retry in next timer expiry\n",
+                   __func__, vap->iv_myaddr[0], vap->iv_myaddr[1],
+                   vap->iv_myaddr[2], vap->iv_myaddr[3],
+                   vap->iv_myaddr[4], vap->iv_myaddr[5]);
         }
 
         OS_SET_TIMER(&bsteering->bs_chan_util_timer,
@@ -1306,9 +1704,9 @@ void ieee80211_bsteering_record_inst_rssi_err(struct ieee80211_node *ni)
 void ieee80211_bsteering_record_rssi(struct ieee80211_node *ni, u_int8_t rssi)
 {
     ieee80211_bsteering_t bsteering = NULL;
-    u_int32_t inact_rssi_threshold, low_rssi_threshold;
-    BSTEERING_RSSI_XING_DIRECTION inact_xing = BSTEERING_RSSI_UNCHANGED;
-    BSTEERING_RSSI_XING_DIRECTION low_xing = BSTEERING_RSSI_UNCHANGED;
+    BSTEERING_XING_DIRECTION inact_xing = BSTEERING_XING_UNCHANGED;
+    BSTEERING_XING_DIRECTION low_xing = BSTEERING_XING_UNCHANGED;
+    BSTEERING_XING_DIRECTION rate_xing = BSTEERING_XING_UNCHANGED;
 
     if (!ni || !ieee80211_bsteering_is_vap_enabled(ni->ni_vap) ||
         !ieee80211_bsteering_is_valid(ni->ni_vap->iv_ic)) {
@@ -1329,39 +1727,168 @@ void ieee80211_bsteering_record_rssi(struct ieee80211_node *ni, u_int8_t rssi)
                                                             rssi, true /* is_debug */);
         }
 
+        u_int32_t low_rate_rssi_threshold = 
+            bsteering->bs_config_params.low_rate_rssi_crossing_threshold;
+        u_int32_t high_rate_rssi_threshold = 
+            bsteering->bs_config_params.high_rate_rssi_crossing_threshold;
+
         if (!ni->ni_bs_rssi) {
             /* First RSSI measurement */
+            /* Check if the RSSI starts above or below the rate threshold
+               (STA will always be considered active at startup) */
+            if (rssi < low_rate_rssi_threshold) {
+                rate_xing = BSTEERING_XING_DOWN;
+            } else if (rssi > high_rate_rssi_threshold) {
+                rate_xing = BSTEERING_XING_UP;
+            }
             break;
         }
 
         if (ni->ni_vap->iv_ic->ic_node_isinact(ni)) {
             /* Check inactivity rssi threshold crossing */
-            inact_rssi_threshold = bsteering->bs_config_params.inactive_rssi_crossing_threshold;
-            if (rssi >= inact_rssi_threshold && ni->ni_bs_rssi < inact_rssi_threshold) {
-                inact_xing = BSTEERING_RSSI_UP;
-            } else if (rssi < inact_rssi_threshold && ni->ni_bs_rssi >= inact_rssi_threshold) {
-                inact_xing = BSTEERING_RSSI_DOWN;
+            u_int32_t inact_rssi_high_threshold =
+                bsteering->bs_config_params.inactive_rssi_xing_high_threshold;
+            u_int32_t inact_rssi_low_threshold =
+                bsteering->bs_config_params.inactive_rssi_xing_low_threshold;
+            if ((rssi >= inact_rssi_high_threshold &&
+                 ni->ni_bs_rssi < inact_rssi_high_threshold) ||
+                (rssi >= inact_rssi_low_threshold &&
+                 ni->ni_bs_rssi < inact_rssi_low_threshold)) {
+                inact_xing = BSTEERING_XING_UP;
+            } else if ((rssi < inact_rssi_high_threshold &&
+                        ni->ni_bs_rssi >= inact_rssi_high_threshold) ||
+                       (rssi < inact_rssi_low_threshold &&
+                        ni->ni_bs_rssi >= inact_rssi_low_threshold)) {
+                inact_xing = BSTEERING_XING_DOWN;
+            }
+        } else {
+            /* Check rate rssi thresold crossing */
+            if ((rssi < low_rate_rssi_threshold && 
+                 ni->ni_bs_rssi >= low_rate_rssi_threshold) ||
+                (rssi < high_rate_rssi_threshold && 
+                 ni->ni_bs_rssi >= high_rate_rssi_threshold)) {
+                rate_xing = BSTEERING_XING_DOWN;
+            } else if ((rssi > high_rate_rssi_threshold && 
+                        ni->ni_bs_rssi <= high_rate_rssi_threshold) ||
+                       (rssi > low_rate_rssi_threshold && 
+                        ni->ni_bs_rssi <= low_rate_rssi_threshold)) {
+                rate_xing = BSTEERING_XING_UP;
             }
         }
 
         /* Check low rssi thresold crossing */
-        low_rssi_threshold = bsteering->bs_config_params.low_rssi_crossing_threshold;
+        u_int32_t low_rssi_threshold = bsteering->bs_config_params.low_rssi_crossing_threshold;
         if (rssi >= low_rssi_threshold && ni->ni_bs_rssi < low_rssi_threshold) {
-            low_xing = BSTEERING_RSSI_UP;
+            low_xing = BSTEERING_XING_UP;
         } else if (rssi < low_rssi_threshold && ni->ni_bs_rssi >= low_rssi_threshold) {
-            low_xing = BSTEERING_RSSI_DOWN;
+            low_xing = BSTEERING_XING_DOWN;
         }
     } while (0);
 
-    if (inact_xing != BSTEERING_RSSI_UNCHANGED || low_xing != BSTEERING_RSSI_UNCHANGED) {
+    if (inact_xing != BSTEERING_XING_UNCHANGED || low_xing != BSTEERING_XING_UNCHANGED ||
+        rate_xing != BSTEERING_XING_UNCHANGED) {
         ieee80211_bsteering_send_rssi_xing_event(ni->ni_vap, ni->ni_macaddr, rssi,
-                                                 inact_xing, low_xing);
+                                                 inact_xing, low_xing, rate_xing);
     }
 
     ni->ni_bs_rssi = rssi;
 
     spin_unlock_bh(&bsteering->bs_lock);
 }
+
+/**
+ * @brief Called when the Tx rate has changed, and determines if
+ *        it has crossed a threshold.
+ *
+ * @param [in] ni  the node for which the Tx rate has changed 
+ * @param [in] tx_rate  the new Tx rate
+ */
+void ieee80211_bsteering_update_rate(struct ieee80211_node *ni, 
+                                     u_int32_t tx_rate) {
+    ieee80211_bsteering_t bsteering = NULL;
+    u_int32_t high_threshold, low_threshold;
+    BSTEERING_XING_DIRECTION xing = BSTEERING_XING_UNCHANGED;
+
+    if (!ni || !ieee80211_bsteering_is_vap_enabled(ni->ni_vap) ||
+        !ieee80211_bsteering_is_valid(ni->ni_vap->iv_ic)) {
+        return;
+    }
+
+    bsteering = ni->ni_vap->iv_ic->ic_bsteering;
+
+    do {
+        spin_lock_bh(&bsteering->bs_lock);
+
+        if (!ieee80211_bsteering_is_enabled(ni->ni_vap->iv_ic)) {
+            break;
+        }
+
+        if (bsteering->bs_dbg_config_params.raw_tx_rate_log_enable) {
+            ieee80211_bsteering_send_tx_rate_measurement_event(ni->ni_vap, ni->ni_macaddr,
+                                                               tx_rate);
+        }
+
+        low_threshold = bsteering->bs_config_params.low_tx_rate_crossing_threshold;
+        high_threshold = bsteering->bs_config_params.high_tx_rate_crossing_threshold;
+
+        if (!ni->ni_stats.ns_last_tx_rate) {
+            /* First Tx rate measurement.  In this case, generate an event if
+               the rate is above / below the threshold (since there is no history
+               to check).  */
+            if (tx_rate < low_threshold) {
+                xing = BSTEERING_XING_DOWN;
+            } else if (tx_rate > high_threshold) {
+                xing = BSTEERING_XING_UP;
+            }
+            break;
+        }
+
+        /* Check thresold crossings */
+        if (tx_rate < low_threshold && 
+            ni->ni_stats.ns_last_tx_rate >= low_threshold) {
+            xing = BSTEERING_XING_DOWN;
+        } else if (tx_rate > high_threshold && 
+                   ni->ni_stats.ns_last_tx_rate <= high_threshold) {
+            xing = BSTEERING_XING_UP;
+        }
+    } while (0);
+
+    if (xing != BSTEERING_XING_UNCHANGED) {
+        ieee80211_bsteering_send_tx_rate_xing_event(ni->ni_vap, ni->ni_macaddr, tx_rate,
+                                                    xing);
+    }
+
+    spin_unlock_bh(&bsteering->bs_lock);
+}
+
+/**
+ * @brief Called when a VAP is stopped (this is only seen on a 
+ *        RE when the uplink STA interface is disassociated)
+ * 
+ * @param [in] vap  VAP that has stopped
+ */
+void ieee80211_bsteering_send_vap_stop_event(struct ieee80211vap *vap) {
+    ieee80211_bsteering_t bsteering = NULL;
+
+    if (!ieee80211_bsteering_is_vap_enabled(vap) ||
+        !ieee80211_bsteering_is_valid(vap->iv_ic)) {
+        return;
+    }
+
+    bsteering = vap->iv_ic->ic_bsteering;
+
+    spin_lock_bh(&bsteering->bs_lock);
+
+    if (ieee80211_bsteering_is_enabled(vap->iv_ic)) {
+        ATH_BSTEERING_EVENT event = ATH_EVENT_BSTEERING_VAP_STOP;
+
+        /* No data to send with this event */
+        IEEE80211_DELIVER_BSTEERING_EVENT(vap, event, 0, NULL);
+    }
+
+    spin_unlock_bh(&bsteering->bs_lock);
+}
+
 /**
  * @brief Timeout handler for inst RSSI measurement timer.
  *

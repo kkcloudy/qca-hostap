@@ -141,6 +141,8 @@ struct ath_buf {
                                                recently Tx'd packet*/
 #if QCA_AIRTIME_FAIRNESS
     u_int32_t               bf_tx_airtime; /* Estimated Tx duration */
+    u_int16_t               bf_atf_accounting; /* Count number of buffers held by a node */
+    u_int16_t               bf_atf_accounting_size; /* Count number of bytes held by a node */
 #endif
     OS_DMA_MEM_CONTEXT(bf_dmacontext)    /* OS Specific DMA context */
 };

@@ -270,7 +270,6 @@ static const struct ath_hal_private ar9300hal = {
         ar9300_write_associd,              /* ah_write_associd */
         ar9300_force_tsf_sync,             /* ah_force_tsf_sync */
         ar9300_gpio_cfg_input,             /* ah_gpio_cfg_input */
-        ar9300CalcTxRetryCount,             /* ah_calcTxRetryCount */ //zhaoyang1 transplants statistics 2015-01-27
         ar9300_gpio_cfg_output,            /* ah_gpio_cfg_output */
         ar9300_gpio_cfg_output_led_off,    /* ah_gpio_cfg_output_led_off */
         ar9300_gpio_get,                   /* ah_gpio_get */
@@ -423,11 +422,11 @@ static const struct ath_hal_private ar9300hal = {
         ar9300_set_11n_burst_duration,     /* ah_set_11n_burst_duration */
         ar9300_set_11n_virtual_more_frag,  /* ah_set_11n_virtual_more_frag */
         ar9300_get_11n_ext_busy,           /* ah_get_11n_ext_busy */
+        ar9300_get_ch_busy_pct,            /* ah_get_ch_busy_pct */
         ar9300_set_11n_mac2040,            /* ah_set_11n_mac2040 */
         ar9300_get_11n_rx_clear,           /* ah_get_11n_rx_clear */
         ar9300_set_11n_rx_clear,           /* ah_set_11n_rx_clear */
         ar9300_get_mib_cycle_counts_pct,   /* ah_get_mib_cycle_counts_pct */
-        ar9300_get_mib_counts, 				/* ah_getMibCycle */  /* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
         ar9300_dma_reg_dump,               /* ah_dma_reg_dump */
 
         /* force_ppm specific functions */
@@ -3225,6 +3224,7 @@ ar9300_attach(u_int16_t devid, HAL_ADAPTER_HANDLE osdev, HAL_SOFTC sc,
 #if ATH_TxBF_DYNAMIC_LOF_ON_N_CHAIN_MASK
     ahp->ah_loforce_enabled = 0;
 #endif    
+    ahp->ah_scanning = 0;
     return ah;
 
 bad:

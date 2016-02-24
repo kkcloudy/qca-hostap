@@ -26,6 +26,17 @@ struct ieee80211_rrm_cbinfo {
     u_int16_t duration;
     u_int16_t chnum;
     u_int8_t dialogtoken;
+    u_int8_t preference;
+};
+
+struct ieee80211_nrresp_info
+{
+    u_int8_t channum;
+    u_int8_t phytype;
+    u_int8_t regclass;
+    u_int32_t capinfo;
+    u_int8_t bssid[6];
+    u_int8_t preference;
 };
 
 #define SLIDING_WINDOW   120
@@ -234,6 +245,15 @@ int ieee80211_fill_bcnreq_info(void *arg, wlan_scan_entry_t se);
  *         on failure returns -ve value.
  */
 int ieee80211_fill_nrinfo(void *arg, wlan_scan_entry_t se);
+/**
+ * Add a Neighbor report IE to the frame
+   @param frm : Pointer to position in frame at which to add IE
+ * @param nr_info : Neighbor info to add
+ *
+ * @return Updated pointer to current position in frame.
+ */
+u_int8_t *ieee80211_add_nr_ie(u_int8_t *frm,
+                              struct ieee80211_nrresp_info* nr_info);
 /**
  * Attach function for rrm module 
  * param ic               : pointer to ic structure 

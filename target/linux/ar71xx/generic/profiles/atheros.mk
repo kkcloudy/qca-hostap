@@ -151,7 +151,7 @@ define Profile/AP152_AFI
 	PACKAGES:=-kmod-ath9k -komd-ath5k -kmod-ath -hostapd -wpa-supplicant \
 		-firewall -odhcpd -dnsmasq -wpad-mini\
 		kmod-qca-wifi-perf kmod-qca-wifi-perf qca-hostap \
-		qca-spectral qca-hostapd-cli qca-wpa-cli \
+		qca-spectral qca-hostapd-cli qca-wpa-cli qca-whc-lbd \
 		qca-wpa-supplicant tid kmod-tid_kmod \
 		hos-appkey hos-btt hos-partool \
 		hos-um libhos-appkey libhos-partool \

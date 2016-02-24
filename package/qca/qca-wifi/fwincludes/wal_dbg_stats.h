@@ -68,6 +68,20 @@ struct wal_dbg_tx_stats {
     /* MPDU is more than txop limit */
     A_UINT32 txop_ovf;
     A_UINT32 mc_drop;
+    /* total transmitted bytes */
+    A_UINT32 tx_bytes;
+
+    /* HW BK queue length */
+    A_UINT32 hw_bk_queue_len;
+
+    /* HW BE queue length */
+    A_UINT32 hw_be_queue_len;
+
+    /* HW VI queue length */
+    A_UINT32 hw_vi_queue_len;
+
+    /* HW VO queue length */
+    A_UINT32 hw_vo_queue_len;
 };
 
 struct wal_dbg_rx_stats {
@@ -96,6 +110,8 @@ struct wal_dbg_rx_stats {
     A_INT32 mpdu_errs;
     /* wal pdev rx timeout  */
     A_UINT32 pdev_rx_timeout;
+    /* received bytes */
+    A_UINT32 rx_bytes;
 };
 
 struct wal_dbg_peer_stats {
@@ -160,6 +176,29 @@ struct wal_dbg_rx_rssi {
     A_UINT8     rx_rssi_sec20;
     A_UINT8     rx_rssi_sec40;
     A_UINT8     rx_rssi_sec80;
+};
+
+struct wal_dbg_vdev_tx_stats {
+    /* No of Aggrs Queued to HW */
+    A_UINT32 ppdu_aggr_cnt;
+    /* No of PPDU's not Acked includes both aggr and nonaggr's*/
+    A_UINT32 ppdu_noack;
+    /* No of MPDU/Subframes's queued to HW in Aggregates*/
+    A_UINT32 mpdu_queued;
+    /* No of NonAggr/MPDU/Subframes's queued to HW in Legacy NonAggregates*/
+    A_UINT32 ppdu_nonaggr_cnt;
+    /* No of MPDU/Subframes's SW requeued includes both Aggr and NonAggr*/
+    A_UINT32 mpdu_sw_requed;
+    /* No of MPDU/Subframes's transmitted Successfully after Single/mul HW retry*/
+    A_UINT32 mpdu_suc_retry;
+    /* No of MPDU/Subframes's transmitted Success after Multiple HW retry*/
+    A_UINT32 mpdu_suc_multitry;
+    /* No of MPDU/Subframes's failed transmission after Multiple HW retry*/
+    A_UINT32 mpdu_fail_retry;
+};
+
+struct wal_dbg_vdev_stats {
+    struct wal_dbg_vdev_tx_stats tx;
 };
 
 struct ol_ath_radiostats {

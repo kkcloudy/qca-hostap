@@ -75,26 +75,11 @@
 #if PERF_FIND_WDS_NODE
 #include "wds_addr.h"
 #endif
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-#include "linux/if.h"
-#include "linux/socket.h"
-#include "linux/netlink.h"
-#include <net/sock.h>
 
-#include <linux/init.h>
-#include <linux/skbuff.h>
-#include <linux/netdevice.h>
-#include <linux/cache.h>
-#include <linux/proc_fs.h>
-
-#include "ath_netlink.h"
-#include "sys/queue.h"
+#if ATOPT_IOCTL
+#include <han_ioctl.h>
 #endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
+
 #if PERE_IP_HDR_ALIGNMENT_WAR
 unsigned int host_80211_enable = 1;
 module_param(host_80211_enable, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -122,13 +107,11 @@ MODULE_PARM_DESC(vow_config,
 EXPORT_SYMBOL(vow_config);
 
 #if QCA_AIRTIME_FAIRNESS
-unsigned int atf_mode = 0;
-module_param(atf_mode, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-MODULE_PARM_DESC(atf_mode,
-        "Do ATF Mode Configuration");
-EXPORT_SYMBOL(atf_mode);
+extern unsigned int atf_mode;
+extern unsigned int atf_msdu_desc;
+extern unsigned int atf_peers;
+extern unsigned int atf_max_vdevs;
 #endif
-
 
 unsigned int max_peers = 0;
 module_param(max_peers, uint, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -397,9 +380,11 @@ ath_netdev_open(struct net_device *dev)
         return -EPERM;
 #endif /* ATH_BUS_PM */
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if ATOPT_ORI_ATHEROS_BUG
     OS_SET_TIMER(&ic->ic_inact_timer, IEEE80211_INACT_WAIT*1000);
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
     ol_ath_ret = ol_ath_resume(scn);
     if(ol_ath_ret == 0){
@@ -439,9 +424,11 @@ ath_netdev_stop(struct net_device *dev)
         all these downed virtual interfaces should gets up when physical radio interface(wifiX) is up.Refer EV 116786.
      */
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if ATOPT_ORI_ATHEROS_BUG
 	OS_CANCEL_TIMER(&ic->ic_inact_timer);
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
     vap = TAILQ_FIRST(&ic->ic_vaps);
     while (vap != NULL) {
@@ -919,143 +906,27 @@ utf_unified_ioctl (struct ol_ath_softc_net80211 *scn, struct ifreq *ifr)
 
 int ol_acfg_handle_ioctl(struct net_device *dev, void *data);
 
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
+#if ATOPT_IOCTL
 static int
-ol_ath_ioctl_autelan_sync_info(struct net_device *dev, struct iwreq *iwr)
+ol_ath_ioctl_han_priv(struct ol_ath_softc_net80211 *scn, struct iwreq *iwr)
 {
-    struct ieee80211_autelan_sync_info ik;
-    u_int32_t flag = 0;
-    u_int8_t buf[MAX_BUF] = {0};
-    unsigned int len = 0; 
+	struct han_ioctl_priv_args a;
+	int error = 0;
+	
+	memset(&a, 0x00, sizeof(a));
+	if (copy_from_user(&a, iwr->u.data.pointer, sizeof(a)))
+		return -EFAULT;
 
-    memset(&ik, 0x00, sizeof(ik));
+	switch (a.type) {
 
-    if (copy_from_user(&ik, iwr->u.data.pointer, sizeof(ik))) {
-        return -EFAULT;
-    }
+		default:
+			return -EFAULT;
+	}
+	return error;
 
-    switch (ik.type) {
-        case GET_LOCAL_TABLE:
-            iwr->u.data.length = show_local_table(buf);
-            copy_to_user(iwr->u.data.pointer, buf, iwr->u.data.length);
-            break;
-        case GET_NEIGHBOUR_DEV:
-            iwr->u.data.length = show_neighbour_dev(buf);
-            copy_to_user(iwr->u.data.pointer, buf, iwr->u.data.length);
-            break;
-        case GET_NEIGHBOUR_TABLE:
-            show_neighbour_table();
-            //send_sync_info_all();
-            break;
-        case GET_NEIGHBOUR_STA_BY_MAC:
-            iwr->u.data.length = show_neighbour_user_by_mac(buf,ik.sta_mac);
-            copy_to_user(iwr->u.data.pointer, buf, iwr->u.data.length);
-            break;
-        case SYNC_SWITCH:
-            set_sync_switch(ik.arg1);
-            break;
-        case GET_SYNC_SWITCH:
-            flag = get_sync_switch();            
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case SYNC_DEBUG:
-            set_sync_debug(ik.arg1);
-            break;
-        case GET_SYNC_DEBUG:
-            flag = get_sync_debug();            
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case SYNC_TIME:
-            set_sync_time(ik.arg1);
-            break;
-        case GET_SYNC_TIME:
-            flag = get_sync_time();
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case GET_SCAN_LIST:
-            show_scan_list();
-            break;
-        case SYNC_AUTO_GROUP:
-            set_sync_auto_group(ik.arg1);
-            break;
-        case GET_SYNC_AUTO_GROUP:
-            flag = get_sync_auto_group();            
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case SYNC_NEIGHBOR_RSSI_LIMIT:
-            set_sync_neighbor_rssi_limit(ik.arg1);
-            break;
-        case GET_SYNC_NEIGHBOR_RSSI_LIMIT:
-            flag = get_sync_neighbor_rssi_limit();            
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        default :
-            return -EFAULT;
-    }
-    return 0;
 }
 
-static int
-ol_ath_ioctl_autelan_connect_rule(struct net_device *dev, struct iwreq *iwr)
-{
-    struct ieee80211_autelan_sync_info ik;
-    u_int32_t flag = 0;
-
-    memset(&ik, 0x00, sizeof(ik));
-
-    if (copy_from_user(&ik, iwr->u.data.pointer, sizeof(ik))) {
-        return -EFAULT;
-    }
-
-    switch (ik.type) {
-        case CONNECT_TO_BEST_DEBUG:
-            set_connect_to_best_debug(ik.arg1);
-            break;
-        case GET_CONNECT_TO_BEST_DEBUG:
-            flag = get_connect_to_best_debug();            
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case CONNECT_TO_BEST:
-            set_connect_to_best(ik.arg1);
-            break;
-        case GET_CONNECT_TO_BEST:
-            flag = get_connect_to_best();
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));        
-        case CONNECT_BALANCE:
-            set_connect_balance(ik.arg1);
-            break;
-        case GET_CONNECT_BALANCE:
-            flag = get_connect_balance();
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-        case MAX_DV:
-            set_max_dv(ik.arg1);
-            break;
-        case GET_MAX_DV:
-            flag = get_max_dv();
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case INACTIVE_TIME:
-            set_inactive_time(ik.arg1);
-            break;
-        case GET_INACTIVE_TIME:
-            flag = get_inactive_time();
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        case WATING_TIME:
-            set_wating_time(ik.arg1);
-            break;
-        case GET_WATING_TIME:
-            flag = get_wating_time();
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        default :
-            return -EFAULT;
-    }
-    return 0;
-}
 #endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 
 static int
 ath_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
@@ -1218,21 +1089,40 @@ ath_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
       }
       break;
 #endif /* ATH_BUS_PM */
+    case SIOCG80211PROFILE:
+      {
+          struct ieee80211_profile *profile;
+
+          profile = (struct ieee80211_profile *)kmalloc(
+                  sizeof (struct ieee80211_profile), GFP_KERNEL);
+          if (profile == NULL) {
+              error = -ENOMEM;
+              break;
+          }
+          OS_MEMSET(profile, 0, sizeof (struct ieee80211_profile));
+          error = osif_ioctl_get_vap_info(dev, profile);
+          if(error == 0)
+          {
+              error = _copy_to_user(ifr->ifr_data, profile,
+                      sizeof(struct ieee80211_profile));
+          }
+          if (profile != NULL) {
+              kfree(profile);
+              profile = NULL;
+          }
+      }
+      break;
 #if UMAC_SUPPORT_ACFG
     case ACFG_PVT_IOCTL:
         error = ol_acfg_handle_ioctl(dev, ifr->ifr_data);
         break;
 #endif
 
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    case SIOCSATHSYNCINFO:
-        return ol_ath_ioctl_autelan_sync_info(dev, (struct iwreq *)ifr);
-    case SIOCSATHCONNECTRULE:
-        return ol_ath_ioctl_autelan_connect_rule(dev, (struct iwreq *)ifr);
+#if ATOPT_IOCTL
+	case ATH_IOCTL_HAN_PRIV:
+		error = ol_ath_ioctl_han_priv(scn, (struct iwreq *)ifr);
+		break;
 #endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
     default:
         error = -EINVAL;
         break;
@@ -1418,9 +1308,10 @@ __ol_ath_attach(hif_softc_t hif_sc, struct ol_attach_t *ol_cfg, osdev_t osdev, s
     /*
      * Don't leave arp type as ARPHRD_ETHER as this is no eth device
      */
-	#if !ATOPT_THINAP 
+#if !ATOPT_ORI_ATHEROS_BUG
     dev->type = ARPHRD_IEEE80211;
-	#endif
+#endif
+
     /* show that no dedicated amem instance has been created yet */
     scn->amem.handle = NULL;
     ic = &scn->sc_ic;
@@ -1495,13 +1386,21 @@ __ol_ath_attach(hif_softc_t hif_sc, struct ol_attach_t *ol_cfg, osdev_t osdev, s
     scn->is_ani_enable = true;
     scn->enable_max_clients = enable_max_clients;
 
-    if(scn->enable_max_clients)
-        ic->ic_num_clients = IEEE80211_MAX_AID_DEF;
-    else
-        ic->ic_num_clients = IEEE80211_AID_DEF;
 #if QCA_AIRTIME_FAIRNESS
-    ic->atf_mode = atf_mode;
+    ic->atf_mode = atf_mode;    
+    if(ic->atf_mode) {
+        ic->ic_num_clients = IEEE80211_ATF_AID_DEF;
+        ic->atf_msdu_desc = atf_msdu_desc;
+        ic->atf_peers = atf_peers;
+        ic->atf_max_vdevs = atf_max_vdevs;
+        printk(">>ATF<<: User provided peer = %d, vdevs = %d, msdu_desc = %d\n",ic->atf_peers, ic->atf_max_vdevs,ic->atf_msdu_desc);
+    } else 
 #endif
+    if(scn->enable_max_clients) {
+        ic->ic_num_clients = IEEE80211_MAX_AID_DEF;
+    } else {
+        ic->ic_num_clients = IEEE80211_AID_DEF;
+    }
 
     if(ol_ath_verify_vow_config(scn)) {
         /*cannot accomadate vow config requested*/
@@ -1658,9 +1557,6 @@ __ol_ath_attach(hif_softc_t hif_sc, struct ol_attach_t *ol_cfg, osdev_t osdev, s
     scn->rx_looplimit = false;
 #endif
 
-#if ATOPT_TRAFFIC_LIMIT
-    ieee80211_traffic_limit_init(dev,ic);
-#endif
     return 0;
 
 
@@ -2522,10 +2418,21 @@ ol_transfer_bin_file(struct ol_ath_softc_net80211 *scn, ATH_BIN_FILE file,
 {
     int status = EOK;
     const char *filename = NULL;
-    const struct firmware *fw_entry;
-    u_int32_t fw_entry_size;
-    u_int8_t *tempEeprom;
+    struct firmware fwtemp;
+    struct firmware *fw_entry = &fwtemp;
+    const struct firmware *fw_entry_temp = NULL;
+    u_int32_t fw_entry_size, orig_size = 0;
+    u_int8_t *tempEeprom = NULL;
     u_int32_t board_data_size;
+    int i;
+    uint32_t *savedestp, *destp = NULL, *srcp = NULL;
+    u_int8_t *pdst, *psrc,*ptr = NULL;
+    int unknown_target_ver = 0;
+    const struct firmware *board;
+    struct ath_hif_pci_softc *sc = (struct ath_hif_pci_softc *)(scn->hif_sc);
+#if QCA_AIRTIME_FAIRNESS
+    struct ieee80211com *ic = &scn->sc_ic;
+#endif
 
     switch (file)
     {
@@ -2573,7 +2480,20 @@ ol_transfer_bin_file(struct ol_ath_softc_net80211 *scn, ATH_BIN_FILE file,
                 if (scn->target_version == AR6004_REV1_VERSION) {
                     filename = AR6004_REV1_FIRMWARE_FILE;
                 } else if (scn->target_version == AR9888_REV2_VERSION) {
-                    filename = AR9888_REV2_FIRMWARE_FILE;
+                    if (scn->enable_max_clients) {
+                        filename = AR9888_REV2_MAX_CL_FIRMWARE_FILE;
+#ifndef HOST_OFFLOAD
+                    } else if (scn->lteu_support) {
+                        filename = AR9888_REV2_LTEU_FIRMWARE_FILE;
+#endif               
+                    }
+#if QCA_AIRTIME_FAIRNESS
+                    else if(ic->atf_mode) {
+                        filename = AR9888_REV2_ATF_FIRMWARE_FILE;
+                    }
+#endif 
+		    else
+                        filename = AR9888_REV2_FIRMWARE_FILE;
                 } else if (scn->target_version == AR9887_REV1_VERSION) {
                     filename = AR9887_REV1_FIRMWARE_FILE;
                 } else if (scn->target_version == AR9888_DEV_VERSION) {
@@ -2621,35 +2541,113 @@ ol_transfer_bin_file(struct ol_ath_softc_net80211 *scn, ATH_BIN_FILE file,
             }
             break;
 
+        case ATH_FLASH_FILE:
+                printk("%s: flash data file defined\n", __func__);
+            break;
     }
 
-    if (request_firmware(&fw_entry, filename, scn->sc_osdev->device) != 0)
-    {
-        printk("%s: Failed to get %s\n", __func__, filename);
-
-        if ( file == ATH_OTP_FILE )
-        {
-            return -ENOENT;
+    if (file == ATH_FLASH_FILE) {
+#ifdef  ATH_CAL_NAND_FLASH
+        int ret_val=0,ret_len;
+        u_int32_t cal_location = CalAddr[pci_dev_cnt-1];
+        printk(KERN_ERR "Cal location [%d]: %08x\n", pci_dev_cnt-1, cal_location);
+        ptr = vmalloc(QC98XX_EEPROM_SIZE_LARGEST);
+        if ( NULL == ptr ){
+            printk("%s %d: flash cal data(NAND)memory allocation failed\n",__func__, __LINE__);
+            return -EINVAL;
         }
-        return -1;
+        else {
+            ret_val = OS_NAND_FLASH_READ(ATH_CAL_NAND_PARTITION, cal_location + FLASH_CAL_START_OFFSET ,QC98XX_EEPROM_SIZE_LARGEST,&ret_len,ptr);
+            if (ret_val){
+                printk("%s %d: flash cal data(NAND) read failed\n",__func__, __LINE__ );
+                status = -EINVAL; 
+                goto bad;
+            }
+        }
+#else
+#ifdef ATH_CAL_FROM_FILE_11AC_PCIE
+        if (request_firmware(&board, ATH_CAL_FROM_FILE_11AC_PCIE, scn->sc_osdev->device)) {
+            printk("%s: failed loading cal data from /lib/firmware/%s\n", __func__, ATH_CAL_FROM_FILE_11AC_PCIE);
+            return -EINVAL;
+        }
+        ptr = board->data;
+#else
+        ptr = scn->cal_mem + FLASH_CAL_START_OFFSET;
+        if (!scn->cal_mem ){
+            printk("%s: flash cal data address is not mapped\n", __func__);
+            status = -EINVAL;
+            goto bad;
+        }
+#endif
+#endif
+        if (!scn->cal_in_flash) {
+            printk("%s: flash cal data address is not mapped\n", __func__);
+            status = -EINVAL;
+            goto bad;
+        }
+        if (le16_to_cpu(*(uint16_t *)ptr) != QC98XX_EEPROM_SIZE_LARGEST) {
+            printk("%s: flash cal data len %d doesn't equal to %d\n", __func__,
+                    le16_to_cpu(*(uint16_t *)ptr), QC98XX_EEPROM_SIZE_LARGEST);
+            status = -EINVAL;
+            goto bad;
+        }
+        if (qc98xx_verify_checksum(ptr)){
+            printk("%s: flash cal data checksum verification failed\n", __func__);
+            status = -EINVAL;
+            goto bad;
+        }
+        srcp = (uint32_t *)ptr;
+        orig_size = QC98XX_EEPROM_SIZE_LARGEST;
+        fw_entry->data = ptr;
+        fw_entry->size = (orig_size + 3) & ~3;
+        fw_entry_size  = fw_entry->size;
+        printk("%s %d: Download Flash data len %d\n",__func__, __LINE__, fw_entry->size);
     }
 
-    fw_entry_size = fw_entry->size;
-    tempEeprom = NULL;
+    if (file == ATH_OTP_FILE || file == ATH_BOARD_DATA_FILE || file == ATH_FIRMWARE_FILE) {
+        if (request_firmware(&fw_entry_temp, filename, scn->sc_osdev->device) != 0) {
+            printk("%s: Failed to get %s\n", __func__, filename);
+            status = -EINVAL;
+            goto bad;
+        }
+        srcp = (uint32_t *) fw_entry_temp->data;
+        orig_size = fw_entry_temp->size;
+        fw_entry_size = (orig_size + 3) & ~3; /* round off to 4 bytes */
+    }
 
-    if (file == ATH_BOARD_DATA_FILE && fw_entry->data)
+    savedestp = destp = vmalloc(fw_entry_size);
+    if (destp == NULL)
     {
+        printk("%s %d: memory allocation failed\n",__func__, __LINE__);
+        status = -EINVAL;
+        goto bad;
+    }
+    pdst = (uint8_t *)destp;
+    psrc = (uint8_t *)srcp;
+
+    /* Add pad bytes if required */
+    for (i = 0; i < fw_entry_size; i++) {
+        if (i < orig_size)
+            pdst[i] = psrc[i];
+        else
+            pdst[i] = 0;
+    }
+    for (i=0; i < (fw_entry_size)/4; i++) {
+        *destp = cpu_to_le32(*srcp);
+        destp++; srcp++;
+    }
+
+    destp = savedestp;
+    if ((file == ATH_BOARD_DATA_FILE || file == ATH_FLASH_FILE) && destp) {
         u_int32_t board_ext_address;
         int32_t board_ext_data_size;
 
-        tempEeprom = OS_MALLOC(scn->sc_osdev, fw_entry_size, GFP_ATOMIC);
+        tempEeprom = vmalloc(fw_entry_size);
         if (!tempEeprom) {
             printk("%s: Memory allocation failed\n", __func__);
-            release_firmware(fw_entry);
-            return A_ERROR;
+            status = -EINVAL;
+            goto bad;
         }
-
-        OS_MEMCPY(tempEeprom, (u_int8_t *)fw_entry->data, fw_entry_size);
 
         switch (scn->target_type)
         {
@@ -2659,21 +2657,25 @@ ol_transfer_bin_file(struct ol_ath_softc_net80211 *scn, ATH_BIN_FILE file,
             case TARGET_TYPE_AR6004:
                 board_data_size =  AR6004_BOARD_DATA_SZ;
                 board_ext_data_size = AR6004_BOARD_EXT_DATA_SZ;
+                break;
             case TARGET_TYPE_AR9888:
                 board_data_size =  AR9888_BOARD_DATA_SZ;
                 board_ext_data_size = AR9888_BOARD_EXT_DATA_SZ;
                 break;
         }
-
+        OS_MEMCPY(tempEeprom, (u_int8_t *)destp, fw_entry_size);
 #ifdef SOFTMAC_FILE_USED
         ar6000_softmac_update(ar, tempEeprom, board_data_size);
 #endif
 
         /* Determine where in Target RAM to write Board Data */
-        BMIReadMemory(scn->hif_hdl,
+        status= BMIReadMemory(scn->hif_hdl,
                 HOST_INTEREST_ITEM_ADDRESS(scn->target_type, hi_board_ext_data),
                 (u_int8_t *)&board_ext_address, 4, scn);
-        printk("Board extended Data download address: 0x%x\n", board_ext_address);
+        if (status != EOK) {
+            printk("Board extended Data download address: 0x%x\n", board_ext_address);
+            goto bad;
+        }
 
         /*
          * Check whether the target has allocated memory for extended board
@@ -2688,41 +2690,55 @@ ol_transfer_bin_file(struct ol_ath_softc_net80211 *scn, ATH_BIN_FILE file,
 
             if (status != EOK) {
                 printk("%s: BMI operation failed: %d\n", __func__, __LINE__);
-                release_firmware(fw_entry);
-                return -1;
+                goto bad;
             }
 
             /* Record the fact that extended board Data IS initialized */
             param = (board_ext_data_size << 16) | 1;
-            BMIWriteMemory(scn->hif_hdl,
+            status= BMIWriteMemory(scn->hif_hdl,
                     HOST_INTEREST_ITEM_ADDRESS(scn->target_type, hi_board_ext_data_config),
                     (u_int8_t *)&param, 4, scn);
 
-            fw_entry_size = board_data_size;
+            if (status != EOK) {
+                printk("%s : %d BMIWriteMemory failed\n", __func__,__LINE__);
+                goto bad;
+            }
         }
+        /* below line of code is commented as the the allocated memory using
+         * vmalloc is 2116 bytes but trying to access (read) beyond that in
+         *  below BMIWriteMemory because board_data_size is 7168
+         */
     }
 
     if (compressed) {
-        status = BMIFastDownload(scn->hif_hdl, address, (u_int8_t *)fw_entry->data, fw_entry_size, scn);
+        status = BMIFastDownload(scn->hif_hdl, address, (u_int8_t *)destp, fw_entry_size, scn);
     } else {
-        if (file==ATH_BOARD_DATA_FILE && fw_entry->data) {
+        if ((file == ATH_BOARD_DATA_FILE || file == ATH_FLASH_FILE) && destp) {
             status = BMIWriteMemory(scn->hif_hdl, address, (u_int8_t *)tempEeprom, fw_entry_size, scn);
         } else {
-            status = BMIWriteMemory(scn->hif_hdl, address, (u_int8_t *)fw_entry->data, fw_entry_size, scn);
+            status = BMIWriteMemory(scn->hif_hdl, address, (u_int8_t *)destp, fw_entry_size, scn);
         }
     }
-
+bad:
     if (tempEeprom) {
-        OS_FREE(tempEeprom);
+        vfree(tempEeprom);
+    }
+    if (fw_entry_temp) {
+        release_firmware(fw_entry_temp);
+    }
+    if (file == ATH_FLASH_FILE) {
+#ifdef ATH_CAL_NAND_FLASH
+        if (ptr)
+            vfree(ptr);
+#endif
+#ifdef ATH_CAL_FROM_FILE_11AC_PCIE
+        if (ptr)
+            release_firmware(board);
+#endif
     }
 
-    if (status != EOK) {
-        printk("BMI operation failed: %d\n", __LINE__);
-        release_firmware(fw_entry);
-        return -1;
-    }
-
-    release_firmware(fw_entry);
+    if (destp)
+        vfree(destp);
 
     return status;
 }

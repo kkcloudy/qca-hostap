@@ -64,9 +64,6 @@
 
 #include "os/linux/include/ieee80211_external.h"
 #if QCA_AIRTIME_FAIRNESS
-#define ATF_STA_NUM            32
-#define ATF_VAP_NUM            16
-
 struct addssid_val{
     uint16_t    id_type;
     uint8_t     ssid[IEEE80211_NWID_LEN+1];
@@ -79,23 +76,13 @@ struct addsta_val{
     uint32_t    value;
 };
 
-struct cntbl{
+struct addgroup_val{
+    uint16_t    id_type;
+    u_int8_t    name[32];
     uint8_t     ssid[IEEE80211_NWID_LEN+1];
-    uint8_t     sta_mac[IEEE80211_ADDR_LEN];
     uint32_t    value;
-    uint8_t     info_mark;   /*0--vap, 1-sta*/
-
-    uint8_t     assoc_status;     /*1--Yes, 0 --No*/
-    uint32_t    cfg_value;
-
-
 };
 
-struct atftable{
-    uint16_t      id_type;
-    struct cntbl  atf_info[ATF_STA_NUM+ATF_VAP_NUM];
-    uint16_t      info_cnt; 
-};
 
 #endif
 
@@ -171,6 +158,11 @@ static void set_addsta_pval(const char *ifname, char *macaddr, char *val);
 static void set_delsta(const char *ifname, char *macaddr);
 static void showatftable(const char *ifname);
 static void showairtime(const char *ifname);
+static void flushatftable(const char *ifname);
+static void set_addatfgroup(const char *ifname, char *groupname, char *ssid);
+static void set_configatfgroup(const char *ifname, char *groupname, char *val);
+static void set_delatfgroup(const char *ifname, char *groupname);
+static void showatfgroup(const char *ifname);
 #endif
 
 int	verbose = 0;
@@ -436,7 +428,34 @@ main(int argc, char *argv[])
                 fprintf(stderr,"\n\n                      SHOW   AIRTIME    TABLE  \n");
                 showairtime(ifname);
            }
-      }
+            else if (streq(argv[2], "flushatftable")){
+                flushatftable(ifname);
+            } else if (streq(argv[2], "addatfgroup")){
+                if(argc != 5)
+                {
+                    fprintf(stderr,"\n\n     Missing parameters!!  \n\n");
+                } else {
+                    set_addatfgroup(ifname, argv[3], argv[4]);
+                }
+            }else if (streq(argv[2], "configatfgroup")){
+                if(argc != 5)
+                {
+                    fprintf(stderr,"\n\n     Missing parameters!!  \n\n");
+                } else {
+                    set_configatfgroup(ifname, argv[3], argv[4]);
+                }
+            }else if (streq(argv[2], "delatfgroup")){
+                if(argc != 4)
+                {
+                    fprintf(stderr,"\n\n     Missing parameters!!  \n\n");
+                } else {
+                    set_delatfgroup(ifname, argv[3]);
+                }
+            }else if (streq(argv[2], "showatfgroup")){
+                fprintf(stderr,"\n\n                      SHOW   ATF    GROUP  \n");
+                showatfgroup(ifname);
+            }
+        }
     }
 #endif
     else
@@ -532,6 +551,11 @@ usage(void)
     fprintf(stderr, "usage: wlanconfig athX delsta  macaddr\n");
     fprintf(stderr, "usage: wlanconfig athX showatftable\n");
     fprintf(stderr, "usage: wlanconfig athX showairtime\n");
+    fprintf(stderr, "usage: wlanconfig athX flushatftable\n");
+    fprintf(stderr, "usage: wlanconfig athX addatfgroup groupname ssid\n");
+    fprintf(stderr, "usage: wlanconfig athX configatfgroup groupname value (0 - 100))\n");
+    fprintf(stderr, "usage: wlanconfig athX delatfgroup groupname\n");
+    fprintf(stderr, "usage: wlanconfig athX showatfgroup\n");
 #endif
 	exit(-1);
 }
@@ -851,26 +875,31 @@ ieee80211_ntoa(const uint8_t mac[IEEE80211_ADDR_LEN])
 }
 
 #if QCA_AIRTIME_FAIRNESS
-static int get_ssid(char *ifname,char *ssid)
+static int get_ssid(const char *ifname, char *ssid)
 {
     struct iwreq iwr;
-    int s, len;
+    int s;
 
     s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0){
+        err(1, "socket(SOCK_DRAGM)");
+    }
+
     (void) memset(&iwr, 0, sizeof(iwr));
     (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
 
     iwr.u.data.pointer = (void *)ssid;
-    iwr.u.data.length = ssid[0];
+    iwr.u.data.length = IEEE80211_NWID_LEN;
     if (ioctl(s, SIOCGIWESSID, &iwr) < 0) {
-        errx(1, "enable to fetch ssid Something wrong __INVESTIGATE__\n");
+        errx(1, "unable to fetch ssid Something wrong __INVESTIGATE__\n");
     }
-
+    close(s);
     return iwr.u.data.length;
 }
 
 static void showatftable(const char *ifname)
 {
+#define OTHER_SSID "Others   \0"
     int s,i;
     uint8_t *buf;
     uint8_t *sta_mac;
@@ -880,11 +909,13 @@ static void showatftable(const char *ifname)
 
     int quotient_val = 0 ,remainder_val = 0;
     int quotient_cfg = 0 ,remainder_cfg = 0;
-    char ssid[32],ssid_len= 0;
+    u_int8_t ssid[IEEE80211_NWID_LEN+1];
+    int ssid_length = 0;
 
     s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s < 0){
         err(1, "socket(SOCK_DRAGM)");
+        return;
     }
 
     (void) memset(&set_atp, 0, sizeof(set_atp));
@@ -893,8 +924,14 @@ static void showatftable(const char *ifname)
     (void) memset(&iwr, 0, sizeof(iwr));
     (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
 
-    ssid[0] = sizeof(ssid);
-    ssid_len = get_ssid(ifname,ssid); /*get current vap ssid */
+    ssid_length = get_ssid(ifname,ssid); /*get current vap ssid */
+    if ((ssid_length < 0) || (ssid_length > IEEE80211_NWID_LEN)) {
+        errx(1, "unable to get_ssid");
+        close(s);
+        return;
+    }
+
+    ssid[ssid_length]='\0';
 
     iwr.u.data.pointer = (void *) buf;
     iwr.u.data.length = sizeof(set_atp);
@@ -902,10 +939,13 @@ static void showatftable(const char *ifname)
         errx(1, "unable to set showatftable success");
     }
 
-    if(set_atp.info_cnt)
-    {
+    if(set_atp.info_cnt) {
+        if(set_atp.atf_group) {
+            fprintf(stderr,"\n   GROUP            SSID/Client(MAC Address)         Air time(Percentage)        Config ATF(Percentage)      Assoc_Status(1-Assoc,0-No-Assoc)\n");
+        } else {
+            fprintf(stderr,"\n   SSID             Client(MAC Address)         Air time(Percentage)        Config ATF(Percentage)      Peer_Assoc_Status(1--Assoc,0-No-Assoc)\n");
+        }
 
-        fprintf(stderr,"\n   SSID             Client(MAC Address)         Air time(Percentage)        Config ATF(Percentage)      Peer_Assoc_Status(1--Assoc,0-No-Assoc)\n");
         for (i =0; i < set_atp.info_cnt; i++)
         {
             quotient_val = set_atp.atf_info[i].value/10;
@@ -913,20 +953,28 @@ static void showatftable(const char *ifname)
             quotient_cfg = set_atp.atf_info[i].cfg_value/10;
             remainder_cfg = set_atp.atf_info[i].cfg_value%10;
 
-            if(!strcmp(ssid,set_atp.atf_info[i].ssid) || !strcmp("Others   ",set_atp.atf_info[i].ssid))
+            if( ((!strncmp(ssid,set_atp.atf_info[i].ssid, ssid_length ) && (strlen(set_atp.atf_info[i].ssid) == ssid_length)) || !strncmp("Others   ",set_atp.atf_info[i].ssid, strlen(OTHER_SSID))) || set_atp.atf_group)
                 {
                     if(set_atp.atf_info[i].info_mark == 0)
-                        {
-                            fprintf(stderr,"   %s",set_atp.atf_info[i].ssid);
-                            fprintf(stderr,"                                            %d.%d",quotient_val,remainder_val);
-                            if( set_atp.atf_info[i].cfg_value !=0)
-                                fprintf(stderr,"                           %d.%d\n",quotient_cfg,remainder_cfg);
-                            else
-                                fprintf(stderr,"\n");
+                    {
+                        if(set_atp.atf_group) {
+                            fprintf(stderr,"   %s",set_atp.atf_info[i].grpname);
                         } else {
-                            sta_mac = &(set_atp.atf_info[i].sta_mac[0]);
-                            ntoa = ieee80211_ntoa(sta_mac);
-                        fprintf(stderr,"                     %s",(ntoa != NULL) ? ntoa:"WRONG MAC");
+                            fprintf(stderr,"   %s",set_atp.atf_info[i].ssid);
+                        }
+                        fprintf(stderr,"                                            %d.%d",quotient_val,remainder_val);
+                        if( set_atp.atf_info[i].cfg_value !=0)
+                            fprintf(stderr,"                           %d.%d\n",quotient_cfg,remainder_cfg);
+                        else
+                            fprintf(stderr,"\n");
+                    } else {
+                        sta_mac = &(set_atp.atf_info[i].sta_mac[0]);
+                        ntoa = ieee80211_ntoa(sta_mac);
+                        if(set_atp.atf_group) {
+                            fprintf(stderr,"                   %s / %s",set_atp.atf_info[i].ssid, (ntoa != NULL) ? ntoa:"WRONG MAC");
+                        } else {
+                            fprintf(stderr,"                     %s",(ntoa != NULL) ? ntoa:"WRONG MAC");
+                        }
                         fprintf(stderr,"                   %d.%d",quotient_val,remainder_val);
                         fprintf(stderr,"                      %d.%d",quotient_cfg,remainder_cfg);
                         fprintf(stderr,"                      %d\n",set_atp.atf_info[i].assoc_status);
@@ -934,9 +982,16 @@ static void showatftable(const char *ifname)
                     fprintf(stderr,"\n\n");
                 }
         }
+        if(set_atp.atf_status == 0)
+            fprintf(stderr,"\n   ATF IS DISABLED!!! The above ATF configuration will not have any effect.\n\n");
     } else {
         fprintf(stderr,"   Air time table is empty\n");
     }
+    fprintf(stderr,"ctl busy %d ext busy %d rf %d tf %d \n",
+            (set_atp.busy & 0xff), (set_atp.busy & 0xff00) >> 8,
+            (set_atp.busy & 0xff0000) >> 16, (set_atp.busy & 0xff000000) >> 24);
+    close(s);
+#undef OTHER_SSID
 }
 
 static void showairtime(const char *ifname)
@@ -981,7 +1036,7 @@ static void showairtime(const char *ifname)
     } else {
         fprintf(stderr,"   Air time table is empty\n");
     }
-
+    close(s);
 }
 
 static void set_addssid_pval(const char *ifname, char *ssid, char *val)
@@ -1006,6 +1061,7 @@ static void set_addssid_pval(const char *ifname, char *ssid, char *val)
         if(cnt >3 )
         {
             fprintf(stderr,"\n Input percentage value out of range between 0 and 100!!\n");
+            close(s);
             return;
         }  
         while(cnt-- != 0)
@@ -1017,12 +1073,14 @@ static void set_addssid_pval(const char *ifname, char *ssid, char *val)
             }
             else{
                 fprintf(stderr, " Input wong percentage value, its range is between 0 ~ 100\n");
+                close(s);
                 return;
             }
         }
         if(set_atp.value > 100)
         {
             fprintf(stderr,"Input percentage value is over 100!!");
+            close(s);
             return;   
         }
 
@@ -1035,8 +1093,8 @@ static void set_addssid_pval(const char *ifname, char *ssid, char *val)
 
         if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
                 errx(1, "unable to set addssid");
-                return;
-        }   
+        }
+        close(s);
 }
 
 static void set_delssid(const char *ifname, char *ssid)
@@ -1063,6 +1121,7 @@ static void set_delssid(const char *ifname, char *ssid)
     if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
         errx(1, "unable to set DEL ATP success");
     }
+    close(s);
 }
 
 static void set_addsta_pval(const char *ifname, char *macaddr, char *val)
@@ -1085,7 +1144,8 @@ static void set_addsta_pval(const char *ifname, char *macaddr, char *val)
         if((len != 2*IEEE80211_ADDR_LEN )||(cnt == 0))
         {
           err(1,"\n Unable to set ADD_STA success,failed on wrong mac address length or format(example: 24aa450067fe)\n");
-            return;
+          close(s);
+          return;
         }
 
         for (i = 0; i < len; i += 2) {
@@ -1110,6 +1170,7 @@ static void set_addsta_pval(const char *ifname, char *macaddr, char *val)
         if(cnt >3 )
         {
             err(1,"\n Input percentage value out of range between 0 and 100!!\n");
+            close(s);
             return;
         }
 
@@ -1122,16 +1183,18 @@ static void set_addsta_pval(const char *ifname, char *macaddr, char *val)
             }
             else{
               err(1, "\n Input wrong percentage value, its range is between 0 ~ 100\n");
-                return;
+              close(s);
+              return;
             }
         }
 
         if(set_sta.value > 100)
         {
             fprintf(stderr,"Input percentage value is over 100!!"); 
+            close(s);
             return;
         }
-        set_sta.value = set_sta.value*10;        
+        set_sta.value = set_sta.value * ATF_AIRTIME_CONVERSION_FACTOR;        
         set_sta.id_type = IEEE80211_IOCTL_ATF_ADDSTA;
         buf = ((uint8_t *) &set_sta);
         (void) memset(&iwr, 0, sizeof(iwr));
@@ -1139,8 +1202,9 @@ static void set_addsta_pval(const char *ifname, char *macaddr, char *val)
         iwr.u.data.pointer = (void *) buf;
         iwr.u.data.length = sizeof(set_sta);
         if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
-                errx(1, "unable to set ADD_STA success");
+            errx(1, "unable to set ADD_STA success");
         }
+        close(s);
 }
 
 static void set_delsta(const char *ifname, char *macaddr)
@@ -1163,6 +1227,7 @@ static void set_delsta(const char *ifname, char *macaddr)
         if(len != 2*IEEE80211_ADDR_LEN )
         {
             errx(1, "unable to set DEL_STA success,failed on wrong mac ddress length");
+            close(s);
             return;
         }
 
@@ -1193,8 +1258,191 @@ static void set_delsta(const char *ifname, char *macaddr)
         iwr.u.data.pointer = (void *) buf;
         iwr.u.data.length = sizeof(set_sta);
         if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
-                errx(1, "unable to set DEL_STA success");
+            errx(1, "unable to set DEL_STA success");
         }
+        close(s);
+}
+
+static void flushatftable(const char *ifname)
+{
+    int s;
+    uint8_t *buf;
+    struct iwreq iwr;
+    struct addssid_val set_atp;
+
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0){
+        err(1, "socket(SOCK_DRAGM)");
+        return;
+    }
+
+    (void) memset(&set_atp, 0, sizeof(set_atp));
+    set_atp.id_type = IEEE80211_IOCTL_ATF_FLUSHTABLE;
+     buf = ((uint8_t *) &set_atp);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    iwr.u.data.pointer = (void *) buf;
+    iwr.u.data.length = sizeof(set_atp);
+    if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
+        errx(1, "Flush atf table failed");
+    }
+    close(s);
+}
+
+static void set_addatfgroup(const char *ifname, char *groupname, char *ssid)
+{
+    int32_t s;
+    uint8_t *buf;
+    struct iwreq iwr;
+    struct addgroup_val set_group;
+
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0){
+        err(1, "socket(SOCK_DRAGM)");
+        printf("\n Failed on open socket!!\n");
+        return;
+    }
+
+    (void)memset(&set_group, 0, sizeof(set_group) );
+    memcpy( &set_group.name[0], groupname, strlen(groupname) );
+    memcpy( &set_group.ssid[0], ssid, strlen(ssid) );
+    set_group.id_type = IEEE80211_IOCTL_ATF_ADDGROUP;
+
+    buf = ((uint8_t *)&set_group);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    iwr.u.data.pointer = (void *) buf;
+    iwr.u.data.length = sizeof(set_group);
+
+    if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
+        errx(1, "unable to set ATP success");
+    }
+    close(s);
+    return;
+}
+
+static void set_configatfgroup(const char *ifname, char *groupname, char *val)
+{
+    int32_t s;
+    uint8_t *buf;
+    struct iwreq iwr;
+    struct addgroup_val config_group;
+
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0){
+        err(1, "socket(SOCK_DRAGM)");
+        printf("\n Failed on open socket!!\n");
+        return;
+    }
+
+    if(atoi(val) <= 0 || atoi(val) > 100) {
+        errx(1, "Invalid Airtime input.");
+        close(s);
+        return;
+    }
+
+    (void) memset(&config_group, 0, sizeof(config_group));
+    memcpy(&config_group.name[0], groupname, strlen(groupname));
+
+    config_group.id_type = IEEE80211_IOCTL_ATF_CONFIGGROUP;
+    config_group.value = atoi(val);
+
+    config_group.value = config_group.value * 10;
+    buf = ((uint8_t *) &config_group);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    iwr.u.data.pointer = (void *) buf;
+    iwr.u.data.length = sizeof(config_group);
+
+    if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
+        errx(1, "unable to set ATP success");
+    }
+    close(s);
+    return;
+}
+
+static void set_delatfgroup(const char *ifname, char *groupname)
+{
+    int32_t s;
+    uint8_t *buf;
+    struct iwreq iwr;
+    struct addgroup_val del_group;
+
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0){
+        err(1, "socket(SOCK_DRAGM)");
+        printf("\n Failed on open socket!!\n");
+        return;
+    }
+
+    (void) memset(&del_group, 0, sizeof(del_group));
+
+    memcpy(&del_group.name[0], groupname, strlen(groupname));
+    del_group.id_type = IEEE80211_IOCTL_ATF_DELGROUP;
+
+    buf = ((uint8_t *) &del_group);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    iwr.u.data.pointer = (void *) buf;
+    iwr.u.data.length = sizeof(del_group);
+
+    if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
+        errx(1, "unable to set ATP success");
+    }
+    close(s);
+    return;
+}
+
+static void showatfgroup(const char *ifname)
+{
+    int32_t s;
+    uint8_t *buf;
+    int32_t i = 0, j=0;
+    struct iwreq iwr;
+    struct atfgrouptable list_group;
+
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0){
+        err(1, "socket(SOCK_DRAGM)");
+        printf("\n Failed on open socket!!\n");
+        return;
+    }
+
+    (void) memset(&list_group, 0, sizeof(list_group));
+    list_group.id_type = IEEE80211_IOCTL_ATF_SHOWGROUP;
+
+    buf = ((uint8_t *) &list_group);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    iwr.u.data.pointer = (void *) buf;
+    iwr.u.data.length = sizeof(list_group);
+
+    if (ioctl(s,IEEE80211_IOCTL_CONFIG_GENERIC, &iwr) < 0){
+        errx(1, "unable to set ATP success");
+        close(s);
+        return;
+    }
+    close(s);
+
+    if(list_group.info_cnt)
+    {
+        fprintf(stderr,"\n          Group           Airtime         SSID List    \n");
+        for (i =0; i < list_group.info_cnt; i++)
+        {
+            fprintf(stderr,"          %s", list_group.atf_groups[i].grpname);
+            fprintf(stderr,"            %d", list_group.atf_groups[i].grp_cfg_value);
+            fprintf(stderr,"           ");
+            for(j=0; j<list_group.atf_groups[i].grp_num_ssid; j++)
+            {
+                fprintf(stderr,"%s ", list_group.atf_groups[i].grp_ssid[j]);
+            }
+            fprintf(stderr,"\n");
+        }
+        fprintf(stderr,"\n\n");
+    } else {
+        fprintf(stderr,"   Air time table is empty\n");
+    }
+
 }
 #endif
 
@@ -1236,10 +1484,10 @@ list_stations(const char *ifname)
     int req_space = 0;
     u_int64_t len = 0;
 
-	buf = malloc(LIST_STATION_ALLOC_SIZE);
-	if(!buf) {
-	  fprintf (stderr, "Unable to allocate memory for station list\n");
-	  return;
+    buf = malloc(LIST_STATION_ALLOC_SIZE);
+    if(!buf) {
+        fprintf (stderr, "Unable to allocate memory for station list\n");
+        return;
 	} 
 
 	s = socket(AF_INET, SOCK_DGRAM, 0);
@@ -1268,6 +1516,7 @@ list_stations(const char *ifname)
         buf = malloc(req_space);
         if(!buf) {
             fprintf (stderr, "Unable to allocate memory for station list\n");
+            close(s);
             return;
         }
         iwr.u.data.pointer = (void *) buf;
@@ -1286,6 +1535,7 @@ list_stations(const char *ifname)
     }
     if (len < sizeof(struct ieee80211req_sta_info)){
         free(buf);
+        close(s);
         return;
     }
 
@@ -1296,7 +1546,8 @@ list_stations(const char *ifname)
 	len = iwr.u.data.length;
 	if (len < sizeof(struct ieee80211req_sta_info)){
 		free(buf);
-		return;
+        close(s);
+        return;
     }
 	printf("%-17.17s %4s %4s %4s %4s %4s %4s %6s %6s %5s %12s %7s %8s %14s %6s %9s %6s %6s %6s\n"
 		, "ADDR"
@@ -1360,16 +1611,17 @@ list_stations(const char *ifname)
             , maxrate 
 		    , gethtcaps(si->isi_htcap)
 			, hour_val
-			, min_val
-			, sec_val
-		);
-		printies(vp, si->isi_ie_len, 24);
-		printf (" %s ",(si->isi_stamode < 20)?ieee80211_phymode_str[si->isi_stamode]:"IEEE80211_MODE_11B");
-		printf(" %d \r\n",si->isi_ps);
-		cp += si->isi_len, len -= si->isi_len;
-	} while (len >= sizeof(struct ieee80211req_sta_info));
-	
-	free(buf);
+            , min_val
+            , sec_val
+            );
+        printies(vp, si->isi_ie_len, 24);
+        printf (" %s ",(si->isi_stamode < 20)?ieee80211_phymode_str[si->isi_stamode]:"IEEE80211_MODE_11B");
+        printf(" %d \r\n",si->isi_ps);
+        cp += si->isi_len, len -= si->isi_len;
+    } while (len >= sizeof(struct ieee80211req_sta_info));
+
+    free(buf);
+    close(s);
 }
 
 /* unalligned little endian access */     
@@ -2829,8 +3081,9 @@ static int set_max_rate(const char *ifname, IEEE80211_WLANCONFIG_CMDTYPE cmdtype
 #if ATH_SUPPORT_WRAP
 static int handle_macaddr(char *mac_str, u_int8_t *mac_addr)
 {
-    char tmp[17];
+    char tmp[18];
 
+    memset(&tmp, 0, sizeof(tmp));
     if (strlen(mac_str) != 17) {
         printf("Invalid wlanaddr MAC address '%s', should be in format: "
                 "(xx:xx:xx:xx:xx:xx)\n", mac_str);

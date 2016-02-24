@@ -1590,8 +1590,8 @@ cwm_rate_updatenode(struct ieee80211_node *ni)
 	{
 		capflag |=  ATH_RC_CW40_FLAG;
 	}
-    if (((ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI40) && (ic->ic_cwm.cw_width == IEEE80211_CWM_WIDTH40)) ||
-        ((ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20) && (ic->ic_cwm.cw_width == IEEE80211_CWM_WIDTH20))) {
+    if (((ni->ni_chwidth == IEEE80211_CWM_WIDTH20) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20)) ||
+        ((ni->ni_chwidth == IEEE80211_CWM_WIDTH40) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI20) && (ni->ni_htcap & IEEE80211_HTCAP_C_SHORTGI40))) {
         capflag |= ATH_RC_SGI_FLAG;
     }
 	if (ni->ni_flags & IEEE80211_NODE_HT) {

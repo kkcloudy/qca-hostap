@@ -661,6 +661,8 @@ CE_recv_buf_enqueue(struct CE_handle *copyeng,
             adf_os_print("%s %d CE 5 wi %d dest_ptr 0x%x nbytes %d recv_ctxt 0x%p\n",
                 __func__, __LINE__, old_write_index, dest_desc->dest_ptr,
                 dest_desc->info.nbytes, dest_ring->per_transfer_context[old_write_index]);
+
+            status = A_OK;
         }
     }
 #endif  /* QCA_OL_11AC_FAST_PATH */
@@ -1431,6 +1433,22 @@ htt_t2h_msg_handler_fast(void *htt_pdev, adf_nbuf_t *nbuf_cmpl_arr,
  * 3) Unmap buffer & accumulate in an array.
  * 4) Call HTT message handler when array is full or when exiting the handler
  */
+
+
+#if QCA_PARTNER_CBM_DIRECTPATH
+/*
+ * Module parameter to fix beacon miss issue
+ * Limit value should be > CE5 ring size 512
+ * to make sure unserviced packets are not
+ * stuck in the ring
+ */
+uint32_t htt_rx_ce_loop_limit = 2048;
+module_param(htt_rx_ce_loop_limit, int, 0600);
+MODULE_PARM_DESC(htt_rx_ce_loop_limit,
+        "Threshold limit rx ce5 processing loop");
+EXPORT_SYMBOL(htt_rx_ce_loop_limit);
+#endif
+
 static inline void
 CE_per_engine_service_fast(struct ath_hif_pci_softc *sc, uint32_t ce_id)
 {
@@ -1447,7 +1465,10 @@ CE_per_engine_service_fast(struct ath_hif_pci_softc *sc, uint32_t ce_id)
     void **transfer_contexts;
     adf_nbuf_t *nbuf_cmpl_arr = NULL;
     adf_nbuf_t nbuf;
-	u_int32_t paddr_lo;
+    u_int32_t paddr_lo;
+#if QCA_PARTNER_CBM_DIRECTPATH
+    uint32_t packetcount = 0;
+#endif
 
     struct CE_dest_desc *dest_desc = CE_DEST_RING_TO_DESC(dest_ring_base, sw_index);
     struct dest_desc_info *dest_desc_info = &dest_desc->info;
@@ -1464,6 +1485,18 @@ CE_per_engine_service_fast(struct ath_hif_pci_softc *sc, uint32_t ce_id)
 
     for (;;) {
 
+#if QCA_PARTNER_CBM_DIRECTPATH
+        packetcount++;
+        /*
+         * CPU can loop here for long if the CPU is not fast enough to
+         * process CE5 ring at rate at which FW fill the CE5 Ring.
+         * Break the loop after reaching the htt_rx_ce_loop_limit to ensure the
+         * other CEs also get processed.
+         */
+        if(packetcount > htt_rx_ce_loop_limit) {
+            break;
+        }
+#endif
         dest_desc = CE_DEST_RING_TO_DESC(dest_ring_base, sw_index);
 
         dest_desc_info = &dest_desc->info;

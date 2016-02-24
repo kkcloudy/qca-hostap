@@ -33,10 +33,6 @@
 #include "pktlog.h"
 extern struct ath_pktlog_funcs *g_pktlog_funcs;
 #endif
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-zhaoenjuan transplant for drv monitor kes print*/
-extern int (*kes_debug_print_handle)(const char *fmt, ...);
-#endif
 
 #define IEEE80211_MS_TO_TU(x)   (((x) * 1000) / 1024)
 #define MIN_TSF_TIMER_TIME  5000 /* 5 msec */
@@ -1015,10 +1011,7 @@ ath_handle_dfs_bb_hang(struct ath_softc *sc)
     } /*End HT40 WAR*/
 }
 #endif
-#if ATOPT_DRV_MONITOR
-u_int32_t bb_hang = 0;
-u_int32_t mac_hang = 0;
-#endif
+
 /*
  * Determines if the device currently has a BB or MAC hang.
  */
@@ -1031,9 +1024,6 @@ ath_hw_hang_check(struct ath_softc *sc)
      */
     if (ATH_BB_HANG_WAR_REQ(sc)) {
         if (AH_TRUE == ath_hal_is_bb_hung(sc->sc_ah)) {
-#if ATOPT_DRV_MONITOR
-		            bb_hang++; //AUTELAN-zhaoenjuan transplant for drv monitor stuck check  
-#endif
 #if 0 //DFSUMAC:defined(ATH_SUPPORT_DFS) && !defined(ATH_DFS_RADAR_DETECTION_ONLY)
             /* Found a DFS related BB hang */
             if (ATH_DFS_BB_HANG_WAR_REQ(sc) && !ath_get_phy_err_rate(sc)) {
@@ -1053,9 +1043,6 @@ ath_hw_hang_check(struct ath_softc *sc)
      */
     if (ATH_MAC_HANG_WAR_REQ(sc)) {
         if (AH_TRUE == ath_hal_is_mac_hung(sc->sc_ah)) {
-#if ATOPT_DRV_MONITOR
-            mac_hang++;//AUTELAN-zhaoenjuan transplant for drv monitor stuck check
-#endif
             ATH_MAC_GENERIC_HANG(sc);
             return 1;
         }
@@ -1129,12 +1116,8 @@ ath_beacon_tasklet(struct ath_softc *sc, int *needmark)
 		/* check for abnormal value for NAV register and reset if required */
 		(void) ath_hal_reset_nav(ah);
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-		//		  show_cycles = ath_hal_getMibCycleCountsPct(ah, 
-		//						&rx_clear, &rx_frame, &tx_frame);
-		show_cycles = ath_get_channel_utility(sc, &rx_clear, &rx_frame, &tx_frame);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
+        show_cycles = ath_hal_getMibCycleCountsPct(ah, 
+                      &rx_clear, &rx_frame, &tx_frame);
 
         sc->sc_bmisscount++;
 #ifdef ATH_SUPPORT_DFS         
@@ -1469,6 +1452,9 @@ ath_beacon_tasklet(struct ath_softc *sc, int *needmark)
 
         sc->sc_stats.ast_be_xmit += bc;     /* XXX per-vap? */
         sc->sc_stats.ast_tx_mgmt += bc;     /* XXX per-vap? */
+        if(bf) {
+            sc->sc_stats.ast_tx_bytes += wbuf_get_pktlen(bf->bf_mpdu);
+        }
 #ifdef ATH_ADDITIONAL_STATS
         sc->sc_stats.ast_txq_packets[sc->sc_bhalq]++;
 #endif
@@ -1486,17 +1472,10 @@ ath_beacon_tasklet(struct ath_softc *sc, int *needmark)
 **
 **  \return N/A
 */
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor beacon stuck check*/
-u_int32_t bstuck_check_num=0;
-u_int32_t beacon_complete=0;
-#endif
+
 void
 ath_bstuck_tasklet(struct ath_softc *sc)
 {
-#if ATOPT_DRV_MONITOR
-	bstuck_check_num++; 
-#endif
 
 #if 0 //DFSUMAC:defined(ATH_SUPPORT_DFS) && !defined(ATH_DFS_RADAR_DETECTION_ONLY)
     sc->sc_dfs_hang.total_stuck++;
@@ -1504,35 +1483,11 @@ ath_bstuck_tasklet(struct ath_softc *sc)
     if (!ATH_HANG_DETECTED(sc)) {
         printk(KERN_DEBUG "%s: stuck beacon; resetting (bmiss count %u)\n",
                __func__, sc->sc_bmisscount);
-#if ATOPT_DRV_MONITOR
-		if(kes_debug_print_handle)
-	    {
-	      kes_debug_print_handle(KERN_DEBUG "atheros--%s: stuck beacon by QCU; resetting (bmiss count %u),bb_hang=%d,mac_hang=%d,bstuck_check_num=%u,beacon_complete=%u\n",
-	           __func__, sc->sc_bmisscount,bb_hang,mac_hang,bstuck_check_num,beacon_complete);  
-	    }
     }
-    else
-    {
-        if(kes_debug_print_handle)
-        {
-          kes_debug_print_handle(KERN_DEBUG "atheros--%s: stuck beacon  by MAC detect; resetting  (bmiss count %u, reason 0x%x),bb_hang=%d,mac_hang=%d,bstuck_check_num=%u,beacon_complete=%u\n",
-               __func__, sc->sc_bmisscount,sc->sc_hang_war,bb_hang,mac_hang,bstuck_check_num,beacon_complete);  
-        }
-#endif
-    }
-	    sc->sc_reset_type = ATH_RESET_NOLOSS;
-	    ath_internal_reset(sc); 
-#if ATOPT_DRV_MONITOR		
-		if(bstuck_enable)
-		{
-			ath_radio_disable(sc);
-			ath_radio_enable(sc);
-		}
-#endif
-	    sc->sc_reset_type = ATH_RESET_DEFAULT;
-	    sc->sc_stats.ast_resetOnError++;
-	/*AUTELAN-End:zhaoenjuan transplant for drv monitor beacon stuck check*/
-
+    sc->sc_reset_type = ATH_RESET_NOLOSS;
+    ath_internal_reset(sc);
+    sc->sc_reset_type = ATH_RESET_DEFAULT;
+    sc->sc_stats.ast_resetOnError++;
 
 #if ATH_SUPPORT_SPECTRAL 
    /* If CW interference is severe, then HW goes into a loop of continuous stuck beacons and resets. 

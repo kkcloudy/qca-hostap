@@ -476,7 +476,7 @@ tx_disassoc_req_completion(wlan_if_t vaphandle, wbuf_t wbuf, void *arg,
     wlan_assoc_sm_t sm = (wlan_assoc_sm_t) arg;
 
     IEEE80211_DPRINTF(sm->vap_handle,IEEE80211_MSG_STATE,"%s: Tx disassoc. status=%d\n",
-                      __func__, ts->ts_flags);
+                      __func__, ts? ts->ts_flags:NULL);
 
     ieee80211_sm_dispatch(sm->hsm_handle, IEEE80211_ASSOC_EVENT_DISASSOC_SENT,0,NULL); 
 }
@@ -545,7 +545,15 @@ static bool ieee80211_assoc_state_mlme_wait_event(void *ctx, u_int16_t event, u_
     switch(event) {
     case IEEE80211_ASSOC_EVENT_TIMEOUT:
         if (wlan_mlme_operation_in_progress(sm->vap_handle)) {
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            /*
+             * When STA is in CAC period the print below keeps coming.
+             * Until wpa_supplicant is STA-CAC aware we need to avoid
+             * the print.
+             */
+#else
             printk("%s: waiting for mlme cancel to complete \n",__func__);
+#endif
             OS_SET_TIMER(&sm->sm_timer,MLME_OP_CHECK_TIME);
         } else {
             ieee80211_sm_transition_to(sm->hsm_handle,IEEE80211_ASSOC_STATE_INIT); 
@@ -748,7 +756,7 @@ wlan_mlme_event_handler_table sta_mlme_evt_handler = {
     sm_deauth_indication,
     NULL,
     NULL,
-    sm_disassoc_indication,
+    sm_disassoc_indication,     /* mlme_disassoc_indication */
 };
 
 /*

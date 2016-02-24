@@ -261,7 +261,6 @@ ccmp_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen, struct ieee80211_rx
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_CRYPTO, wh->i_addr2,
                            "%s", "Missing ExtIV for AES-CCM cipher");
         mac_stats->ims_rx_ccmpformat++;
-		IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_ccmpformat); //zhaoyang1 transplants statistics 2015-01-27
         return 0;
     }
     tid = IEEE80211_NON_QOS_SEQ;
@@ -299,7 +298,6 @@ ccmp_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen, struct ieee80211_rx
                            );
         ieee80211_notify_replay_failure(vap, wh, k, pn);
         mac_stats->ims_rx_ccmpreplay++;
-		IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_ccmpreplay); //zhaoyang1 transplants statistics 2015-01-27
         return 0;
     }
 
@@ -389,7 +387,6 @@ ccmp_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen, struct ieee80211_rx
     				tid);
 					ieee80211_notify_replay_failure(vap, wh, k, pn);
 					mac_stats->ims_rx_ccmpreplay++;
-						IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_ccmpreplay); //zhaoyang1 transplants statistics 2015-01-27
 					return 0;
 					} else {
 						/* Current PN is following global PN, so mark this as suspected PN

@@ -1008,11 +1008,6 @@ _ath_tx_txqaddbuf(struct ath_softc *sc, struct ath_txq *txq, ath_bufhead *head)
  * assume the descriptors are already chained together by caller.
  * NB: must be called with txq lock held
  */
-
-#if ATOPT_POWERSAVE_PERF
-extern u_int32_t ps_drop; //Add by chenxf for powersave performance 2014-06-05
-#endif
-
 int
 ath_tx_txqaddbuf(struct ath_softc *sc, struct ath_txq *txq, ath_bufhead *head)
 {
@@ -1031,53 +1026,6 @@ ath_tx_txqaddbuf(struct ath_softc *sc, struct ath_txq *txq, ath_bufhead *head)
      * Insert the frame on the outbound list and
      * pass it on to the hardware.
      */
-
-	/* Begin:Add by chenxf for powersave performance 2014-06-05 */
-#if ATOPT_POWERSAVE_PERF
-	if (ps_drop  & 0x01) { //duanmingzhe added for get hw queue info
-		
-		struct ath_node *an;
-		struct ath_buf *bf;
-		struct ieee80211_node *ni;
-
-		struct ieee80211com *ic;
-		
-		bf = TAILQ_FIRST(head);
-		if (bf == NULL)
-        	return 0;
-		
-		an = ATH_NODE(bf->bf_node);
-		ni = (struct ieee80211_node *)an->an_node;
-		ic = ni->ni_ic;
-
-		
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace		
-		if (ieee80211node_has_flag(ni, IEEE80211_NODE_PWR_MGT)){
-
-			
-			/* free the bf if this ni is in powersave mode */
-			if (bf->bf_isampdu) {
-
-                struct ath_buf *lastbf = bf->bf_lastbf;
-
-                if (!bf->bf_isaggr) {
-                    __11nstats(sc,tx_unaggr_comperror);
-                }
-                ath_tx_complete_aggr_rifs(sc, txq, bf, head,
-                                          &((struct ath_desc *)(lastbf->bf_desc))->ds_txstat, 0);
-            } 
-			else {
-#ifdef ATH_SUPPORT_TxBF
-                    ath_tx_complete_buf(sc, bf, head, 0, 0, 0);
-#else                
-                    ath_tx_complete_buf(sc, bf, head, 0);
-#endif
-	        }
-	        return 0;
-		}
-	}
-#endif
-	/* End:Add by chenxf for powersave performance 2014-06-05 */
 
     bf = TAILQ_FIRST(head);
     if (bf == NULL)
@@ -1192,13 +1140,7 @@ ath_tx_txqaddbuf(struct ath_softc *sc, struct ath_txq *txq, ath_bufhead *head)
 		TAILQ_FOREACH(tbf, head, bf_list) {
 			OS_SYNC_SINGLE(sc->sc_osdev, tbf->bf_daddr,
 							sc->sc_txdesclen, BUS_DMA_TODEVICE, NULL);
-#if ATOPT_PACKET_TRACE
-			PACKET_TRACE(IEEE802_11_FRAME_MODE, tbf->bf_mpdu, __func__, __LINE__, PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace	
-		// zhaoyang1 modifies for y assistant access debug 2015-04-17
-			if (y_assistant_access_debug_hook)
-				y_assistant_access_debug_hook(tbf->bf_mpdu, IEEE802_11_FRAME_MODE, 0);
-#endif
-		}	
+		}
 
         ATH_EDMA_TXQ_CONCAT(txq, head);
 
@@ -1219,12 +1161,6 @@ ath_tx_txqaddbuf(struct ath_softc *sc, struct ath_txq *txq, ath_bufhead *head)
                 __func__, txq->axq_qnum, ito64(bf->bf_daddr),
                 ath_hal_gettxbuf(sc->sc_ah, txq->axq_qnum), bf->bf_desc);
     } else {
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace		
-		// zhaoyang1 modifies for y assistant access debug 2015-04-17
-		if (y_assistant_access_debug_hook)
-			y_assistant_access_debug_hook(bf->bf_mpdu, IEEE802_11_FRAME_MODE, 0);
-#endif
 #if ATH_RESET_SERIAL
          ATH_RESET_LOCK(sc);
          if (atomic_read(&sc->sc_hold_reset)) { /* in reset */
@@ -1896,7 +1832,6 @@ ath_tx_start(ath_dev_t dev, wbuf_t wbuf, ieee80211_tx_control_t *txctl)
             && (!wbuf_is_keepalive(wbuf))
 #endif
             ) {
-        struct ath_node_pwrsaveq *dataq, *mgmtq, *psq;
         struct ath_node *an = (struct ath_node *)txctl->an;
         ath_wbuf_t athwbuf = (ath_wbuf_t)OS_MALLOC_PS(sc->sc_osdev,
                                                       sizeof(struct ath_wbuf), GFP_KERNEL);
@@ -1906,10 +1841,6 @@ ath_tx_start(ath_dev_t dev, wbuf_t wbuf, ieee80211_tx_control_t *txctl)
         }
 
         ASSERT(an);
-
-        dataq = ATH_NODE_PWRSAVEQ_DATAQ(an);
-        mgmtq  = ATH_NODE_PWRSAVEQ_MGMTQ(an);
-        psq = txctl->isdata ? dataq : mgmtq;
 
         athwbuf->wbuf = wbuf;
         athwbuf->next = NULL;
@@ -2027,6 +1958,13 @@ ath_tx_get_buf(struct ath_softc *sc, sg_t *sg, struct ath_buf **pbf,
 
         TAILQ_REMOVE(&sc->sc_txbuf, bf, bf_list);
         sc->sc_txbuf_free--;
+        /**
+         * Debug print in case of NULL descriptor assignment
+         */
+        if( !(bf->bf_desc) ) {
+            printk("\n xxx NULL descriptor assignment in %s line %d buffer %p xxx\n",
+                    __func__, __LINE__,bf);
+        }
 #if ATH_TX_BUF_FLOW_CNTL
 		(*buf_used)++;
 #endif
@@ -2222,6 +2160,13 @@ ath_tx_get_vibuf (struct ath_softc *sc, sg_t * sg, struct ath_buf **pbf,
         TAILQ_REMOVE (&sc->sc_txbuf, bf, bf_list);
 
          sc->sc_txbuf_free--;
+         /**
+          * Debug print in case of NULL descriptor assignment
+          */
+         if( !(bf->bf_desc) ) {
+             printk("\n xxx NULL descriptor detected in %s for buffer %p in line %d xxx\n ",
+                     __func__,bf,__LINE__);
+         }
 #if ATH_TX_BUF_FLOW_CNTL
          (*buf_used)++;
 #endif
@@ -2314,7 +2259,7 @@ ath_tx_start_dma(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
     void *ds, *firstds = NULL, *lastds = NULL;
     struct ath_hal *ah = sc->sc_ah;
     struct ath_txq *txq = &sc->sc_txq[txctl->qnum];
-    size_t i;
+    size_t i, j;
     struct ath_rc_series *rcs;
     int send_to_cabq = 0;
     struct ath_vap *avp = sc->sc_vaps[txctl->if_id];
@@ -2393,9 +2338,7 @@ ath_tx_start_dma(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
 //       printk(KERN_DEBUG "%s: Sending %d buffer: %d ", __func__, cnt_wifipos, txctl->seqno);
     }
 */
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
     if (txctl->ismcast) {
         /*
          * When servicing one or more stations in power-save mode (or)
@@ -2783,7 +2726,21 @@ ath_tx_start_dma(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
 #endif
         /* setup descriptor */
         ds = bf->bf_desc;
-        ath_hal_setdesclink(ah, ds, 0);
+        /**
+         * In rare cases it was found that kernel was crashing
+         * due to functions being called with NULL descriptor
+         * parameters. These debug prints will help find out
+         * the source of the issue if it comes up again.
+         */
+        if( !(bf->bf_desc) ) {
+             printk("\n xxx NULL descriptor detected in %s for buffer %p xxx\n ",
+                     __func__,bf);
+             printk("xxx dumping all buffers for analysis xxx\n");
+             for (j = 0; j < ATH_TXBUF; j++) {
+                 printk("seq num %d buf ptr %p \n", j, sc->sc_txdma.dd_bufptr[j]);
+             }
+         }
+         ath_hal_setdesclink(ah, ds, 0);
 #ifndef REMOVE_PKT_LOG
         bf->bf_vdata = wbuf_header(wbuf);
 #endif
@@ -3038,8 +2995,8 @@ ath_tx_start_dma(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
                     tmp_txq = ((txctl->isfmss) ?                            \
                            &avp->av_fmsq[txctl->fmsq_id] : &avp->av_mcastq);
 
-                    //DPRINTF(sc, ATH_DEBUG_WNM_FMS, "%s: Adding multicast frames to FMS queue %d\n",
-                    //        __func__, txctl->fmsq_id);
+                    DPRINTF(sc, ATH_DEBUG_WNM_FMS, "%s: Adding multicast frames to FMS queue %d\n",
+                            __func__, txctl->fmsq_id);
 
                     ATH_TXQ_LOCK(tmp_txq);
                     ath_tx_mcastqaddbuf_internal(sc, tmp_txq, &bf_head);
@@ -3066,10 +3023,6 @@ ath_tx_start_dma(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
 #endif
 
             }
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-zhaoenjuan transplant for drv monitor stats*/
-			 sc->sc_stats.ast_txq_noaggr_packets[txq->axq_qnum]++;
-#endif
         }
 
         if (!no_wait_for_vap_pause)
@@ -3111,6 +3064,7 @@ bad:
         (*buf_used)-= num_buf;
 #endif
 		sc->sc_txbuf_free += num_buf;
+
         TAILQ_CONCAT(&sc->sc_txbuf, &bf_head, bf_list);
     }
 
@@ -3157,6 +3111,7 @@ _ath_tx_complete_buf(struct ath_softc *sc, struct ath_buf *bf, ath_bufhead *bf_q
 #endif
     struct ath_node *an = bf->bf_node;
     struct ath_atx_tid *tid = ATH_AN_2_TID(an, bf->bf_tidno);
+    struct ath_buf *temp_bf;
 #if ATH_FRAG_TX_COMPLETE_DEFER
     struct ieee80211_frame *wh = NULL;
     bool istxfrag = false;
@@ -3219,7 +3174,6 @@ _ath_tx_complete_buf(struct ath_softc *sc, struct ath_buf *bf, ath_bufhead *bf_q
     tx_status.retries = bf->bf_retries;
 #endif
     tx_status.flags = 0;
-	tx_status.ratecode = bf->bf_tx_ratecode;    //zhaoyang1 transplants statistics 2015-01-27
     tx_status.rateKbps = ath_ratecode_to_ratekbps(sc, bf->bf_tx_ratecode);
 
     if (bf->bf_state.bfs_ispaprd) {
@@ -3385,6 +3339,16 @@ _ath_tx_complete_buf(struct ath_softc *sc, struct ath_buf *bf, ath_bufhead *bf_q
         txq->axq_num_buf_used -= num_buf;
 #endif
 		sc->sc_txbuf_free += num_buf;
+        /**
+         * Check for null descriptors
+         */
+        TAILQ_FOREACH( temp_bf, bf_q, bf_list ) {
+            if ( !(temp_bf->bf_desc) ) {
+                printk("\n xxx Null descriptor detected for buffer %p in func %s line %d xxx\n",
+                        temp_bf,__func__,__LINE__);
+            }
+        }
+
         TAILQ_CONCAT(&sc->sc_txbuf, bf_q, bf_list);
     }
     ATH_TXBUF_UNLOCK(sc);
@@ -3443,14 +3407,7 @@ ath_tx_update_stats(struct ath_softc *sc, struct ath_buf *bf, u_int qnum, struct
     void *ds = bf->bf_lastbf->bf_desc;
 	int i;
 	int hwretries_estimate = 0;
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	wbuf_t wbuf = NULL;
-	struct ieee80211vap *vap = NULL;
-	struct ieee80211_node *ni = NULL;
-	int retrycount =0;
-	struct ieee80211_frame *wh = NULL;
-	int type = 0;
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
+
 #if ATH_TX_COMPACT && UMAC_SUPPORT_APONLY
 
 #ifdef ATH_SUPPORT_TxBF
@@ -3614,26 +3571,6 @@ ath_tx_update_stats(struct ath_softc *sc, struct ath_buf *bf, u_int qnum, struct
         if (ts->ts_status & HAL_TXERR_BADTID)
             __11nstats(sc, txaggr_badtid);
     }
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	retrycount=	ath_hal_txcalcretrycount(sc->sc_ah, ds, ts);
-	
-	if(retrycount > 0) {
-		ni = (struct ieee80211_node *)an->an_node; 
-		if(NULL != ni)
-			vap = ni->ni_vap;
-		if(NULL != vap) {
-			wbuf = bf->bf_mpdu;	
-			wh = (struct ieee80211_frame *)wbuf_header(wbuf);
-			type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
-			if (type == IEEE80211_FC0_TYPE_DATA) { 
-			    vap->iv_unicast_stats.ims_tx_retry_packets += retrycount;
-				vap->iv_unicast_stats.ims_tx_retry_bytes += wbuf->len * retrycount;				
-       			IEEE80211_NODE_STAT_ADD(ni, tx_retry_packets,retrycount);
-				IEEE80211_NODE_STAT_ADD(ni, tx_retry_bytes, wbuf->len * retrycount);
-			}									
-		}
-	}
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
     sc->sc_phy_stats[sc->sc_curmode].ast_tx_shortretry += ts->ts_shortretry;
     sc->sc_phy_stats[sc->sc_curmode].ast_tx_longretry += ts->ts_longretry;
 
@@ -3765,6 +3702,14 @@ ath_tx_processq(struct ath_softc *sc, struct ath_txq *txq)
                 if(bf_held) {
                     sc->sc_txbuf_free++;
 				}
+                /**
+                 * Debug print added in case of NULL descriptor assignment
+                 */
+                if( !(bf_held->bf_desc) ) {
+                    printk("\nxxx NULL descriptor detected in %s for buffer %p line %d xxx\n",
+                            __func__,bf_held,__LINE__);
+                }
+
                 TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf_held, bf_list);
                 ATH_TXBUF_UNLOCK(sc);
 #else
@@ -3873,6 +3818,14 @@ ath_tx_processq(struct ath_softc *sc, struct ath_txq *txq)
                 txq->axq_num_buf_used--;
 #endif
                 sc->sc_txbuf_free++;
+                /**
+                 * Debug print added in case of NULL descriptor assignment
+                 */
+                if( !(bf_held->bf_desc) ) {
+                    printk("\nxxx NULL descriptor detected in %s for buffer %p line %d xxx\n",
+                            __func__,bf_held,__LINE__);
+                }
+
                 TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf_held, bf_list);
 
 #if TRACE_TX_LEAK
@@ -4274,10 +4227,6 @@ void  ath_dump_descriptors(ath_dev_t dev)
 /*
  * Deferred processing of transmit interrupt.
  */
- 
-#if ATOPT_DRV_MONITOR
-extern u_int32_t beacon_complete;//AUTELAN-zhaoenjuan  for drv monitor beacon stuck check
-#endif
 void
 ath_tx_tasklet(ath_dev_t dev)
 {
@@ -4304,13 +4253,7 @@ ath_tx_tasklet(ath_dev_t dev)
          * ath_tx_processq will not be called fro beacon queue.
          */
     }
-	
-#if ATOPT_DRV_MONITOR
-	//AUTELAN-zhaoenjuan  for drv monitor beacon stuck check
-    if(qcumask & (1 << sc->sc_bhalq)) {
-        beacon_complete++;
-    }
-#endif
+
     /*
      * Process each active queue.
      */
@@ -4451,6 +4394,14 @@ ath_tx_draintxq(struct ath_softc *sc, struct ath_txq *txq, HAL_BOOL retry_tx)
                 }
 #endif
                 sc->sc_txbuf_free++;
+                /**
+                 * Debug print added in case of NULL descriptor assignment
+                 */
+                if( !(bf->bf_desc) ) {
+                    printk("\nxxx NULL descriptor detected in %s for buffer %p xxx\n",
+                            __func__,bf);
+                }
+
                 TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);
 
 #if TRACE_TX_LEAK

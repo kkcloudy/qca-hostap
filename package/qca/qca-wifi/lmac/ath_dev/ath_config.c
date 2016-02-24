@@ -34,6 +34,9 @@ int
 ath_set_config(ath_dev_t dev, ath_param_ID_t ID, void *buff)
 {
     struct ath_softc *sc = ATH_DEV_TO_SC(dev);
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    struct ieee80211com *ic = (struct ieee80211com*)(sc->sc_ieee);
+#endif
     int retval = 0;
     u_int32_t hal_chainmask;
     int val, ldpcsupport;
@@ -504,6 +507,15 @@ ath_set_config(ath_dev_t dev, ath_param_ID_t ID, void *buff)
                 sc->sc_reg_parm.burst_beacons = 1;
             else
                 sc->sc_reg_parm.burst_beacons = 0;
+
+            if (sc->sc_hastsfadd) {
+                if (sc->sc_reg_parm.burst_beacons)
+                    sc->sc_stagbeacons = 0;
+                else
+                    sc->sc_stagbeacons = 1;
+                ath_hal_settsfadjust(sc->sc_ah, sc->sc_stagbeacons);
+            }
+
             break; 
 #if ATH_ANI_NOISE_SPUR_OPT
         case ATH_PARAM_NOISE_SPUR_OPT:
@@ -687,26 +699,6 @@ ath_set_config(ath_dev_t dev, ath_param_ID_t ID, void *buff)
                 retval = (-1);
             }
             break;
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-        case ATH_PARAM_MIB_PERIOD:
-            sc->sc_stats.mib_timer_period = *(u_int32_t *)buff;
-            break; 
-        case ATH_PARAM_CH_UTIL_OPEN:
-            if(sc->sc_ch_utility_switch)
-            {
-                if((u_int8_t)(*(u_int32_t*)buff) == 0)
-                    sc->sc_ch_utility_switch = (u_int8_t)(*(u_int32_t*)buff);
-            }
-            else
-            {
-                if((u_int8_t)(*(u_int32_t*)buff) != 0)
-                {
-                    sc->sc_ch_utility_switch = (u_int8_t)(*(u_int32_t*)buff);
-                    OS_SET_TIMER(&sc->sc_ch_utility_5sec_timer, sc->sc_stats.mib_timer_period);
-                }
-            }
-            break;
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
         case ATH_PARAM_DISABLE_DFS:
             if (*(int *)buff)
                 sc->sc_is_blockdfs_set = true;
@@ -718,7 +710,55 @@ ath_set_config(ath_dev_t dev, ath_param_ID_t ID, void *buff)
             break;				
 #if QCA_AIRTIME_FAIRNESS
         case ATH_PARAM_ATF_STRICT_SCHED:
-			sc->sc_ieee_ops->atf_strict_scheduling(sc->sc_ieee, !!((*(u_int32_t*)buff)));
+            val = sc->sc_ieee_ops->get_atf_scheduling(sc->sc_ieee);
+            if(((*(u_int32_t*)buff) == 1) && (!(val & IEEE80211_ATF_GROUP_SCHED_POLICY)) && (ic->atfcfg_set.grp_num_cfg > 0)) 
+            {
+                printk("Fair queue across groups is enabled so strict queue within groups is not allowed.Invalid combination \n");
+                return -EINVAL;
+            }
+            if (*(u_int32_t*)buff)
+                val |= IEEE80211_ATF_SCHED_STRICT;
+            else
+                val &= ~IEEE80211_ATF_SCHED_STRICT;
+                
+            sc->sc_ieee_ops->atf_scheduling(sc->sc_ieee, val);
+            break;
+        case ATH_PARAM_ATF_OBSS_SCHED:
+            val = sc->sc_ieee_ops->get_atf_scheduling(sc->sc_ieee);
+
+            if (*(u_int32_t*)buff)
+                val |= IEEE80211_ATF_SCHED_OBSS;
+            else
+                val &= ~IEEE80211_ATF_SCHED_OBSS;
+                
+            sc->sc_ieee_ops->atf_scheduling(sc->sc_ieee, val);
+            break;
+        case ATH_PARAM_ATF_OBSS_SCALE:
+            sc->sc_ieee_ops->atf_obss_scale(sc->sc_ieee, *(u_int32_t*)buff);
+            break;
+        case ATH_PARAM_ATF_GROUP_SCHED_POLICY:
+            val = sc->sc_ieee_ops->get_atf_scheduling(sc->sc_ieee);
+            if(((*(u_int32_t*)buff) == 0) && (val & IEEE80211_ATF_SCHED_STRICT))
+            {
+                printk("\n Strict queue within groups is enabled so fair queue across groups is not allowed.Invalid combination \n");
+                return -EINVAL;
+            }
+
+            if (*(u_int32_t*)buff)
+                val |= IEEE80211_ATF_GROUP_SCHED_POLICY;
+            else
+                val &= ~IEEE80211_ATF_GROUP_SCHED_POLICY;
+
+            sc->sc_ieee_ops->atf_scheduling(sc->sc_ieee, val);
+            break;
+#endif
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        case ATH_PARAM_STADFS_ENABLE:
+            if(!(*(int *)buff)) {
+                ieee80211com_clear_cap_ext(ic,IEEE80211_CEXT_STADFS);
+            } else {
+                ieee80211com_set_cap_ext(ic,IEEE80211_CEXT_STADFS);
+            }
             break;
 #endif
         default:
@@ -1242,14 +1282,6 @@ ath_get_config(ath_dev_t dev, ath_param_ID_t ID, void *buff)
         case ATH_PARAM_EN_SELECTIVE_RTS:
                 *(int *) buff = sc->sc_user_en_rts_cts;
             break;
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-        case ATH_PARAM_MIB_PERIOD:
-            *(int *)buff = sc->sc_stats.mib_timer_period;
-            break; 
-        case ATH_PARAM_CH_UTIL_OPEN:
-            (*(u_int32_t*)buff) = (u_int32_t)sc->sc_ch_utility_switch;
-            break;
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
         case ATH_PARAM_DISABLE_DFS:
             *(int *)buff = (sc->sc_is_blockdfs_set == true);
         case ATH_PARAM_DECLINE_ADDBA_ENABLE:
@@ -1257,9 +1289,71 @@ ath_get_config(ath_dev_t dev, ath_param_ID_t ID, void *buff)
             break;
 #if QCA_AIRTIME_FAIRNESS
         case ATH_PARAM_ATF_STRICT_SCHED:
-            *(int *)buff = sc->sc_ieee_ops->get_atf_strict_scheduling(sc->sc_ieee);
+            *(int *)buff = (sc->sc_ieee_ops->get_atf_scheduling(sc->sc_ieee) &
+                            IEEE80211_ATF_SCHED_STRICT);
+            break;
+        case ATH_PARAM_ATF_OBSS_SCHED:
+            *(int *)buff = !!(sc->sc_ieee_ops->get_atf_scheduling(sc->sc_ieee) &
+                            IEEE80211_ATF_SCHED_OBSS);
+            break;
+        case ATH_PARAM_ATF_GROUP_SCHED_POLICY:
+            *(int *)buff = !!(sc->sc_ieee_ops->get_atf_scheduling(sc->sc_ieee) &
+                            IEEE80211_ATF_GROUP_SCHED_POLICY);
             break;
 #endif
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        case ATH_PARAM_STADFS_ENABLE:
+            *(int *)buff = ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS);
+            break;
+#endif
+        case ATH_PARAM_PHY_OFDM_ERR:
+            {
+#define ANI_OFDM_ERR_OFFSET 10
+                void *outdata = NULL;
+                u_int32_t outsize;
+                ath_hal_getdiagstate(sc->sc_ah, HAL_DIAG_ANI_STATS, NULL, 0, &outdata, &outsize);
+                if (outdata) {
+                    *(int *)buff = *((u_int32_t *)outdata + ANI_OFDM_ERR_OFFSET);
+                }
+            }
+            break;
+        case ATH_PARAM_PHY_CCK_ERR:
+            {
+#define ANI_CCK_ERR_OFFSET 11
+                void *outdata = NULL;
+                u_int32_t outsize;
+                ath_hal_getdiagstate(sc->sc_ah, HAL_DIAG_ANI_STATS, NULL, 0, &outdata, &outsize);
+                if (outdata) {
+                    *(int *)buff = *((u_int32_t *)outdata + ANI_CCK_ERR_OFFSET);
+                }
+            }
+            break;
+        case ATH_PARAM_FCS_ERR:
+            {
+                struct ath_mib_mac_stats mibstats;
+
+                ath_update_mib_macstats(dev);
+                ath_get_mib_macstats(dev, &mibstats);
+
+                *(int *)buff = mibstats.fcs_bad;
+            }
+            break;
+        case ATH_PARAM_CHAN_UTIL:
+            {
+                u_int8_t ctlrxc, extrxc, rfcnt, tfcnt, obss;
+                ctlrxc = sc->sc_chan_busy_per & 0xff;
+                extrxc = (sc->sc_chan_busy_per & 0xff00) >> 8;
+                rfcnt = (sc->sc_chan_busy_per & 0xff0000) >> 16;
+                tfcnt = (sc->sc_chan_busy_per & 0xff000000) >> 24;
+
+                if (ic->ic_curchan->ic_flags & IEEE80211_CHAN_HT20)
+                    obss = ctlrxc - tfcnt;
+                else
+                    obss = (ctlrxc + extrxc) - tfcnt;
+
+                *(int *)buff = obss;
+            }
+            break;
         default:
             return (-1);
     }

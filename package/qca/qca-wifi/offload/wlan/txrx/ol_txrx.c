@@ -1327,6 +1327,7 @@ ol_txrx_fw_stats_handler(
     u_int8_t *stats_data;
     struct ol_txrx_stats_req_internal *req;
     int more = 0;
+    u_int32_t *msg_word = (u_int32_t *)stats_info_list;
 
     req = OL_TXRX_U64_TO_STATS_PTR(cookie);
 
@@ -1347,6 +1348,9 @@ ol_txrx_fw_stats_handler(
             }
             if ((status != HTT_DBG_STATS_STATUS_PARTIAL) &&
                 (req->base.print.verbose || req->base.print.concise)) {
+                struct wal_dbg_stats *wal_dbg_stats_ptr;
+                wal_dbg_stats_ptr = (struct wal_dbg_stats *)(msg_word + 1);
+                wal_dbg_stats_ptr->rx.rx_bytes = pdev->stats.pub.rx.delivered.bytes;
                 /* provide the header along with the data */
                 htt_t2h_stats_print(stats_info_list, req->base.print.concise);
             }
@@ -1756,12 +1760,12 @@ ol_txrx_mark_peer_inact(ol_txrx_peer_handle peer,
                         bool inactive)
 {
     struct ol_txrx_pdev_t *pdev;
-    bool inactive_old = peer->peer_bs_inact_flag == 1;
+    bool inactive_old;
 
     if (peer == NULL) {
         return;
     }
-
+    inactive_old = (peer->peer_bs_inact_flag == 1);
     pdev = peer->vdev->pdev;
     if (!inactive) {
         peer->peer_bs_inact = pdev->pdev_bs_inact_reload;

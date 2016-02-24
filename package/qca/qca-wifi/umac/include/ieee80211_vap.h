@@ -135,4 +135,15 @@ int ieee80211_vap_set_beacon_interval(ieee80211_vap_t vap, u_int16_t intval);
  *   returns beacon interval.
  */
 u_int16_t ieee80211_vap_get_beacon_interval(ieee80211_vap_t vap);
+
+/*
+ * @find if any VAP is in running state.
+ * ARGS :
+ *  struct ieee80211com *ic: global device handler.
+ *
+ * RETURNS:
+ *  Return true if any VAP is in RUNNING state
+ */
+int
+ieee80211_vap_is_any_running(struct ieee80211com *ic);
 #endif

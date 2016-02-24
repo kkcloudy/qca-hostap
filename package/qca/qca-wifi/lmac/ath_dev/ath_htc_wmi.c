@@ -3352,12 +3352,8 @@ ath_wmi_beacon_stuck_internal(struct ath_softc *sc)
     u_int32_t show_cycles = 0;
     int needmark = 0;
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	 // 	  show_cycles = ath_hal_getMibCycleCountsPct(ah, 
-	 // 					&rx_clear, &rx_frame, &tx_frame);
-	show_cycles = ath_get_channel_utility(sc, &rx_clear, &rx_frame, &tx_frame);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
+    show_cycles = ath_hal_getMibCycleCountsPct(ah, 
+                  &rx_clear, &rx_frame, &tx_frame);
     
     sc->sc_bmisscount++;
 #ifdef MAGPIE_HIF_GMAC   
@@ -3840,11 +3836,8 @@ ath_htc_beacon_start_adhoc(struct ath_softc *sc, int *needmark, int if_id, u_int
      * many consecutive beacons reset the device.
      */
    if (beaconPendingCount != 0) {
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-		//show_cycles = ath_hal_getMibCycleCountsPct(ah, 
-                //&rx_clear, &rx_frame, &tx_frame);
-		show_cycles = ath_get_channel_utility(sc, &rx_clear, &rx_frame, &tx_frame);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
+        show_cycles = ath_hal_getMibCycleCountsPct(ah, 
+                      &rx_clear, &rx_frame, &tx_frame);
 
         sc->sc_bmisscount++;
 

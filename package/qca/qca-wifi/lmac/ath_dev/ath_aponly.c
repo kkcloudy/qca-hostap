@@ -123,7 +123,10 @@ _txcomp_handle_subframe_retry ( struct ath_softc *sc,
 #else
             if((bf->bf_retries > ATH_MAX_SW_RETRIES ) &&  !(atomic_read(&sc->sc_in_reset))){
 #endif
+                struct ath_node *an = bf->bf_node;
+                struct ath_vap *avp = an->an_avp;
 
+                avp->av_stats.av_tx_xretries++;
                 bf->bf_isxretried = 1;
                *sendbar = tid->addba_exchangecomplete;
                 return 1; /*xretried*/
@@ -286,7 +289,7 @@ ath_tx_complete_aggr_compact(struct ath_softc *sc, struct ath_txq *txq, struct a
 {
     struct ath_node *an = bf->bf_node;
     struct ath_atx_tid *tid = ATH_AN_2_TID(an, bf->bf_tidno);
-
+    struct ath_vap *avp = an->an_avp;
     struct ath_buf *bf_next = NULL;
     
     u_int16_t seq_st = 0;
@@ -321,13 +324,18 @@ ath_tx_complete_aggr_compact(struct ath_softc *sc, struct ath_txq *txq, struct a
             _pktlog_update_txcomp(sc, bf, bf_last);
 #endif
 
-
 #define RETRY_SUCCESS 0
 #define RETRY_FAIL 1
 
         if(adf_os_unlikely(!txok)){
             if(_txcomp_handle_subframe_retry(sc, bf ,tid ,sw_retry_limit,&sendbar, &bf_pending,currts) == RETRY_SUCCESS)
                 goto end0;
+        } else {
+            if (bf->bf_retries || ts->ts_longretry) {
+                avp->av_stats.av_tx_retries++;
+                if ((bf->bf_retries + ts->ts_longretry) > 1)
+                    avp->av_stats.av_tx_mretries++;                        
+            }
         }
         ATH_TXQ_LOCK(txq);
         ath_tx_update_baw(sc, tid, bf->bf_seqno);
@@ -350,7 +358,7 @@ ath_tx_complete_aggr_compact(struct ath_softc *sc, struct ath_txq *txq, struct a
                 _pktlog_update_txcomp(sc, bf,bf_last);
 #endif
 
-
+            avp->av_stats.av_aggr_pkt_count++;
 
             bf_next = bf->bf_next;
             if (adf_os_unlikely(!txok) || !(ATH_BA_ISSET(ba, ATH_BA_INDEX(seq_st, bf->bf_seqno)))){
@@ -358,6 +366,14 @@ ath_tx_complete_aggr_compact(struct ath_softc *sc, struct ath_txq *txq, struct a
                 if(_txcomp_handle_subframe_retry(sc, bf ,tid ,sw_retry_limit,&sendbar, &bf_pending,currts) == RETRY_SUCCESS){
                     bf = bf_next;
                     continue;
+                }
+            } else {
+                int i, total_rs_retry_cnt = 0;
+
+                if (bf->bf_retries || ts->ts_longretry) {
+                    avp->av_stats.av_tx_retries++;
+                    if (bf->bf_retries > 1)
+                        avp->av_stats.av_tx_mretries++;                        
                 }
             }
             /* subframe succes */
@@ -425,7 +441,6 @@ static INLINE void
 _ath_tx_free_buf(struct ath_softc *sc, struct ath_buf *bf,struct ath_node *an, struct ath_atx_tid *tid, struct ath_txq *txq)
 {
 
-
         wbuf_unmap_sg(sc->sc_osdev, bf->bf_mpdu,
                 OS_GET_DMA_MEM_CONTEXT(bf, bf_dmacontext));
 
@@ -467,6 +482,41 @@ _ath_tx_free_buf(struct ath_softc *sc, struct ath_buf *bf,struct ath_node *an, s
         txq->axq_num_buf_used --;
 #endif
         sc->sc_txbuf_free ++;
+        /**
+         * Debug print added in case of NULL descriptor assignment
+         */
+        if( !(bf->bf_desc) ) {
+            printk("\nxxx NULL descriptor detected in %s for buffer %p xxx\n",
+                    __func__,bf);
+        }
+#if QCA_AIRTIME_FAIRNESS
+        if (bf->bf_atf_accounting == 1) {
+            if (an) {
+                ATH_NODE_ATF_TOKEN_LOCK(an);
+                if (an->an_num_buf_held == 0)
+                    printk("%s: an with buffer marked for atf accounting is holding no buffers\n", __func__);
+                else {
+                    if (!an->an_atf_capable) {
+                        if (sc->sc_num_buf_held == 0)
+                            printk("%s: sc with buffer marked for atf accounting is holding no buffers\n", __func__);
+                        else
+                            sc->sc_num_buf_held--;
+                    }
+                    an->an_num_buf_held--;
+                    if (an->an_num_buf_held < an->an_min_num_buf_held) {
+                        an->an_min_num_buf_held = an->an_num_buf_held;
+                    }
+                }
+                an->an_num_bufs_sent++;
+                an->an_num_bytes_sent += bf->bf_atf_accounting_size;
+                ATH_NODE_ATF_TOKEN_UNLOCK(an);
+            } else {
+                printk("%s: buffer marked for atf accounting has no an reference\n", __func__);
+            }
+        }
+        bf->bf_atf_accounting = 0;
+#endif
+
         TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);
         ATH_TXBUF_UNLOCK(sc);
 }

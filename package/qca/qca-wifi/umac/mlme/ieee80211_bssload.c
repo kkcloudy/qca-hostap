@@ -82,6 +82,14 @@ ieee80211_add_bssload_ie(struct ieee80211vap *vap, u_int8_t *frm, struct ieee802
     qbssload->station_count = htole16(vap->iv_sta_assoc);
     qbssload->channel_utilization = vap->chanutil_info.value;
     qbssload->aac = 0; /* TBD */
+#if ATH_SUPPORT_HS20
+    if (vap->iv_hc_bssload) {
+        /* override the values with hardcoded values */
+        qbssload->station_count = htole16((vap->iv_hc_bssload & 0xFF000000) >> 24);
+        qbssload->channel_utilization = (vap->iv_hc_bssload & 0xFF0000) >> 16;
+        qbssload->aac = htole16(vap->iv_hc_bssload & 0xFFFF);
+    }
+#endif
     return frm + sizeof(struct ieee80211_ie_qbssload);
 }
 

@@ -648,6 +648,8 @@ struct ieee80211_action_measrep_header {
 #define IEEE80211_ACTION_CAT_HT             7   /* HT per IEEE802.11n-D1.06 */
 #define IEEE80211_ACTION_CAT_SA_QUERY       8   /* SA Query per IEEE802.11w, PMF */
 #define IEEE80211_ACTION_CAT_PROT_DUAL      9   /* Protected Dual of public action frame */
+#define IEEE80211_ACTION_CAT_WNM           10   /* WNM Action frame */
+#define IEEE80211_ACTION_CAT_UNPROT_WNM    11   /* Unprotected WNM action frame */
 #define IEEE80211_ACTION_CAT_WMM_QOS       17   /* QoS from WMM specification */
 #define IEEE80211_ACTION_CAT_VHT           21   /* VHT Action */
 
@@ -1359,6 +1361,7 @@ enum {
     IEEE80211_ELEMID_TIM_BCAST_REQUEST  = 94,
     IEEE80211_ELEMID_TIM_BCAST_RESPONSE = 95,
     IEEE80211_ELEMID_INTERWORKING     = 107,
+    IEEE80211_ELEMID_QOS_MAP          = 110,
     IEEE80211_ELEMID_XCAPS            = 127,
     IEEE80211_ELEMID_RESERVED_133     = 133,
     IEEE80211_ELEMID_TPC              = 150,
@@ -1972,6 +1975,7 @@ A length of 3839 bytes is chosen here to support unaggregated data frames, any s
 #define IEEE80211_AID_MAX       2007
 #define IEEE80211_AID_DEF       128
 #define IEEE80211_MAX_AID_DEF   200
+#define IEEE80211_ATF_AID_DEF   ATF_ACTIVED_MAX_CLIENTS + 1 /* With ATF, limit max clients */
 
 #define IEEE80211_AID(b)    ((b) &~ 0xc000)
 
@@ -2043,13 +2047,20 @@ struct ieee80211_ie_ext_cap {
 #define IEEE80211_EXTCAPIE_TDLS_PEER_PSM        0x20000000
 #define IEEE80211_EXTCAPIE_TDLS_CHAN_SX         0x40000000
 /* 2nd Extended capability IE flags bit32-bit63*/
+#define IEEE80211_EXTCAPIE_QOS_MAP          0x00000001 /* bit-32 QoS Map Support */
 #define IEEE80211_EXTCAPIE_TDLSSUPPORT      0x00000020 /* bit-37 TDLS Support */
 #define IEEE80211_EXTCAPIE_TDLSPROHIBIT     0x00000040 /* bit-38 TDLS Prohibit Support */
 #define IEEE80211_EXTCAPIE_TDLSCHANSXPROHIBIT   0x00000080 /* bit-39 TDLS Channel Switch Prohibit */
 #define IEEE80211_EXTCAPIE_TDLS_WIDE_BAND   0x20000080 /* bit-61 TDLS Wide Bandwidth support */
 #define IEEE80211_EXTCAPIE_OP_MODE_NOTIFY   0x40000000 /* bit-62 Operating Mode notification */
 
-/* 
+struct ieee80211_ie_qos_map_set {
+        u_int8_t elem_id;
+        u_int8_t elem_len;
+        u_int8_t qos_map_set[0];
+} __packed;
+
+/*
  * These caps are populated when we recieve beacon/probe response
  * This is used to maintain local TDLS cap bit masks
  */
@@ -2290,5 +2301,40 @@ struct ieee80211_ie_wide_bw_switch {
 #ifdef WIN32
 #include <poppack.h>
 #endif
+struct atfcntbl{
+    u_int8_t     ssid[IEEE80211_NWID_LEN+1];
+    u_int8_t     sta_mac[IEEE80211_ADDR_LEN];
+    u_int32_t    value;
+    u_int8_t     info_mark;   /*0--vap, 1-sta*/
+    u_int8_t     assoc_status;     /*1--Yes, 0 --No*/
+    u_int32_t    cfg_value;
+    u_int8_t     grpname[IEEE80211_NWID_LEN+1];
+};
 
+#define ATF_ACTIVED_MAX_CLIENTS   50
+#define ATF_ACTIVED_MAX_ATFGROUPS 8
+#define ATF_CFG_NUM_VDEV          16
+struct atftable{
+    u_int16_t         id_type;
+    struct atfcntbl  atf_info[ATF_ACTIVED_MAX_CLIENTS+ATF_CFG_NUM_VDEV];
+    u_int16_t         info_cnt;
+    u_int8_t          atf_status;
+    u_int32_t         busy;
+    u_int32_t         atf_group;
+};
+struct atfgroups{
+    u_int8_t    grpname[IEEE80211_NWID_LEN + 1]; //group name
+    u_int32_t   grp_num_ssid; //Number of ssids added in this group
+    u_int32_t   grp_cfg_value; // Airtime for this group
+    u_int8_t    grp_ssid[ATF_CFG_NUM_VDEV][IEEE80211_NWID_LEN+1]; // List of SSIDs in the group
+};
+
+struct atfgrouptable{
+    u_int16_t         id_type;
+    struct atfgroups   atf_groups[ATF_ACTIVED_MAX_ATFGROUPS];
+    u_int16_t         info_cnt;
+};
+
+// Factor used to convert airtime between user space and driver
+#define ATF_AIRTIME_CONVERSION_FACTOR 10
 #endif /* _NET80211_IEEE80211_H_ */

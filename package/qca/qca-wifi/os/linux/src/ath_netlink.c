@@ -94,10 +94,10 @@ static void ath_adhoc_netlink_receive(struct sock *sk, int len)
 		       /* process netlink message pointed by skb->data */
 		       nlh = (struct nlmsghdr *)skb->data;
 		       pid = NETLINK_CREDS(skb)->pid;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION (3,10,49)
+#if ATOPT_ORI_ATHEROS_BUG
 			   uid = NETLINK_CREDS(skb)->uid.val;
 #else
-			   uid = NETLINK_CREDS(skb)->uid;
+		       uid = NETLINK_CREDS(skb)->uid;
 #endif
 		       seq = nlh->nlmsg_seq;
 		       data = NLMSG_DATA(nlh);

@@ -55,9 +55,13 @@ static void	ospriv_vlan_add_vid(struct net_device *dev, unsigned short vid);
 static void	ospriv_vlan_kill_vid(struct net_device *dev, unsigned short vid);
 #else
 static int	ospriv_vlan_register(struct net_device *dev, struct vlan_group *grp);
+#if ATOPT_ORI_ATHEROS_BUG
 static int  ospriv_vlan_add_vid(struct net_device *dev, __be16 proto, unsigned short vid);
 static int  ospriv_vlan_kill_vid(struct net_device *dev, __be16 proto, unsigned short vid);
-
+#else
+static int     ospriv_vlan_add_vid(struct net_device *dev, unsigned short vid);
+static int     ospriv_vlan_kill_vid(struct net_device *dev, unsigned short vid);
+#endif
 #endif
 
 #ifdef QCA_PARTNER_PLATFORM
@@ -81,8 +85,13 @@ adf_net_vlan_attach(struct net_device *dev)
 #ifdef QCA_PARTNER_PLATFORM
     osif_pltfrm_vlan_feature_set(dev);
 #else
+#if ATOPT_ORI_ATHEROS_BUG
 	dev->features |= NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX |
 		NETIF_F_HW_VLAN_CTAG_FILTER;
+#else
+	dev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX |
+		NETIF_F_HW_VLAN_FILTER;
+#endif
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30)
@@ -169,7 +178,11 @@ static void
 #else
 static int
 #endif
+#if ATOPT_ORI_ATHEROS_BUG
 ospriv_vlan_add_vid(struct net_device *dev, __be16 proto, unsigned short vid)
+#else
+ospriv_vlan_add_vid(struct net_device *dev, unsigned short vid)
+#endif
 {
     osif_dev  *osifp = ath_netdev_priv(dev);
 #ifdef QCA_PARTNER_PLATFORM
@@ -205,7 +218,11 @@ static void
 #else
 static int
 #endif
+#if ATOPT_ORI_ATHEROS_BUG
 ospriv_vlan_kill_vid(struct net_device *dev, __be16 proto, unsigned short vid)
+#else
+ospriv_vlan_kill_vid(struct net_device *dev, unsigned short vid)
+#endif
 {
     osif_dev  *osifp = ath_netdev_priv(dev);
 

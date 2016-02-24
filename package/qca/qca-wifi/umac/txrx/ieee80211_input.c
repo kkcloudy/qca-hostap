@@ -32,23 +32,8 @@
 #if ATH_BAND_STEERING
 #include <ieee80211_band_steering.h>
 #endif
-
-#if ATOPT_THINAP
-#include <at_thinap.h>
 #include <osif_private.h>
-#include <ieee80211_api.h>
-#include "ieee80211_defines.h"
-#define OSIF_TO_NETDEV(_osif) (((osif_dev *)(_osif))->netdev)
-#ifndef ETHERTYPE_PRE_PAE
-#define ETHERTYPE_PRE_PAE 0x88c7/* pre auth eap for wpa2 thinap */
-#endif
-#endif
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
-#if ATOPT_SYNC_INFO
-u_int16_t last_rxseq = 0;
-#endif
+
 typedef enum {
     FILTER_STATUS_ACCEPT = 0,
     FILTER_STATUS_REJECT
@@ -119,145 +104,41 @@ static void ieee80211_deliver_data(struct ieee80211vap *vap, wbuf_t wbuf, struct
                                           u_int32_t hdrspace, int is_mcast, u_int8_t subtype);
 static wbuf_t ieee80211_decap(struct ieee80211vap *vap, wbuf_t wbuf, size_t hdrspace, struct ieee80211_rx_status *rs);
 
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-static void 
-ieee80211_rx_rssi_statistics(struct ieee80211_node *ni)
+struct dhcp_packet {
+    u_char              op;          /* packet opcode type */
+    u_char              htype;       /* hardware addr type */
+    u_char              hlen;        /* hardware addr length */
+    u_char              hops;        /* gateway hops */
+    u_int32_t           xid;         /* transaction ID */
+    u_int16_t           secs;        /* seconds since boot began */
+    u_int16_t           flags;       /* flags */
+    struct in_addr      ciaddr;      /* client IP address */
+    struct in_addr      yiaddr;      /* 'your' IP address */
+    struct in_addr      siaddr;      /* server IP address */
+    struct in_addr      giaddr;      /* gateway IP address */
+    u_char              chaddr[16];  /* client hardware address */
+    u_char              sname[64];   /* server host name */
+    u_char              file[128];   /* boot file name */
+    u_char              magic_cookie[4];   /* magic cookie */
+    u_char              options[0];  /* variable-length options field */
+} __attribute__((__packed__));
+#define DHCP_BOOTP_FLAG_BROADCAST 0x8000
+
+static uint16_t update_incremental_checksum(uint16_t osum, uint16_t oval, uint16_t nval)
 {
-	int level;
-	u_int8_t index = 0;
-	struct ieee80211vap *vap = ni->ni_vap;
-	
-	if(ni == NULL || vap == NULL)
-		return ;
-		
-	/*
-	index   level range (unit:dBm)
-	0	    > -10
-	1	    -10  ~ -19
-	2	    -20  ~ -39
-	3	    -40  ~ -49
-	4	    -50  ~ -59
-	5	    -60  ~ -64
-	6	    -65  ~ -67
-	7	    -68  ~ -70
-	8	    -71  ~ -73
-	9	    -74  ~ -76
-	10	    -77  ~ -79
-	11	    -80  ~ -82
-	12	    -83  ~ -85
-	13	    -86  ~ -88
-	14	    -89  ~ -91
-	15	    -92  ~ -94
-	16	     < -94
-	e.g.-19 : level >= -19 && level <= -10
-	*/
+    uint16_t nsum = osum;
+    uint32_t sum;
 
-	level = -95 + ni->ni_rssi;
-	if (level > -10)
-		index = 0;
-	else if (level >= -19)
-		index = 1;
-	else if (level >= -39)
-		index = 2;
-	else if (level >= -49)
-		index = 3;
-	else if (level >= -59)
-		index = 4;
-	else if (level >= -64)
-		index = 5;
-	else if (level >= -67)
-		index = 6;
-	else if (level >= -70)
-		index = 7;
-	else if (level >= -73)
-		index = 8;
-	else if (level >= -76)
-		index = 9;
-	else if (level >= -79)
-		index = 10;
-	else if (level >= -82)
-		index = 11;
-	else if (level >= -85)
-		index = 12;
-	else if (level >= -88)
-		index = 13;
-	else if (level >= -91)
-		index = 14;
-	else if (level >= -94)
-		index = 15;
-	else 
-		index = 16;
+    if (osum == 0)
+        return 0;
 
-	ni->ni_stats.ns_rssi_stats[index].ns_rx_data++;	
-	vap->iv_stats.is_rssi_stats[index].ns_rx_data++;
-	
-	return ;
+    sum = nsum;
+    sum += *(uint16_t *)&oval + (~(*(uint16_t *)&nval) & 0XFFFF);
+    sum = (sum >> 16) + (sum & 0XFFFF);
+    nsum = (uint16_t)((sum >> 16) + sum);
+
+    return nsum;
 }
-
-
-static int32_t 
-ieee80211_rx_rate_statistics(struct ieee80211vap *vap, 
-													struct ieee80211_node *ni,
-													struct ieee80211_rx_status *rs)
-{
-#ifndef HT_RATE_CODE
-#define HT_RATE_CODE 0x80
-#endif
-
-     u_int8_t    rateCode = rs->rs_ratephy;
-	 u_int32_t   rateKbps = rs->rs_datarate;
-     u_int32_t   rateMbps = rateKbps / 1000;
-
-     if(rateCode & HT_RATE_CODE) {
-         ni->ni_stats.ns_rx_mcs_count[rateCode & ~HT_RATE_CODE]++;
-		 vap->iv_stats.is_rx_mcs_count[rateCode & ~HT_RATE_CODE]++;
-     } else if(1 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[0].count++;
-		 vap->iv_stats.is_rx_rate_index[0].count++;
-     } else if(2 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[1].count++;
-		 vap->iv_stats.is_rx_rate_index[1].count++;
-     } else if(5 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[2].count++;
-		 vap->iv_stats.is_rx_rate_index[2].count++;
-     } else if(11 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[3].count++;
-		 vap->iv_stats.is_rx_rate_index[3].count++;
-     } else if (6 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[4].count++;
-		 vap->iv_stats.is_rx_rate_index[4].count++;
-     } else if (9 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[5].count++;
-		 vap->iv_stats.is_rx_rate_index[5].count++;
-     } else if (12 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[6].count++;
-		 vap->iv_stats.is_rx_rate_index[6].count++;
-     } else if (18 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[7].count++;
-		 vap->iv_stats.is_rx_rate_index[7].count++;
-     } else if (24 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[8].count++;
-		 vap->iv_stats.is_rx_rate_index[8].count++;
-     } else if (36 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[9].count++;
-		 vap->iv_stats.is_rx_rate_index[9].count++;
-     } else if (48 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[10].count++;
-		 vap->iv_stats.is_rx_rate_index[10].count++;
-     } else if (54 == rateMbps) {
-         ni->ni_stats.ns_rx_rate_index[11].count++;
-		 vap->iv_stats.is_rx_rate_index[11].count++;
-     } else {
-         printk("%s: %d Mbps is not found\n", __func__, rateMbps);
-		 return -1;
-	 }
-     return 0;
-	 
-#ifdef HT_RATE_CODE
-#undef HT_RATE_CODE
-#endif
-}
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 
 /*
  * check the frame against the registered  privacy flteres. 
@@ -379,18 +260,6 @@ ieee80211_check_privacy_filters(struct ieee80211_node *ni, wbuf_t wbuf, int is_m
         if(vap->iv_ic->ic_softap_enable)
             return FILTER_STATUS_ACCEPT;
 
-        #if ATOPT_THINAP
-        if(wbuf->protocol != 0x0030){
-            if (!ieee80211_node_is_authorized(ni) && !dhcp_detect_wh(vap,wbuf) && !pppoe_detect_wh(vap,wbuf) && !arp_detect_wh(vap,wbuf)) {
-                IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_INPUT,
-                                      wh->i_addr2, "data",
-                                      "unauthorized port: ether type 0x%x len %u \n",
-                                      ether_type, wbuf_get_pktlen(wbuf));
-                vap->iv_stats.is_rx_unauth++;
-                return FILTER_STATUS_REJECT;
-            }
-        }
-        #else
         if (!ieee80211_node_is_authorized(ni)) {
             IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_INPUT,
                                   wh->i_addr2, "data",
@@ -399,7 +268,6 @@ ieee80211_check_privacy_filters(struct ieee80211_node *ni, wbuf_t wbuf, int is_m
             vap->iv_stats.is_rx_unauth++;
             return FILTER_STATUS_REJECT;
         }
-        #endif
         return FILTER_STATUS_ACCEPT;
     }
 
@@ -608,24 +476,7 @@ ieee80211_amsdu_input(struct ieee80211_node *ni,
         IEEE80211_PRDPERFSTAT_THRPUT_ADDCURRCNT(vap->iv_ic, subfrm_len);
         
         mac_stats->ims_rx_datapyld_bytes += subfrm_len;
-		/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-		if (is_mcast) {
-			IEEE80211_NODE_STAT(ni, rx_mcast);
-			IEEE80211_NODE_STAT_ADD(ni, rx_mcast_bytes, subfrm_len);
-		}
-		else {
-			IEEE80211_NODE_STAT(ni, rx_ucast);
-			IEEE80211_NODE_STAT_ADD(ni, rx_ucast_bytes, subfrm_len);
-		}		
-		ieee80211_rx_rssi_statistics(ni);
-		ieee80211_rx_rate_statistics(vap, ni, rs);
-		if (wh->i_fc[1] & IEEE80211_FC1_RETRY) {
-			mac_stats->ims_rx_retry_packets++;
-			mac_stats->ims_rx_retry_bytes += subfrm_len;						
-			IEEE80211_NODE_STAT(ni, rx_retry_packets);
-			IEEE80211_NODE_STAT_ADD(ni, rx_retry_bytes, subfrm_len);
-		}
-        /* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
+        
         if (ieee80211_check_privacy_filters(ni, wbuf_subfrm, is_mcast) == FILTER_STATUS_REJECT) {
             wbuf_free(wbuf_subfrm);
         } else {
@@ -648,16 +499,10 @@ ieee80211_amsdu_input(struct ieee80211_node *ni,
                    rs->rs_cryptodecapcount +
                    IEEE80211_CRC_LEN -
                    rs->rs_padspace;
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-    mac_stats->ims_rx_data_bytes += hdrsize; 
-    IEEE80211_NODE_STAT_ADD(ni, rx_bytes, hdrsize);
+    mac_stats->ims_rx_data_bytes += orig_hdrsize; 
+    IEEE80211_NODE_STAT_ADD(ni, rx_bytes, orig_hdrsize);
     IEEE80211_PRDPERFSTAT_THRPUT_ADDCURRCNT(vap->iv_ic, orig_hdrsize);
 
-	if (wh->i_fc[1] & IEEE80211_FC1_RETRY) {
-        mac_stats->ims_rx_retry_bytes += hdrsize;						
-        IEEE80211_NODE_STAT_ADD(ni, rx_retry_bytes, hdrsize);
-	}
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 err_amsdu:
     while (wbuf_save) {
 	wbuf = wbuf_next(wbuf_save);
@@ -934,14 +779,7 @@ ieee80211_input_data_ap(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211
                 IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, unknown src reason %d\n",
                         __func__, ether_sprintf(wh->i_addr2), IEEE80211_REASON_NOT_AUTHED);
                 ieee80211_send_deauth(ni, IEEE80211_REASON_NOT_AUTHED);
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
-#if ATOPT_MGMT_DEBUG
-				IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-		  	                " <SEND> [Step 05 - SEND DEAUTH] %s: sta not authenticated, reason = NOT_AUTHED(%d)\n", 
-		  	                __func__, IEEE80211_REASON_NOT_AUTHED);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1  */
-				vap->iv_stats.is_deauth_not_authed++; //zhaoyang1 transplants statistics 2015-01-27
+
                 /* claim node immediately */
                 ieee80211_free_node(ni);
             }
@@ -954,7 +792,6 @@ ieee80211_input_data_ap(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211
         IEEE80211_DISCARD(vap, IEEE80211_MSG_INPUT,
                           wh, "data", "%s", "unassoc src");
         ieee80211_send_disassoc(ni, IEEE80211_REASON_NOT_ASSOCED);
-		vap->iv_stats.is_tx_disassoc_not_assoc++; //zhaoyang1 transplants statistics 2015-01-27
         WLAN_VAP_STATS(vap, is_rx_notassoc);
         return 0;
     }
@@ -1015,13 +852,9 @@ _ieee80211_input_update_data_stats(struct ieee80211_node *ni,
                  + IEEE80211_CRC_LEN
                  - rs->rs_padspace; 
 
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-    //mac_stats->ims_rx_data_bytes += data_bytes; 
-    mac_stats->ims_rx_data_bytes += wbuf_get_pktlen(wbuf); 
-	//IEEE80211_NODE_STAT_ADD(ni, rx_bytes, data_bytes);
-    IEEE80211_NODE_STAT_ADD(ni, rx_bytes, wbuf_get_pktlen(wbuf));
+    mac_stats->ims_rx_data_bytes += data_bytes; 
+    IEEE80211_NODE_STAT_ADD(ni, rx_bytes, data_bytes);
     IEEE80211_PRDPERFSTAT_THRPUT_ADDCURRCNT(ni->ni_ic, data_bytes);
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 
     /* No need to subtract rs->rs_qosdecapcount because this count
        would be included in realhdrsize. */
@@ -1050,11 +883,6 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
     int is_mcast, is_amsdu = 0, is_bcast;
 #if not_yet
     struct ieee80211vap *tmp_vap = NULL;
-#endif
-#if ATOPT_THINAP
-    u_int16_t frametype = 0;
-    struct llc *llc_type = NULL;
-    u_int32_t tunnel_local_state = -1; // 1 means tunnel,0 means local
 #endif
 
     rs->rs_cryptodecapcount = 0;
@@ -1106,7 +934,6 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
     hdrspace = ieee80211_hdrspace(ic, wbuf_header(wbuf));
     if (wbuf_get_pktlen(wbuf) < hdrspace) {
         WLAN_MAC_STATS(mac_stats, ims_rx_discard);
-		IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
         IEEE80211_DISCARD(vap,
                           IEEE80211_MSG_INPUT, wh,
                           "data",
@@ -1160,14 +987,12 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
     switch (vap->iv_opmode) {
     case IEEE80211_M_STA:
 		if (ieee80211_input_data_sta(ni, wbuf, dir, subtype) == 0) {
-			IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
 			goto bad;
 		}	
         break;
 
     case IEEE80211_M_IBSS:
 		if (ieee80211_input_data_ibss(ni, wbuf, dir) == 0) {
-			IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
 			goto bad;
 		}
 		break;
@@ -1286,10 +1111,6 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
         /* no need to process the null data frames any further */
         goto bad;
     }
-	
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
 #if ATH_RXBUF_RECYCLE
 	if (is_mcast || is_bcast) {
 		wbuf_set_cloned(wbuf);
@@ -1297,12 +1118,6 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
  		wbuf_clear_cloned(wbuf);
 	}
 #endif
-    #if ATOPT_THINAP
-    if(THINAP_DROP == at_thinap_input(wbuf,ni))
-    {
-        goto bad;
-    }
-    #endif
     if (!is_amsdu) {
         if (ieee80211_check_privacy_filters(ni, wbuf, is_mcast) == FILTER_STATUS_REJECT) {
              IEEE80211_DISCARD_MAC(vap,
@@ -1328,24 +1143,6 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
 
 
     IEEE80211_INPUT_UPDATE_DATA_STATS(ni, mac_stats, wbuf, rs, realhdrsize);
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	if (is_mcast) {
-        IEEE80211_NODE_STAT(ni, rx_mcast);
-        IEEE80211_NODE_STAT_ADD(ni, rx_mcast_bytes, wbuf_get_pktlen(wbuf));
-    }
-    else {
-        IEEE80211_NODE_STAT(ni, rx_ucast);
-        IEEE80211_NODE_STAT_ADD(ni, rx_ucast_bytes, wbuf_get_pktlen(wbuf));
-    }
-    ieee80211_rx_rssi_statistics(ni);
-	ieee80211_rx_rate_statistics(vap, ni, rs);
-	if (wh->i_fc[1] & IEEE80211_FC1_RETRY) {
-	    mac_stats->ims_rx_retry_packets++;
-	    mac_stats->ims_rx_retry_bytes += wbuf_get_pktlen(wbuf);						
-	    IEEE80211_NODE_STAT(ni, rx_retry_packets);
-	    IEEE80211_NODE_STAT_ADD(ni, rx_retry_bytes, wbuf_get_pktlen(wbuf));
-    }
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */	
     /* consumes the wbuf */
     ieee80211_deliver_data(vap, wbuf, ni, rs, hdrspace, is_mcast, subtype);
 
@@ -1377,7 +1174,6 @@ ieee80211_input_ap(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_fram
     else {
         if (wbuf_get_pktlen(wbuf) < sizeof(struct ieee80211_frame)) {
             WLAN_MAC_STATS(mac_stats, ims_rx_discard);
-			IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
             return 0;
         }
         bssid = wh->i_addr3;
@@ -1399,21 +1195,14 @@ ieee80211_input_ap(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_fram
              (subtype == IEEE80211_FC0_SUBTYPE_ACTION))) {
             /* not interested in */
             WLAN_MAC_STATS(mac_stats, ims_rx_discard);
-			IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
+
             return 0;
         }
     }
 	return 1;
 }
 
-#if ATOPT_TRAFFIC_LIMIT
-void 
-ieee80211_input_data_for_tl(struct ieee80211_node *ni, wbuf_t wbuf, 
-                         struct ieee80211_rx_status *rs, int subtype, int dir)
-{
-    ieee80211_input_data(ni, wbuf, rs, subtype, dir);
-}
-#endif
+
 
 
 #ifndef ATH_HTC_MII_RXIN_TASKLET
@@ -1535,23 +1324,6 @@ void ieee80211_sta2ibss_header(struct ieee80211_frame* wh){
     }
 }
 
-#if ATOPT_THINAP
-static inline int
-ieee80211_handle_mgmt_autelan(struct ieee80211_node *ni,
-                    wbuf_t wbuf,
-                    int subtype,
-                    struct ieee80211_rx_status *rs)
-{
-    int retval = EOK;
-    struct ieee80211vap *vap = ni->ni_vap;
-    struct ieee80211com *ic = ni->ni_ic;
-    if (vap->iv_input_mgmt_filter == NULL ||
-        (vap->iv_input_mgmt_filter && vap->iv_input_mgmt_filter(ni,wbuf,subtype,rs) == 0)){ 
-        retval = ieee80211_recv_mgmt(ni, wbuf, subtype, rs);
-     }
-    return retval;
-}
-#endif
 int
 ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_status *rs)
 {
@@ -1570,17 +1342,7 @@ ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_stat
     u_int16_t rxseq =0; 
     u_int8_t *bssid;
     bool rssi_update = true;
-#if ATOPT_THINAP
-    struct net_device *dev = OSIF_TO_NETDEV(vap->iv_ifp);
-    wbuf_t wbuf_capture = NULL;
-    int sendtowtpd = 0;
-    int ret = 0;
-#endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    struct userinfo_table * sta;
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
+
     KASSERT((wbuf_get_pktlen(wbuf) >= ic->ic_minframesize),
             ("frame length too short: %u", wbuf_get_pktlen(wbuf)));
 
@@ -1648,7 +1410,6 @@ ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_stat
         switch (vap->iv_opmode) {
         case IEEE80211_M_STA:
 			if (ieee80211_input_sta(ni, wbuf, rs) == 0) {
-				IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
 				goto bad;
 			}
 			break;
@@ -1664,8 +1425,6 @@ ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_stat
             else {
                 if (wbuf_get_pktlen(wbuf) < sizeof(struct ieee80211_frame)) {
                     mac_stats->ims_rx_discard++;
-					vap->iv_stats.is_rx_tooshort++;
-         		 	IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
                     goto bad;
                 }
                 bssid = wh->i_addr3;
@@ -1752,14 +1511,6 @@ ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_stat
         if (!ieee80211_vap_ready_is_set(vap)) {
             goto bad;
         }
-
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-        sta = get_user_information(wh->i_addr2);
-        update_user_cap(ic,sta,rs->rs_rssi,IEEE80211_FC0_TYPE_DATA);
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
         /* ieee80211_input_data consumes the wbuf */
         ieee80211_node_activity(ni); /* node has activity */
 #if ATH_SW_WOW
@@ -1767,53 +1518,11 @@ ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_stat
             ieee80211_wow_magic_parser(ni, wbuf);
         }
 #endif
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
-#if ATOPT_TRAFFIC_LIMIT
-        if (!ic->ic_is_mode_offload(ic)) /*lijiyong modify to avoid the 11ac invalid packet entering into this procedure*/
-        {
-            int ret = 0;
-            if ((IEEE80211_TL_ENABLE == vap->vap_tl_vap_enable) && // Vap
-                (vap->vap_tl_up_srtcm_vap.sr_cir > 0))
-            {
-                ieee80211node_pause(ni); 
-                ret = ieee80211_tl_vap_cache_enqueue_rx(vap, wbuf, rs, subtype, dir, ic);
-                ieee80211node_unpause(ni);
-                if (ret == IEEE80211_TL_ENQUEUE_OK)
-                {
-                    (void) OS_ATOMIC_CMPXCHG(&vap->iv_rx_gate, 1, 0);
-                    return type;
-                }
-                else if (ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-                {
-                    goto bad;
-                }
-            }
-            else if ((IEEE80211_TL_ENABLE == ni->ni_tl_sp_enable && ni->ni_tl_up_srtcm_sp.sr_cir > 0) || // Specific node 
-                (IEEE80211_TL_ENABLE == ni->ni_tl_ev_enable && ni->ni_tl_up_srtcm_ev.sr_cir > 0)) // Everynode
-            {
-                ieee80211node_pause(ni); 
-                ret = ieee80211_tl_node_cache_enqueue_rx(ni, wbuf, rs, subtype, dir, ic);
-                ieee80211node_unpause(ni); /* unpause it if we are the last one, the frame will be flushed out */  
-                if (ret == IEEE80211_TL_ENQUEUE_OK)
-                {
-                    (void) OS_ATOMIC_CMPXCHG(&vap->iv_rx_gate, 1, 0);
-                    return type;
-                }
-                else if (ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-                {
-                    goto bad;
-                }
-            }
-        }        
-#endif
         ieee80211_input_data(ni, wbuf, rs, subtype, dir); 
     } else if (type == IEEE80211_FC0_TYPE_MGT) {
         /* ieee80211_recv_mgmt does not consume the wbuf */
-	  if( (subtype != IEEE80211_FC0_SUBTYPE_PROBE_REQ) && \
-	      (subtype != IEEE80211_FC0_SUBTYPE_ACTION)) //pengdecai added action frame filter frame for timeout
-	    {
+        if ((subtype != IEEE80211_FC0_SUBTYPE_PROBE_REQ) && 
+			(subtype != IEEE80211_FC0_SUBTYPE_ACTION)) { //pengdecai added action frame filter frame for timeout
             ieee80211_node_activity(ni); /* node has activity */
         }
         /*
@@ -1835,138 +1544,8 @@ ieee80211_input(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx_stat
                 ieee80211_vap_txrx_deliver_event(vap,&evt);
             }
         }
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-        if ((subtype != IEEE80211_FC0_SUBTYPE_BEACON)       && \
-            (subtype != IEEE80211_FC0_SUBTYPE_PROBE_RESP)   && \
-            (subtype != IEEE80211_FC0_SUBTYPE_REASSOC_RESP) && \
-            (subtype != IEEE80211_FC0_SUBTYPE_ASSOC_RESP))
-        {
-            sta = get_user_information(wh->i_addr2);
-            update_user_cap(ic,sta,rs->rs_rssi,subtype);
-            check_slow_connect(wbuf,sta);
-            int recount = 0;
-            
-            if(subtype == IEEE80211_FC0_SUBTYPE_PROBE_REQ)
-            {
-                if(check_probe(ni,wbuf,subtype) != 0)
-                {
-                    if(last_rxseq != rxseq)
-                    {
-                        recount = 0;
-                        last_rxseq = rxseq;
-                    }
-                    else
-                        recount = 1;
-                }
-            }
-            
-            if(recount == 0)
-            {
-                get_sta_mgmt_behavior(wbuf,ic,sta);
-                if(connect_to_best(wbuf,vap,ni,sta) == 0)
-                {
-                    goto bad;
-                }
 
-                if(join5g(ic,vap,ni,wbuf,sta) == 0)
-                {
-                   goto bad;
-                }
-            }
-        }
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_THINAP
-        if (thinap) {
-        wh = (struct ieee80211_frame *)wbuf->data;
-        switch ((wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK)
-                    >> IEEE80211_FC0_SUBTYPE_SHIFT) {
-            case 4:
-                {
-                    break;
-                }
-            case 0:
-            case 2:
-            case 10:
-            case 11:
-            case 12:
-#if AUTELAN_SOLUTION2
-            if(!pass_lvframe)
-            {
-                int type = (wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK)
-                        >> IEEE80211_FC0_SUBTYPE_SHIFT;
-                if(type == 10 || type == 12)
-                    break;
-            }
-#endif
-            wbuf_capture = wbuf_copy(wbuf);
-            if (wbuf_capture == NULL) {
-                printk("capture malloc error\n");
-                goto bad;
-            }
-            sendtowtpd = 3; /*ljy--modified for sending management frames to wtpd before handle them*/
-            break;
-        }
-
-        /*Begin:Add by linrongqi for recv_mgmt before netif_rx 2012-11-7*/
-        /***************************************************
-             We copy a wbuf to wbuf_capture. 
-             ****************************************************/
-        if(subtype == IEEE80211_FC0_SUBTYPE_ASSOC_REQ 
-        || subtype == IEEE80211_FC0_SUBTYPE_REASSOC_REQ 
-        || subtype == IEEE80211_FC0_SUBTYPE_AUTH ){	
-            if(EOK != ieee80211_handle_mgmt_autelan(ni, wbuf, subtype, rs))
-            {
-                wbuf_free(wbuf_capture);
-                wbuf_capture=NULL;
-            }
-            if (vap->iv_evtable) { //added by pengdecai  for memory lost
-               vap->iv_evtable->wlan_receive(vap->iv_ifp, wbuf, type, subtype, rs);
-            }
-        }
-        if (sendtowtpd == 3 && wbuf_capture != NULL) {
-            /*Begin: Added by zhaoyang1 for wep+share QCA98xx encrypting auth 2014-02-12*/
-            struct ieee80211_frame * wh_capture = NULL;
-            wh_capture = (struct ieee80211_frame *) wbuf_header(wbuf_capture);
-            if (wh_capture->i_fc[1] & IEEE80211_FC1_WEP) {
-                struct ieee80211_key *key;
-                key = ieee80211_crypto_decap(ni, wbuf_capture, ieee80211_hdrspace(ni->ni_ic, wh_capture), rs);
-                if (key) {
-                    wh_capture = (struct ieee80211_frame *) wbuf_header(wbuf_capture);
-                    wh_capture->i_fc[1] &= ~IEEE80211_FC1_WEP;
-                }
-            }
-            /*End: Added by zhaoyang1 for wep+share QCA98xx encrypting auth 2014-02-12*/	
-            wbuf_capture->dev = dev;
-    #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22))
-            wbuf_capture->mac.raw = wbuf_capture->data;
-    #else
-            skb_reset_mac_header(wbuf_capture);
-    #endif
-            wbuf_capture->ip_summed = CHECKSUM_NONE;
-            wbuf_capture->pkt_type = PACKET_OTHERHOST;
-            wbuf_capture->protocol = __constant_htons(0x0019); /* ETH_P_80211_RAW */
-            ret = netif_rx(wbuf_capture);
-            if(NET_RX_DROP == ret)
-            {
-                goto bad;
-            }
-        }
-        if(subtype != IEEE80211_FC0_SUBTYPE_ASSOC_REQ 
-        && subtype != IEEE80211_FC0_SUBTYPE_REASSOC_REQ 
-        && subtype != IEEE80211_FC0_SUBTYPE_AUTH )
-        {
-            IEEE80211_HANDLE_MGMT(ic,vap,ni, wbuf, subtype,type,  rs);
-        }
-    }
-    else
-    {
         IEEE80211_HANDLE_MGMT(ic,vap,ni, wbuf, subtype,type,  rs);
-    }
-#else
-        IEEE80211_HANDLE_MGMT(ic,vap,ni, wbuf, subtype,type,  rs);
-#endif
 
     } else if (type == IEEE80211_FC0_TYPE_CTL) {
 
@@ -2139,25 +1718,43 @@ ieee80211_decap(struct ieee80211vap *vap, wbuf_t wbuf, size_t hdrspace, struct i
         break;
     } 
 #ifdef ATH_EXT_AP
-    if ((vap->iv_opmode == IEEE80211_M_STA) &&
-        IEEE80211_VAP_IS_EXT_AP_ENABLED(vap)) {
-        if (ieee80211_extap_input(vap, eh)) {
-            dev_kfree_skb(wbuf);
-            return NULL;
-        }
-    } else {
+    if(IEEE80211_VAP_IS_EXT_AP_ENABLED(vap)){
+        if(vap->iv_opmode == IEEE80211_M_STA){
+            if (ieee80211_extap_input(vap, eh)) {
+                dev_kfree_skb(wbuf);
+                return NULL;
+            }
+        } else {
+            /*If DHCP flag is UNICAST, change to BROADCAST in EXT AP mode*/
+            if(eh->ether_type == htons(ETHERTYPE_IP)){
+                struct iphdr *p_ip = (struct iphdr *)(eh+1);
+                if (p_ip->protocol == IPPROTO_UDP){
+                    struct udphdr *p_udp = (struct udphdr *) (((uint8_t *)p_ip) + (p_ip->ihl * 4));
+                    if ((p_udp->dest == htons(67))){
+                        struct dhcp_packet *p_dhcp = (struct dhcp_packet *)(((u_int8_t *)p_udp)+sizeof(struct udphdr));
+                        if (!(p_dhcp->flags & DHCP_BOOTP_FLAG_BROADCAST)){
+                            uint16_t old_flags = p_dhcp->flags;
+                            p_dhcp->flags  |= DHCP_BOOTP_FLAG_BROADCAST; /*Override UNICAST boot flag to BROADCAST*/
+
+                            /*Since the packet was modified, do incremental checksum update for UDP frame */
+                            p_udp->check = update_incremental_checksum(p_udp->check,old_flags,p_dhcp->flags);
+                        }
+                    }
+                }
+            }
 #ifdef EXTAP_DEBUG
-        extern char *arps[];
-        eth_arphdr_t *arp = (eth_arphdr_t *)(eh + 1);
-        if (eh->ether_type == ETHERTYPE_ARP) {
-            printk("InP %s\t" eaistr "\t" eamstr "\t" eaistr "\t" eamstr "\n"
-                   "s: " eamstr "\td: " eamstr "\n",
-                arps[arp->ar_op],
-                eaip(arp->ar_sip), eamac(arp->ar_sha),
-                eaip(arp->ar_tip), eamac(arp->ar_tha),
-                eamac(eh->ether_shost), eamac(eh->ether_dhost));
-        }
+            extern char *arps[];
+            eth_arphdr_t *arp = (eth_arphdr_t *)(eh + 1);
+            if (eh->ether_type == ETHERTYPE_ARP) {
+                printk("InP %s\t" eaistr "\t" eamstr "\t" eaistr "\t" eamstr "\n"
+                        "s: " eamstr "\td: " eamstr "\n",
+                        arps[arp->ar_op],
+                        eaip(arp->ar_sip), eamac(arp->ar_sha),
+                        eaip(arp->ar_tip), eamac(arp->ar_tha),
+                        eamac(eh->ether_shost), eamac(eh->ether_dhost));
+            }
 #endif
+        }
     }
 #endif /* ATH_EXT_AP */
 
@@ -2295,6 +1892,9 @@ ieee80211_deliver_data(struct ieee80211vap *vap, wbuf_t wbuf, struct ieee80211_n
              * this frame is either multicast frame. or unicast frame
              * to one of the stations.
              */
+#if UMAC_SUPPORT_PROXY_ARP
+        if (!(do_proxy_arp(vap, wbuf_cpy)))
+#endif   /* UMAC_SUPPORT_PROXY_ARP */
             vap->iv_evtable->wlan_vap_xmit_queue(vap->iv_ifp, wbuf_cpy);
         }
     }
@@ -2340,11 +1940,6 @@ ieee80211_iter_input_all(void *arg, struct ieee80211vap *vap, bool is_last_vap)
     struct ieee80211_iter_input_all_arg *params = (struct ieee80211_iter_input_all_arg *) arg; 
     struct ieee80211_node *ni;
     wbuf_t wbuf1;
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-    struct ieee80211com *ic = vap->iv_ic;
-    struct ath_softc_net80211 *scn = ATH_SOFTC_NET80211(ic);
-    struct ath_softc          *sc  =  ATH_DEV_TO_SC(scn->sc_dev);
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
 
     if (vap->iv_opmode == IEEE80211_M_MONITOR ||
         (!ieee80211_vap_active_is_set(vap) && !vap->iv_input_mgmt_filter &&
@@ -2362,37 +1957,6 @@ ieee80211_iter_input_all(void *arg, struct ieee80211vap *vap, bool is_last_vap)
         wbuf1 = params->wbuf;
         params->wbuf = NULL;
     }
-
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-	if(!ic->ic_is_mode_offload(ic)){
-		if(sc->sc_allow_promisc){
-			struct ieee80211_frame *wh;
-			wh = (struct ieee80211_frame *) wbuf_header(wbuf1);
-
-			unsigned char broadcast[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-
-			if((memcmp(wh->i_addr1, broadcast, 6) !=0 )
-					&&(memcmp(wh->i_addr1, vap->iv_myaddr, 6) != 0))
-			{
-				if(wbuf_next(wbuf1) != NULL) {
-					wbuf_t wbx = wbuf1;
-					while (wbx) {
-						wbuf1 = wbuf_next(wbx);
-						wbuf_free(wbx);
-						wbx = wbuf1;
-					}
-					return;
-				}
-				else {
-					wbuf_free(wbuf1);
-					return;
-				}
-
-			}
-
-		}
-	}
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
 
     ni = vap->iv_bss;
     params->type = ieee80211_input(ni, wbuf1, params->rs);
@@ -2796,11 +2360,6 @@ int ieee80211_input_wds(struct ieee80211_node *ni, wbuf_t wbuf,struct ieee80211_
 }
 
 
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-extern void osif_receive_monitor_80211 (os_if_t osif, wbuf_t wbuf,
-                                        ieee80211_recv_status *rs);
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
-
 static INLINE void
 ieee80211_input_monitor_iter_func(void *arg, struct ieee80211vap *vap, bool is_last_vap)
 {
@@ -2812,12 +2371,7 @@ ieee80211_input_monitor_iter_func(void *arg, struct ieee80211vap *vap, bool is_l
     /*
      * deliver the frame to the os.
      */
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-
-    //if (vap->iv_opmode == IEEE80211_M_MONITOR && ieee80211_vap_ready_is_set(vap)) {
-    if ((vap->iv_opmode == IEEE80211_M_MONITOR && ieee80211_vap_ready_is_set(vap)) || vap->iv_monitor) {
-
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
+    if (vap->iv_opmode == IEEE80211_M_MONITOR && ieee80211_vap_ready_is_set(vap)) {
         /* remove padding from header */
         u_int8_t *header = (u_int8_t *)wbuf_header(params->wbuf);
         u_int32_t hdrspace = ieee80211_anyhdrspace(vap->iv_ic, header);
@@ -2829,16 +2383,7 @@ ieee80211_input_monitor_iter_func(void *arg, struct ieee80211vap *vap, bool is_l
             wbuf_pull(params->wbuf, padsize);
         }
 
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-
-		//vap->iv_evtable->wlan_receive_monitor_80211(vap->iv_ifp, params->wbuf, params->rs);
-		
-		if(vap->iv_opmode == IEEE80211_M_MONITOR)
-			vap->iv_evtable->wlan_receive_monitor_80211(vap->iv_ifp, params->wbuf, params->rs);
-		else if(vap->iv_monitor)
-			osif_receive_monitor_80211(vap->iv_ifp, params->wbuf, params->rs);
-
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
+        vap->iv_evtable->wlan_receive_monitor_80211(vap->iv_ifp, params->wbuf, params->rs);
 
         /* For now, only allow one vap to be monitoring */
         params->wbuf = NULL;

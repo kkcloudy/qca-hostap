@@ -46,6 +46,8 @@
 #include <ol_txrx_api.h>
 #include <ol_txrx_types.h>
 
+#include "ieee80211_band_steering.h"
+
 #define RC_2_RATE_IDX(_rc)        ((_rc) & 0x7)
 #ifndef HT_RC_2_STREAMS
 #define HT_RC_2_STREAMS(_rc)    ((((_rc) & 0x78) >> 3) + 1)
@@ -57,11 +59,6 @@
 #define MAX_UNRESPONSIVE_TIME_MIN_THRESHOLD_SECS  5
 #define MAX_UNRESPONSIVE_TIME_MAX_THRESHOLD_SECS  (u_int16_t)~0
 
-#if ATOPT_MAC_RULE
-extern unsigned int ic_mac;
-extern unsigned int vap_mac;
-extern int new_dispatch_mac;
-#endif
 extern int ol_ath_set_vap_dscp_tid_map(struct ieee80211vap *vap);
 #if ATH_PERF_PWR_OFFLOAD
 static OS_TIMER_FUNC(ol_ath_vap_stop_timed_out);
@@ -763,7 +760,7 @@ ol_ath_vap_set_param(struct ieee80211vap *vap,
         break;
 	    case IEEE80211_MCAST_RATE:
         {
-            struct ieee80211_channel *chan = vap->iv_des_chan[vap->iv_des_mode];
+            struct ieee80211_channel *chan = vap->iv_bsschan;
             int value;
             value = ol_get_rate_code(chan, val);
             if(value == EINVAL) {
@@ -778,7 +775,7 @@ ol_ath_vap_set_param(struct ieee80211vap *vap,
         break;
         case IEEE80211_BCAST_RATE:
         {
-            struct ieee80211_channel *chan = vap->iv_des_chan[vap->iv_des_mode];
+            struct ieee80211_channel *chan = vap->iv_bsschan;
             int value;
             value = ol_get_rate_code(chan, val);
             if(value == EINVAL) {
@@ -799,17 +796,26 @@ ol_ath_vap_set_param(struct ieee80211vap *vap,
         /*should be moved to vap in future & add wmi cmd to update vdev*/
             retval = 0;
         break;
- 
+
 #if QCA_AIRTIME_FAIRNESS
         case  IEEE80211_ATF_OPT:
         retval = wmi_unified_pdev_set_atf(scn->wmi_handle,vap);
         break;
-
+        case IEEE80211_ATF_PEER_REQUEST:
+        retval = wmi_unified_pdev_send_atf_peer_request(scn->wmi_handle,vap);
+        break;
         case IEEE80211_ATF_PER_UNIT:
         retval = wmi_unified_vdev_atf_request_send(scn->wmi_handle, val);
         break; 
+        case IEEE80211_ATF_DYNAMIC_ENABLE:
+        retval = wmi_unified_pdev_set_param(scn->wmi_handle,
+                WMI_PDEV_PARAM_ATF_DYNAMIC_ENABLE, val);
+        break;
+        case  IEEE80211_ATF_GROUPING:
+        retval = wmi_unified_pdev_set_atf_grouping(scn->wmi_handle,vap);
+        break;
 #endif
-        
+
 #if ATH_SUPPORT_IQUE
         case IEEE80211_ME:
 	{
@@ -1089,8 +1095,15 @@ wmi_unified_vdev_install_key_send(wmi_unified_t wmi_handle, u_int8_t if_id,
 #else
        (u_int8_t) 0xff,                 /* IEEE80211_CIPHER_WAPI    */
 #endif
-       WMI_CIPHER_CKIP,        /* IEEE80211_CIPHER_CKIP    */
-       WMI_CIPHER_NONE,        /* IEEE80211_CIPHER_NONE    */
+       WMI_CIPHER_CKIP,         /* IEEE80211_CIPHER_CKIP    */
+       WMI_CIPHER_AES_CMAC,
+       WMI_CIPHER_AES_CCM,     /* IEEE80211_CIPHER_AES_CCM 256 */
+       WMI_CIPHER_AES_CMAC,
+       (u_int8_t) 0xff,          /* IEEE80211_CIPHER_AES_GCM */
+       (u_int8_t) 0xff,        /* IEEE80211_CIPHER_AES_GCM 256 */
+       (u_int8_t) 0xff,        /* IEEE80211_CIPHER_AES_GMAC */
+       (u_int8_t) 0xff,        /* IEEE80211_CIPHER_AES_GMAC */
+       WMI_CIPHER_NONE,         /* IEEE80211_CIPHER_NONE    */
    };
 
 	if (force_none == 1) {
@@ -1413,6 +1426,14 @@ static int ol_ath_vap_stopping(struct ieee80211vap *vap)
         break;
     }
 
+    spin_lock_dpc(&vap->init_lock);
+    /*Return from here, if VAP init is already in progress*/
+    if(true == vap->init_in_progress){
+        printk("Warning:Stop during VAP Init ! \n");
+        spin_unlock_dpc(&vap->init_lock);
+        return EBUSY;
+    }
+
     /* Interface is brought down, So UMAC is not waiting for
      * target response
      */
@@ -1450,6 +1471,7 @@ static int ol_ath_vap_stopping(struct ieee80211vap *vap)
         (scn->target_status == OL_TRGET_STATUS_RESET)) {
         /* target ejected/reset,  so generate the stopped event */
        OS_SET_TIMER(&avn->av_timer, 1);
+       spin_unlock_dpc(&vap->init_lock);
        return 0;
     }
     if (!scn->lteu_support) {
@@ -1463,8 +1485,11 @@ static int ol_ath_vap_stopping(struct ieee80211vap *vap)
     /* bring down vdev in target */
     if (wmi_unified_vdev_stop_send(scn->wmi_handle, avn->av_if_id, ic->ic_nl_handle)) {
         printk("Unable to bring up the interface for ath_dev.\n");
+        spin_unlock_dpc(&vap->init_lock);
         return -1;
     }
+
+    spin_unlock_dpc(&vap->init_lock);
 
     return 0;
 }
@@ -1623,6 +1648,8 @@ ol_ath_vap_stopped_event(struct ol_ath_softc_net80211 *scn, u_int8_t if_id)
     ol_ath_beacon_free(ic, if_id);
     ieee80211_vap_deliver_stop(vap);
 
+    ieee80211_bsteering_send_vap_stop_event(vap);
+
     return 0;
 }
 
@@ -1723,28 +1750,9 @@ static void ol_ath_vap_iter_vap_create(void *arg, wlan_if_t vap)
     if (avn->av_is_psta)
         return;
 #endif
-#if ATOPT_MAC_RULE
-    if (new_dispatch_mac == 0)
-    {  
-        ieee80211vap_get_macaddr(vap, myaddr);
-        ATH_GET_VAP_ID(myaddr, ic->ic_myaddr, id);
-        (*pid_mask) |= (1 << id);
-    }
-    else if (new_dispatch_mac == 1)
-    {
-        vap_mac = 0;	
-        ieee80211vap_get_macaddr(vap, myaddr);
-        memcpy(&vap_mac, &(vap->iv_myaddr[3]), 1);
-        vap_mac = vap_mac >> 24;
-        if (vap_mac < ic_mac)
-        vap_mac += 0x100;
-        (*pid_mask) |= (1 << NEW_ATH_GET_VAP_ID(ic_mac, vap_mac));
-    }
-#else
     ieee80211vap_get_macaddr(vap, myaddr);
     ATH_GET_VAP_ID(myaddr, ic->ic_myaddr, id);
     (*pid_mask) |= (1 << id);
-#endif
 }
 
 void *ol_ath_vap_get_ol_data_handle(struct ieee80211vap *vap)
@@ -1775,14 +1783,6 @@ ol_ath_vap_create(struct ieee80211com *ic,
     enum wlan_op_mode txrx_opmode;
     struct ath_hif_pci_softc *sc = (struct ath_hif_pci_softc *)(scn->hif_sc);
 
-#if ATOPT_MAC_RULE
-    ic_mac = 0;
-    if (new_dispatch_mac == 1)
-    {
-        memcpy(&ic_mac, &(ic->ic_myaddr[3]), 1);
-        ic_mac = ic_mac >> 24;
-    }
-#endif
     adf_os_spin_lock(&scn->scn_lock);
     scn->vdev_count++;
     if (scn->vdev_count > scn->wlan_resource_config.num_vdevs) {
@@ -1793,13 +1793,7 @@ ol_ath_vap_create(struct ieee80211com *ic,
     }
 
     adf_os_spin_unlock(&scn->scn_lock);
-#if ATOPT_MAC_RULE
-   if (new_dispatch_mac == 1)
-   {
-       memcpy(&ic_mac, &(ic->ic_myaddr[3]), 1);
-       ic_mac = ic_mac >> 24;
-   }
-#endif
+ 
     /*Condition to block creation of more than one STA vap on non-wrap mode*/
 	if((opmode == IEEE80211_M_STA) && (scn->sc_nstavaps >0)
 #if ATH_SUPPORT_WRAP
@@ -1894,23 +1888,7 @@ ol_ath_vap_create(struct ieee80211com *ic,
     }
 
     /* set up MAC address */
-#if ATOPT_MAC_RULE
-    if (new_dispatch_mac == 0)
-    {
-        ATH_SET_VAP_BSSID(vap_addr, ic->ic_myaddr, id);
-    }
-    else if (new_dispatch_mac == 1)
-    {
-        vap_mac = 0;
-        memcpy(&vap_mac, &(vap_addr[3]), 1);
-        vap_mac = vap_mac >> 24;
-        NEW_ATH_SET_VAP_BSSID(vap_mac, id);
-        vap_mac = vap_mac << 24;
-        memcpy(&(vap_addr[3]), &vap_mac, 1);
-    }
-#else
     ATH_SET_VAP_BSSID(vap_addr, ic->ic_myaddr, id);
-#endif
 
     avn->av_sc = scn;
     avn->av_if_id = id;
@@ -2134,6 +2112,13 @@ ol_ath_vap_create(struct ieee80211com *ic,
     }
 #if ATH_SUPPORT_DSCP_OVERRIDE
     ol_ath_set_vap_dscp_tid_map(vap);
+#endif
+
+#if UMAC_SUPPORT_WNM
+#if ATH_BAND_STEERING
+    /* configure wnm default settings */
+    ieee80211_vap_wnm_set(vap);
+#endif
 #endif
 
     (void) ieee80211_vap_attach(vap);

@@ -5944,6 +5944,7 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
     bool                    apply_last_iqcorr = false;
     bool                    tx_iq_cal_disable = false;
     bool 		    pk_detect_cal_disable = false;
+    bool                    back_to_home_channel = false;
 
 reset_begin:    
     if (OS_REG_READ(ah, AR_IER) == AR_IER_ENABLE) {
@@ -6090,10 +6091,20 @@ reset_begin:
          	 * Off -> Home, update off channel
          	 * Home -> Home, uppdate home channel
          	 */
-        	if (ap->ah_curchan->channel != chan->channel)
-            	ar9300_store_new_nf(ah, curchan, !is_scan);
-        	else
-            	ar9300_store_new_nf(ah, curchan, is_scan);
+                if ((ahp->ah_scanning == 0) && (is_scan)) {
+                    ahp->ah_scanning = 1;
+                    ahp->ah_home_channel = ap->ah_curchan->channel;
+                    ahp->ah_home_channel_flags = ap->ah_curchan->channel_flags;
+                   ar9300_store_new_nf(ah, curchan, 0);
+                } else if ((ahp->ah_scanning == 1) && (!is_scan)) {
+                    ahp->ah_scanning = 0;
+                    if ((ahp->ah_home_channel == chan->channel) &&
+                        (ahp->ah_home_channel_flags == chan->channel_flags))
+                        back_to_home_channel = true;
+                    ar9300_store_new_nf(ah, curchan, 1);
+                } else {
+                    ar9300_store_new_nf(ah, curchan, is_scan);
+                }
         }
     }
 
@@ -6121,7 +6132,9 @@ reset_begin:
      * changing the home channel to a new channel, reset the home-channel
      * NF history buffer with the most accurate NF known for the new channel.
      */
-    if (!is_scan && (!ap->ah_curchan ||
+    if (!is_scan &&
+        (back_to_home_channel == false) &&
+        (!ap->ah_curchan ||
         ap->ah_curchan->channel != chan->channel ||
         ap->ah_curchan->channel_flags != chan->channel_flags))
     {
@@ -6189,9 +6202,14 @@ reset_begin:
        AH9300(ah)->ah_cycle_count = 0;
        AH9300(ah)->ah_ctl_busy = 0;
        AH9300(ah)->ah_ext_busy = 0;
+       AH9300(ah)->ah_rf = 0;
+       AH9300(ah)->ah_tf = 0;
        OS_REG_WRITE(ah, AR_RCCNT, 0);
        OS_REG_WRITE(ah, AR_EXTRCCNT, 0);
        OS_REG_WRITE(ah, AR_CCCNT, 0);
+       OS_REG_WRITE(ah, AR_RFCNT, 0);
+       OS_REG_WRITE(ah, AR_TFCNT, 0);
+
 
     /*
      * Fast channel change (Change synthesizer based on channel freq

@@ -169,8 +169,6 @@ wlan_set_param(wlan_if_t vaphandle, ieee80211_param param, u_int32_t val)
         break;
 
     case IEEE80211_BEACON_INTVAL:
-        ic->ic_def_bintval_override = 1;
-        ic->ic_intval = (u_int16_t)val;
         LIMIT_BEACON_PERIOD(ic->ic_intval);
         ic->ic_set_beacon_interval(ic);
         break;
@@ -684,6 +682,14 @@ wlan_set_param(wlan_if_t vaphandle, ieee80211_param param, u_int32_t val)
             ieee80211_vap_bssload_set(vap);
          }
          break;
+#if ATH_SUPPORT_HS20
+    case IEEE80211_HC_BSSLOAD:
+        vap->iv_hc_bssload = val;
+        break;
+    case IEEE80211_OSEN:
+        vap->iv_osen = val;
+        break;
+#endif /* ATH_SUPPORT_HS20 */
 
 #if UMAC_SUPPORT_CHANUTIL_MEASUREMENT
     case IEEE80211_CHAN_UTIL_ENAB:
@@ -1217,9 +1223,12 @@ wlan_set_param(wlan_if_t vaphandle, ieee80211_param param, u_int32_t val)
              return -EINVAL;
          }
          if(val)
-            ieee80211_atf_set(vap, val);
+            retv = ieee80211_atf_set(vap, val);
          else
-            ieee80211_atf_clear(vap, val);
+            retv = ieee80211_atf_clear(vap, val);
+         if(!(vap->iv_ic->ic_is_mode_offload(vap->iv_ic))){
+             return retv;
+         }
          break;
     case IEEE80211_ATF_PER_UNIT:
          if((val != PER_UNIT_100)&&(val != PER_UNIT_1000))
@@ -1562,6 +1571,11 @@ wlan_get_param(wlan_if_t vaphandle, ieee80211_param param)
     case IEEE80211_QBSS_LOAD:
         val = ieee80211_vap_bssload_is_set(vap);
         break;
+#if ATH_SUPPORT_HS20
+    case IEEE80211_HC_BSSLOAD:
+        val = vap->iv_hc_bssload;
+        break;
+#endif
 #if UMAC_SUPPORT_CHANUTIL_MEASUREMENT
     case IEEE80211_CHAN_UTIL_ENAB:
         val = vap->iv_chanutil_enab;

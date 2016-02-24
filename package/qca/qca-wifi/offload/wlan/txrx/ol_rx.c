@@ -34,9 +34,6 @@
 #include <net.h>
 #include <ol_vowext_dbg_defs.h>
 
-#if ATOPT_THINAP
-#include "at_thinap_ol.h"
-#endif
 static int ol_rx_monitor_deliver(
     ol_txrx_pdev_handle pdev,
     adf_nbuf_t head_msdu,
@@ -234,13 +231,7 @@ ol_rx_indication_handler(
     int smart_ant_rx_feedback_done = 0;
     static int total_npackets=0;
 #endif
-#if ATOPT_SYNC_INFO
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	static int autelan_total_npackets=0;
-    u_int32_t *msg_word = (u_int32_t *) adf_nbuf_data(rx_ind_msg);
-    unsigned char at_rssi = ((*(msg_word + 2)) & 0xff);
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-#endif
+
     adf_os_spin_lock(&pdev->mon_mutex);
     if (pdev->monitor_vdev == NULL) {
         skip_monitor= 1;
@@ -355,7 +346,6 @@ ol_rx_indication_handler(
 
                 rx_mpdu_desc =
                     htt_rx_mpdu_desc_list_next(htt_pdev, rx_ind_msg);
-				autelan_total_npackets += npackets;
 #if UNIFIED_SMARTANTENNA
                 total_npackets += npackets;
                 if (!smart_ant_rx_feedback_done && ol_smart_ant_rx_feedback_enabled(htt_pdev->ctrl_pdev)) {
@@ -483,12 +473,12 @@ ol_rx_indication_handler(
             } /* end of for loop */
 
         } else {
-            int discard = 1;
             /* invalid frames - discard them */
             OL_RX_REORDER_TRACE_ADD(
                 pdev, tid, TXRX_SEQ_NUM_ERR(status), num_mpdus);
             TXRX_STATS_ADD(pdev, priv.rx.err.mpdu_bad, num_mpdus);
             for (i = 0; i < num_mpdus; i++) {
+                int discard = 1;
                 npackets = 0;
                 /* pull the MPDU's MSDUs off the buffer queue */
                 htt_rx_amsdu_pop(htt_pdev, rx_ind_msg, &msdu, &tail_msdu, &npackets);
@@ -539,22 +529,6 @@ ol_rx_indication_handler(
             }
         }
     }
-	
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27*/
-	if (peer) { 
-        ol_rx_rssi_statistics(peer, autelan_total_npackets, at_rssi);
-		autelan_total_npackets = 0;	
-	}
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    if(peer){
-        struct userinfo_table *sta = get_user_information(peer->mac_addr.raw);
-        update_user_cap(&scn->sc_ic,sta,at_rssi,IEEE80211_FC0_TYPE_DATA);
-    }
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 #if UNIFIED_SMARTANTENNA
     /* Assuming most of the time smart_ant_rx_feedback_done will be false */
     if (smart_ant_rx_feedback_done && ol_smart_ant_rx_feedback_enabled(htt_pdev->ctrl_pdev)) {
@@ -574,7 +548,11 @@ ol_rx_indication_handler(
      * better to do it now, rather than waiting until after the driver
      * and OS finish processing the batch of rx MSDUs.
      */
+#if QCA_PARTNER_CBM_DIRECTPATH
+    htt_rx_msdu_buff_replenish_partner(htt_pdev);
+#else /* QCA_PARTNER_CBM_DIRECTPATH */
     htt_rx_msdu_buff_replenish(htt_pdev);
+#endif /* QCA_PARTNER_CBM_DIRECTPATH */
 
     if (rx_ind_release && peer) {
 #if HTT_DEBUG_DATA
@@ -972,15 +950,9 @@ ol_rx_filter(
     }
 
     /* Reject if the the node is not authorized */
-    #if ATOPT_THINAP
-    if (!peer->authorize && !thinap) {
-        return FILTER_STATUS_REJECT;
-    }
-    #else
     if (!peer->authorize) {
         return FILTER_STATUS_REJECT;
     }
-    #endif
 
     /*
      * If the privacy exemption list does not apply to the frame, check ExcludeUnencrypted.
@@ -1164,12 +1136,13 @@ ol_rx_deliver(
         OL_RX_DELIVER_RAW(vdev, peer, tid, msdu_list);
         return;
     }
-
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/	
-	if(peer->authorize){
+/*Added-Begin:pengdecai for 11ac station timeout*/	
+#if ATOPT_ORI_ATHEROS_BUG
+	if(peer->authorize) {
    		ol_node_activity(peer);
 	}
-/*AUTELAN-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
     msdu = msdu_list;
     /*
@@ -1182,10 +1155,6 @@ ol_rx_deliver(
         adf_nbuf_t next = adf_nbuf_next(msdu);
 
         rx_desc = htt_rx_msdu_desc_retrieve(pdev->htt_pdev, msdu);
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_3_FRAME_MODE,msdu, __func__, __LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
         // for HL, point to payload right now
         if (pdev->cfg.is_high_latency) {
             adf_nbuf_pull_head(msdu,
@@ -1236,36 +1205,12 @@ ol_rx_deliver(
                 adf_nbuf_set_next(deliver_list_tail, NULL); /* add NULL terminator */
             }
         } else {
-#if ATOPT_THINAP
-            struct ieee80211vap *vap;
-            struct ol_ath_softc_net80211 * scn;
-            u_int8_t ret = THINAP_DROP;
-            scn = (struct ol_ath_softc_net80211 *)pdev->ctrl_pdev;
-            vap = ol_ath_vap_get(scn, peer->vdev->vdev_id);
-            if( vap != NULL){
-                ret = at_thinap_input_ol(vap,msdu,tid,wlan_frm_fmt_802_3,peer->authorize);
-            }
-            if(ret == THINAP_PASS){
-#if OL_ATH_SUPPORT_LED
-                byte_cnt += adf_nbuf_len(msdu);
-#endif
-                TXRX_STATS_MSDU_INCR(vdev->pdev, rx.delivered, msdu);
-                OL_TXRX_PROT_AN_LOG(vdev->pdev->prot_an_rx_sent, msdu);
-                OL_TXRX_LIST_APPEND(deliver_list_head, deliver_list_tail, msdu);
-            }else{         
-                adf_nbuf_free(msdu);
-                if (next == NULL && deliver_list_head){
-                    adf_nbuf_set_next(deliver_list_tail, NULL); /* add NULL terminator */
-                }
-            }
-#else
 #if OL_ATH_SUPPORT_LED
             byte_cnt += adf_nbuf_len(msdu);
 #endif
             TXRX_STATS_MSDU_INCR(vdev->pdev, rx.delivered, msdu);
             OL_TXRX_PROT_AN_LOG(vdev->pdev->prot_an_rx_sent, msdu);
             OL_TXRX_LIST_APPEND(deliver_list_head, deliver_list_tail, msdu);
-#endif
         }
         msdu = next;
     }

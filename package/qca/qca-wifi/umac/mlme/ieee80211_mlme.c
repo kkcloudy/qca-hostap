@@ -12,6 +12,11 @@
 
 /* Local function prototypes */
 static OS_TIMER_FUNC(timeout_callback);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+static OS_TIMER_FUNC(stacac_timeout_callback);
+#endif
+
 static void mlme_timeout_callback(struct ieee80211vap *vap, IEEE80211_STATUS  ieeeStatus);
 static void sta_disassoc(void *arg, struct ieee80211_node *ni);
 void sta_deauth(void *arg, struct ieee80211_node *ni);
@@ -55,6 +60,12 @@ int ieee80211_mlme_vattach(struct ieee80211vap *vap)
         mlme_priv->im_osdev = ic->ic_osdev;
         OS_INIT_TIMER(ic->ic_osdev, &mlme_priv->im_timeout_timer,
                       timeout_callback, vap);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        OS_INIT_TIMER(ic->ic_osdev, &mlme_priv->im_stacac_timeout_timer,
+                      stacac_timeout_callback, vap);
+#endif
+
         /* Default configuration values */
         mlme_priv->im_disassoc_timeout = MLME_DEFAULT_DISASSOCIATION_TIMEOUT;
         switch(vap->iv_opmode) {
@@ -86,6 +97,10 @@ int ieee80211_mlme_vdetach(struct ieee80211vap *vap)
     OS_CANCEL_TIMER(&mlme_priv->im_timeout_timer);
     OS_FREE_TIMER(&mlme_priv->im_timeout_timer);
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    OS_CANCEL_TIMER(&mlme_priv->im_stacac_timeout_timer);
+    OS_FREE_TIMER(&mlme_priv->im_stacac_timeout_timer);
+#endif
     switch(vap->iv_opmode) {
     case IEEE80211_M_IBSS:
         mlme_adhoc_vdetach(vap);
@@ -211,6 +226,7 @@ int wlan_mlme_deauth_request(wlan_if_t vaphandle, u_int8_t *macaddr, IEEE80211_R
 {
     struct ieee80211vap      *vap = vaphandle;
     struct ieee80211_node    *ni;
+    struct ieee80211_node    *temp_node;
     int                      error = 0;
 
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s\n", __func__);
@@ -243,7 +259,12 @@ int wlan_mlme_deauth_request(wlan_if_t vaphandle, u_int8_t *macaddr, IEEE80211_R
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, mlme deauth reason %d\n",
                 __func__, ether_sprintf(ni->ni_macaddr), reason);
     }
-    error = ieee80211_send_deauth(ni, reason);
+
+    temp_node = ieee80211_tmp_node(vap, ni->ni_macaddr);
+    if (temp_node != NULL){
+        error = ieee80211_send_deauth(temp_node, reason);
+        ieee80211_free_node(temp_node);
+    }
 
     /* Node needs to be removed from table as well, do it only for AP/IBSS now */
 #if ATH_SUPPORT_IBSS
@@ -295,6 +316,14 @@ static void ieee80211_mlme_frame_complete_handler(wlan_if_t vap, wbuf_t wbuf,voi
              * when execuating the tx_complete handler.
              */
             if (!(ni->ni_flags & IEEE80211_NODE_LEAVE_ONGOING)) {
+#if ATH_SUPPORT_MGMT_TX_STATUS
+                /* 
+                 * Providing only ack status as success, 
+                 * as we are providing DISASSOC_COMPLETE EVENT
+                 * with sucess always
+                 */
+                IEEE80211_DELIVER_EVENT_MGMT_TX_STATUS(vap,1,wbuf);
+#endif
                 IEEE80211_NODE_LEAVE(ni);
             }
         }
@@ -405,6 +434,21 @@ exit:
     return error;
 }
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+bool wlan_mlme_is_stacac_running(wlan_if_t vaphandle)
+{
+    struct ieee80211vap           *vap = vaphandle;
+    struct ieee80211_mlme_priv    *mlme_priv = vap->iv_mlme_priv;
+    return (mlme_priv->im_is_stacac_running);
+}
+void wlan_mlme_set_stacac_running(wlan_if_t vaphandle, u_int8_t set)
+{
+    struct ieee80211vap           *vap = vaphandle;
+    struct ieee80211_mlme_priv    *mlme_priv = vap->iv_mlme_priv;
+
+    mlme_priv->im_is_stacac_running = set;
+}
+#endif
 
 int wlan_mlme_start_bss(wlan_if_t vaphandle)
 {
@@ -413,6 +457,8 @@ int wlan_mlme_start_bss(wlan_if_t vaphandle)
     int                           error = 0;
 
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s\n", __func__);
+
+    vap->iv_vap_is_down = 0;
 
     switch(vap->iv_opmode) {
     case IEEE80211_M_IBSS:
@@ -489,14 +535,6 @@ sta_deauth(void *arg, struct ieee80211_node *ni)
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, reason %d\n",
                 __func__, ether_sprintf(ni->ni_macaddr), IEEE80211_REASON_AUTH_LEAVE);
         ieee80211_send_deauth(ni, IEEE80211_REASON_AUTH_LEAVE);
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, ni->ni_macaddr,
-		  				" <INFO> [Step ** - SEND DISASSOC] %s: reason: stop bss(%d)\n", 
-		  				__func__, IEEE80211_REASON_AUTH_LEAVE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1  */
-        vap->iv_stats.is_tx_disassoc_bss_stop++; //zhaoyang1 transplants statistics 2015-01-27
     }
     IEEE80211_NODE_LEAVE(ni);
     IEEE80211_DELIVER_EVENT_MLME_DEAUTH_INDICATION(vap, macaddr, IEEE80211_REASON_AUTH_LEAVE);
@@ -516,14 +554,6 @@ sta_disassoc(void *arg, struct ieee80211_node *ni)
          * if it is associated, then send disassoc.
          */
         ieee80211_send_disassoc(ni, IEEE80211_REASON_ASSOC_LEAVE);
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, ni->ni_macaddr,
-		  				" <INFO> [Step ** - SEND DISASSOC] %s: reason: stop bss(%d)\n", 
-		  				__func__, IEEE80211_REASON_ASSOC_LEAVE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1  */
-        vap->iv_stats.is_tx_disassoc_bss_stop++; //zhaoyang1 transplants statistics 2015-01-27
 #if ATH_SUPPORT_AOW
         ieee80211_aow_join_indicate(ni->ni_ic, AOW_STA_DISCONNECTED, ni);
 #endif  /* ATH_SUPPORT_AOW */
@@ -547,6 +577,10 @@ int wlan_mlme_stop_bss(wlan_if_t vaphandle, int flags)
 		return EINVAL;
 	}
 	mlme_priv = vap->iv_mlme_priv;
+    vap->iv_ic->do_wme_init = 0;
+    printk("%s: do_wme_init is set to 0\n", __func__);
+
+    vap->iv_vap_is_down = 1;
 
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s flags = 0x%x\n", __func__, flags);
 
@@ -602,6 +636,10 @@ int wlan_mlme_stop_bss(wlan_if_t vaphandle, int flags)
         if(vap->iv_state_info.iv_state == IEEE80211_S_INIT) {
            ieee80211_resmgr_vap_stop(vap->iv_ic->ic_resmgr,vap,MLME_REQ_ID);
         }
+
+        /* Reset connection state, so that no new connections occur */
+        mlme_priv->im_connection_up = 0;
+
         /* disassoc/deauth all stations */
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s: disassocing/deauth all stations \n", __func__);
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: disassocing/deauth all stations \n", __func__);
@@ -609,6 +647,9 @@ int wlan_mlme_stop_bss(wlan_if_t vaphandle, int flags)
             wlan_iterate_station_list(vap, sta_deauth, NULL);
         else
             wlan_iterate_station_list(vap, sta_disassoc, NULL);
+
+        wlan_iterate_unassoc_sta_list(vap, sta_deauth, NULL);
+
         break;
 
     case IEEE80211_M_STA:
@@ -816,8 +857,13 @@ int wlan_mlme_parse_appie(struct ieee80211vap *vap, ieee80211_frame_type ftype, 
             if (ie->element_id == IEEE80211_ELEMID_XCAPS) {
                 /* copy xcaps and delete ie from appie */
                 u_int8_t *delbuf = (u_int8_t *)ie;
-                val = (u_int8_t *)(ie + 1);
-                vap->iv_hotspot_xcaps = le32toh(*(u_int32_t *)val);
+                struct ieee80211_ie_ext_cap *elem_extcap =
+                    (struct ieee80211_ie_ext_cap *)ie;
+
+                vap->iv_hotspot_xcaps = le32toh(elem_extcap->ext_capflags);
+                if (elem_extcap->elem_len > sizeof(vap->iv_hotspot_xcaps)) {
+                    vap->iv_hotspot_xcaps2 = le32toh(elem_extcap->ext_capflags2);
+                }
                 buflen -= ie->length + 2;
                 OS_MEMCPY(delbuf, delbuf + ie->length + 2, buflen - final_buflen);
                 ie = (struct ieee80211_ie_header *)delbuf;
@@ -1159,24 +1205,10 @@ void ieee80211_mlme_recv_auth(struct ieee80211_node *ni,
 
     switch (vap->iv_opmode) {
     case IEEE80211_M_STA:
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_WBUF_MGMT_DEBUG(vap, wbuf, " <INFO> [Step 02 - RECV AUTH] %s: mode = STA(1)\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         mlme_recv_auth_sta(ni,algo,seq,status_code,challenge,challenge_length,wbuf);
         break;
 
     case IEEE80211_M_IBSS:
-        
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_WBUF_MGMT_DEBUG(vap, wbuf, " <INFO> [Step 02 - RECV AUTH] %s: mode = IBSS(0)\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         if(vap->iv_ic->ic_softap_enable)
             mlme_recv_auth_ap(ni,algo,seq,status_code,challenge,challenge_length,wbuf,rs);
         else
@@ -1188,24 +1220,10 @@ void ieee80211_mlme_recv_auth(struct ieee80211_node *ni,
         break;
 
     case IEEE80211_M_BTAMP:
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_WBUF_MGMT_DEBUG(vap, wbuf, " <INFO> [Step 02 - RECV AUTH] %s: mode = BTAMP(9)\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         mlme_recv_auth_btamp(ni,algo,seq,status_code,challenge,challenge_length,wbuf);
         break;
 
     default:
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_WBUF_MGMT_DEBUG(vap, wbuf, " <INFO> [Step 02 - RECV AUTH] %s: mode = NONE(*)\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         break;
     }
 
@@ -1260,14 +1278,6 @@ void ieee80211_mlme_recv_deauth(struct ieee80211_node *ni, u_int16_t reason_code
     case IEEE80211_M_HOSTAP:
     case IEEE80211_M_BTAMP:
         if (ni != vap->iv_bss) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 05 - RECV DEAUTH] %s: recv station deauth, delete station\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
 #if ATH_SUPPORT_AOW
             ieee80211_aow_join_indicate(ni->ni_ic, AOW_STA_DISCONNECTED, ni);
 #endif  /* ATH_SUPPORT_AOW */
@@ -1302,14 +1312,6 @@ void ieee80211_mlme_recv_disassoc(struct ieee80211_node *ni, u_int32_t reason_co
     case IEEE80211_M_HOSTAP:
     case IEEE80211_M_BTAMP:
         if (ni != vap->iv_bss) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    		IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-				" <INFO> [Step 06 - RECV DISASSOC] %s: recv station disassoc, delete station\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
 #if ATH_SUPPORT_AOW
         ieee80211_aow_join_indicate(ni->ni_ic, AOW_STA_DISCONNECTED, ni);
 #endif  /* ATH_SUPPORT_AOW */
@@ -1366,6 +1368,7 @@ void ieee80211_mlme_recv_csa(struct ieee80211_node *ni, u_int32_t csa_delay, boo
         break;
     }
 }
+
 
 /*
  * heart beat timer to handle any timeouts.
@@ -1476,6 +1479,19 @@ static OS_TIMER_FUNC(timeout_callback)
 
     mlme_timeout_callback(vap, IEEE80211_STATUS_TIMEOUT);
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+static OS_TIMER_FUNC(stacac_timeout_callback)
+{
+    struct ieee80211vap    *vap;
+    OS_GET_TIMER_ARG(vap, struct ieee80211vap *);
+    struct ieee80211_mlme_priv    *mlme_priv = vap->iv_mlme_priv;
+    mlme_priv->im_is_stacac_cac_valid = 1;
+    ieee80211_mlme_join_infra_continue(vap,EOK);
+    mlme_priv->im_is_stacac_running = 0;
+    printk("STACAC expired\n");
+}
+#endif
 
 static void mlme_timeout_callback(struct ieee80211vap *vap, IEEE80211_STATUS  ieeeStatus)
 {

@@ -543,7 +543,7 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
     case IEEE80211_S_STANDBY:
         ieee80211_vap_standby_clear(vap);
         if (ieee80211_vap_dfswait_is_set(vap))
-            ieee80211_dfs_cac_stop(vap);
+            ieee80211_dfs_cac_stop(vap, 0);
         ieee80211_vap_dfswait_clear(vap);
         /*
          * fall through.
@@ -557,8 +557,9 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
              * This is a forced stop. We need to call stopping first
              * to release beacon resource.
              */
-            vap->iv_stopping(vap);
-
+            if (vap->iv_stopping(vap) != EOK) {
+              IEEE80211COM_DELIVER_VAP_EVENT(vap->iv_ic, vap->iv_ifp, IEEE80211_VAP_STOP_ERROR);
+            }
             /*
              * Deliver the event in non-offload(direct-attach) case.
              * For offload driver, the event is given after the firmware's response.
@@ -602,7 +603,7 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
               IEEE80211COM_DELIVER_VAP_EVENT(vap->iv_ic, vap->iv_ifp, IEEE80211_VAP_STOPPED);
         }
         if (ieee80211_vap_dfswait_is_set(vap))
-            ieee80211_dfs_cac_stop(vap);
+            ieee80211_dfs_cac_stop(vap, 0);
         ieee80211_vap_dfswait_clear(vap);
 
         IEEE80211_VAP_LOCK(vap);
@@ -614,12 +615,14 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
         IEEE80211_VAP_UNLOCK(vap);
         break;
      case IEEE80211_S_STOPPING:
-         vap->iv_stopping(vap);
+         if (vap->iv_stopping(vap) != EOK) {
+             IEEE80211COM_DELIVER_VAP_EVENT(vap->iv_ic, vap->iv_ifp, IEEE80211_VAP_STOP_ERROR);
+         }
          ieee80211_vap_ready_clear(vap);
          ieee80211_vap_active_clear(vap);
          ieee80211_vap_scanning_clear(vap);
          if (ieee80211_vap_dfswait_is_set(vap))
-             ieee80211_dfs_cac_stop(vap);
+             ieee80211_dfs_cac_stop(vap, 0);
          ieee80211_vap_dfswait_clear(vap);
          if (!ieee80211_vap_standby_is_set(vap)) {
              /*
@@ -637,7 +640,7 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
          ieee80211_vap_scanning_set(vap);
          vap->iv_listen(vap);
          if (ieee80211_vap_dfswait_is_set(vap))
-             ieee80211_dfs_cac_stop(vap);
+             ieee80211_dfs_cac_stop(vap, 0);
          ieee80211_vap_dfswait_clear(vap);
          break;
      case IEEE80211_S_JOIN:
@@ -646,7 +649,7 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
          vap->iv_join(vap);
          ieee80211_vap_active_set(vap);
          if (ieee80211_vap_dfswait_is_set(vap))
-             ieee80211_dfs_cac_stop(vap);
+             ieee80211_dfs_cac_stop(vap, 0);
          ieee80211_vap_dfswait_clear(vap);
          break;
      case IEEE80211_S_RUN:
@@ -657,7 +660,7 @@ ieee80211_state_event(struct ieee80211vap *vap, enum ieee80211_state_event event
          ieee80211_vap_scanning_clear(vap);
          ieee80211_vap_active_set(vap);
          if (ieee80211_vap_dfswait_is_set(vap))
-             ieee80211_dfs_cac_stop(vap);
+             ieee80211_dfs_cac_stop(vap, 0);
          ieee80211_vap_dfswait_clear(vap);
 
 #if UNIFIED_SMARTANTENNA
@@ -864,8 +867,10 @@ ieee80211_wme_initparams(struct ieee80211vap *vap)
          * So we need to lock out interrupt.
          */
     //    OS_EXEC_INTSAFE(vap->iv_ic->ic_osdev, ieee80211_wme_initparams_locked, vap);
-	if(vap->iv_rescan)
+	if(vap->iv_rescan) {
+        printk("%s : iv_rescan  is set\n", __func__);
 		return;
+    }
         ieee80211_wme_initparams_locked(vap);
     } else {
         ieee80211_wme_initparams_locked(vap);

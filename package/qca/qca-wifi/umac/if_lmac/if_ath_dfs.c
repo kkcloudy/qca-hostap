@@ -463,9 +463,8 @@ ieee80211_dfs_action(struct ieee80211vap *vap, struct ieee80211_channelswitch_ie
 			     * vap is not in run  state yet. so
 			     * change the channel here.
 			     */
-#ifdef MAGPIE_HIF_GMAC
                 ic->ic_chanchange_chan = ptarget_channel->ic_ieee;
-#endif                
+          
                 /* update the bss channel of all the vaps */
                 wlan_iterate_vap_list(ic, ieee80211_vap_iter_update_bss_chan, ptarget_channel);
                 change_channel(ic,ptarget_channel);
@@ -667,7 +666,55 @@ ieee80211_mark_dfs(struct ieee80211com *ic, struct ieee80211_channel *ichan)
      else
      {
          /* Are we in sta mode? If so, send an action msg to ap saying we found  radar? */
-     }
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+         if (ic->ic_opmode == IEEE80211_M_STA) {
+             ieee80211_dfs_stacac_cancel(ic);
+             /* Mark the channel in the ic_chan list */
+             /*
+              * XXX TODO: this isn't exactly correct.
+              * Specifically - it only marks the channels that match
+              * the given centre frequency as having DFS, rather than
+              * actually checking for channel overlap.  So it's not
+              * entirely correct behaviour for VHT or HT40 operation.
+              *
+              * In any case, it should eventually be taught to just
+              * use the channel centre and channel overlap code
+              * that now exists in umac/base/ieee80211_channel.c
+              * and flag them all.
+              *
+              * In actual reality, this also gets set correctly by
+              * the NOL dfs channel list update method.
+              */
+             if ((ic->ic_flags_ext & IEEE80211_FEXT_MARKDFS) &&
+                 (ic->ic_dfs_usenol(ic) == 1)) {
+                 for (i=0;i<ic->ic_nchans; i++) {
+                     c = &ic->ic_channels[i];
+                     if (c->ic_freq != ichan->ic_freq)
+                         continue;
+                     c->ic_flags |= IEEE80211_CHAN_RADAR;
+                 }
+
+                 c = ieee80211_find_channel(ic, ichan->ic_freq, ichan->ic_flags);
+
+                 if (c == NULL) {
+                     return;
+                 }
+             }
+             vap = TAILQ_FIRST(&ic->ic_vaps);
+             while (vap != NULL) {
+                 if(vap->iv_opmode == IEEE80211_M_STA) {
+                     wlan_scan_table_flush(vap);
+                     mlme_indicate_sta_radar_detect(vap->iv_bss);
+                     break;
+                 }
+                 vap = TAILQ_NEXT(vap, iv_next);
+             }
+             if (vap == NULL) {
+             }
+             return;
+         }
+#endif
+     } /* End of else for STA mode */
  }
 #if ATH_SUPPORT_IBSS_DFS
 void ieee80211_ibss_beacon_update_start(struct ieee80211com *ic)

@@ -888,19 +888,34 @@ static const struct iw_priv_args ath_iw_priv_args[] = {
     { ATH_PARAM_ATF_STRICT_SCHED | ATH_PARAM_SHIFT,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfstrictsched" },
     { ATH_PARAM_ATF_STRICT_SCHED | ATH_PARAM_SHIFT,    0,
-     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_atfstrictsched" },
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"gatfstrictsched" },
+    { ATH_PARAM_ATF_OBSS_SCHED | ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfobsssched" },
+    { ATH_PARAM_ATF_OBSS_SCHED | ATH_PARAM_SHIFT,    0,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_atfobsssched" },
+    { ATH_PARAM_ATF_OBSS_SCALE | ATH_PARAM_SHIFT, 
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfobssscale" },
+    { ATH_PARAM_ATF_GROUP_SCHED_POLICY | ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfgrouppolicy" },
+    { ATH_PARAM_ATF_GROUP_SCHED_POLICY | ATH_PARAM_SHIFT,    0,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"gatfgrouppolicy" },
 #endif
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    { ATH_PARAM_MIB_PERIOD | ATH_PARAM_SHIFT,
-      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set_mib_period"},
-      	{ ATH_PARAM_MIB_PERIOD | ATH_PARAM_SHIFT,
-      0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_mib_period" },
-	{ ATH_PARAM_CH_UTIL_OPEN | ATH_PARAM_SHIFT,
-      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "ch_util_open"},
-      	{ ATH_PARAM_CH_UTIL_OPEN | ATH_PARAM_SHIFT,
-      0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_ch_util_open" },
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    { ATH_PARAM_STADFS_ENABLE | ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0,          "staDFSEn" },
+    { ATH_PARAM_STADFS_ENABLE | ATH_PARAM_SHIFT, 0,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,         "get_staDFSEn" },
+#endif
+    { ATH_PARAM_PHY_OFDM_ERR | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_phyofdmerr" },
+    { ATH_PARAM_PHY_CCK_ERR | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_phycckerr" },
+    { ATH_PARAM_FCS_ERR | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_fcserr" },
+    { ATH_PARAM_CHAN_UTIL | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_chanutil" },
+
 };
 
 /******************************************************************************/

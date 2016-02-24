@@ -72,12 +72,6 @@ extern osif_dev* osif_wrap_wdev_find(struct wrap_devt *wdt, unsigned char *mac);
 #endif /* QCA_SUPPORT_RAWMODE_PKT_SIMULATION */
 #endif /* ATH_PERF_PWR_OFFLOAD */
 
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
-#if ATOPT_PROC_COMMAND
-#include <at_proc_command.h>
-#endif
 #define OSIF_TO_NETDEV(_osif) (((osif_dev *)(_osif))->netdev)
 
 #define IEEE80211_MSG_IOCTL   IEEE80211_MSG_DEBUG
@@ -109,6 +103,43 @@ extern enum wlan_frm_fmt
 ol_get_rx_decap_mode_frmvdev(ol_txrx_vdev_handle vdev);
 #endif
 
+struct dhcp_packet {
+    u_char              op;          /* packet opcode type */
+    u_char              htype;       /* hardware addr type */
+    u_char              hlen;        /* hardware addr length */
+    u_char              hops;        /* gateway hops */
+    u_int32_t           xid;         /* transaction ID */
+    u_int16_t           secs;        /* seconds since boot began */
+    u_int16_t           flags;       /* flags */
+    struct in_addr      ciaddr;      /* client IP address */
+    struct in_addr      yiaddr;      /* 'your' IP address */
+    struct in_addr      siaddr;      /* server IP address */
+    struct in_addr      giaddr;      /* gateway IP address */
+    u_char              chaddr[16];  /* client hardware address */
+    u_char              sname[64];   /* server host name */
+    u_char              file[128];   /* boot file name */
+    u_char              magic_cookie[4];   /* magic cookie */
+    u_char              options[0];  /* variable-length options field */
+} __attribute__((__packed__));
+#define DHCP_BOOTP_FLAG_BROADCAST 0x8000
+
+static uint16_t update_incremental_checksum(uint16_t osum, uint16_t oval, uint16_t nval)
+{
+    uint16_t nsum = osum;
+    uint32_t sum;
+
+    if (osum == 0)
+        return 0;
+
+    sum = nsum;
+    sum += *(uint16_t *)&oval + (~(*(uint16_t *)&nval) & 0XFFFF);
+    sum = (sum >> 16) + (sum & 0XFFFF);
+    nsum = (uint16_t)((sum >> 16) + sum);
+
+    return nsum;
+}
+
+
 static inline int
 ath_ext_ap_tx_process(wlan_if_t vap, struct sk_buff *skb)
 {
@@ -138,6 +169,8 @@ ath_ext_ap_tx_process(wlan_if_t vap, struct sk_buff *skb)
 }
 
 void * obss_scan_event(void * data);/* CR-765917 */
+void periodic_scan_work(void *arg);
+
 static
 void osif_bringup_vap_iter_func(void *arg, wlan_if_t vap);
 static
@@ -153,6 +186,25 @@ ath_ext_ap_rx_process(wlan_if_t vap, struct sk_buff *skb)
                 return 1;
             }
         } else {
+            /*If DHCP flag is UNICAST, change to BROADCAST in EXT AP mode*/
+            struct ether_header *eh = (struct ether_header *)skb->data;
+            if(eh->ether_type == htons(ETHERTYPE_IP)){
+                struct iphdr *p_ip = (struct iphdr *)(eh+1);
+                if (p_ip->protocol == IPPROTO_UDP){
+                    struct udphdr *p_udp = (struct udphdr *) (((uint8_t *)p_ip) + (p_ip->ihl * 4));
+                    if ((p_udp->dest == htons(67))){
+                        struct dhcp_packet *p_dhcp = (struct dhcp_packet *)(((u_int8_t *)p_udp)+sizeof(struct udphdr));
+                        if (!(p_dhcp->flags & DHCP_BOOTP_FLAG_BROADCAST)){
+                            uint16_t old_flags = p_dhcp->flags;
+                            p_dhcp->flags  |= DHCP_BOOTP_FLAG_BROADCAST; /*Override UNICAST boot flag to BROADCAST*/
+
+                            /*Since the packet was modified, do incremental checksum update for UDP frame */
+                            p_udp->check = update_incremental_checksum(p_udp->check,old_flags,p_dhcp->flags);
+                        }
+                    }
+                }
+            }
+
 #ifdef EXTAP_DEBUG
             extern char *arps[];
             eth_arphdr_t *arp = (eth_arphdr_t *)(eh + 1);
@@ -474,7 +526,7 @@ static OS_TIMER_FUNC(osif_wapi_rekey_timeout )
 #endif  /* ATH_SUPPORT_WAPI */
 
 #if UMAC_SUPPORT_PROXY_ARP
-static int
+int
 do_proxy_arp(wlan_if_t vap, adf_nbuf_t netbuf)
 {
     struct ether_header *eh = (struct ether_header *)netbuf->data;
@@ -755,46 +807,12 @@ osif_deliver_data(os_if_t osif, struct sk_buff *skb)
        }
     }
 #endif
-	// zhaoyang1 modifies for y assistant access debug 2015-04-17
-	if (y_assistant_access_debug_hook)
-		y_assistant_access_debug_hook(skb, IEEE802_3_FRAME_MODE, 1);
 
-#if ATOPT_THINAP
-    if(thinap && skb->protocol == 0x0030)
-    {
-        #if !QCA_NSS_PLATFORM
-        #ifdef USE_HEADERLEN_RESV
-        ath_eth_type_trans(skb, dev);
-        #else
-        eth_type_trans(skb, dev);
-        #endif
-        #endif
-        wbuf_push(skb, ETH_HLEN);
-        wbuf_push(skb,6);
-        IEEE80211_ADDR_COPY(skb->data,vap->iv_myaddr);
-        #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
-        skb->mac.raw = skb->data;
-        #else
-        skb_reset_mac_header(skb);
-        #endif
-    }
-    else
-    {
-        #if !QCA_NSS_PLATFORM
-        #ifdef USE_HEADERLEN_RESV
-        skb->protocol = ath_eth_type_trans(skb, dev);
-        #else
-        skb->protocol = eth_type_trans(skb, dev);
-        #endif
-        #endif
-    }
-#else
 #if !QCA_NSS_PLATFORM
 #ifdef USE_HEADERLEN_RESV
     skb->protocol = ath_eth_type_trans(skb, dev);
 #else
     skb->protocol = eth_type_trans(skb, dev);
-#endif
 #endif
 #endif
 #if ATH_RXBUF_RECYCLE
@@ -908,38 +926,6 @@ void transcap_nwifi_to_8023(adf_nbuf_t msdu);
 #define    UMAC_VOW_NSSRX_DELIVER_DEBUG(osif, skb, nwifi)
 #endif /*QCA_NSS_PLATFORM*/
 
-#ifdef ATH_EXT_AP
-static inline int
-ath_ext_ap_nss_rx_deliver(os_if_t osif,  struct sk_buff * skb, int nwifi)
-{
-
-    struct net_device *dev = OSIF_TO_NETDEV(osif);
-    osif_dev  *osdev = (osif_dev *)osif;
-    wlan_if_t vap = osdev->os_if;
-
-    if ((vap->iv_opmode == IEEE80211_M_STA) && adf_os_unlikely(IEEE80211_VAP_IS_EXT_AP_ENABLED(vap))) {
-
-        struct ether_header *eh;
-
-        if(nwifi)
-            transcap_nwifi_to_8023(skb);
-        eh = (struct ether_header *)skb->data;
-        if (ieee80211_extap_input(vap, eh)) {
-            dev_kfree_skb(skb);
-            return 1;
-        }
-        skb->dev = dev;
-        skb->protocol = eth_type_trans(skb, dev);
-        osif_send_to_nss(osif, skb, 0);
-        return 1;
-
-    }
-    return 0;
-}
-#else
-#define ath_ext_ap_nss_rx_deliver 0
-#endif
-
 
 #if ATH_SUPPORT_VLAN
 #if LINUX_VERSION_CODE <  KERNEL_VERSION(3,1,0)
@@ -949,7 +935,7 @@ ath_ext_ap_nss_rx_deliver(os_if_t osif,  struct sk_buff * skb, int nwifi)
 { \
     osif_dev  *osifp = (osif_dev *) _osif; \
     if ( osifp->vlanID != 0) { \
-	__vlan_hwaccel_put_tag(_skb, osifp->vlanID); \
+       __vlan_hwaccel_put_tag(_skb, osifp->vlanID); \
     } \
 }
 #else
@@ -970,6 +956,68 @@ ath_ext_ap_nss_rx_deliver(os_if_t osif,  struct sk_buff * skb, int nwifi)
 #define NON_NSS_NWIFI_LIKELIHOOD(_cond)   (1)
 
 #endif /* QCA_NSS_NWIFI_MODE */
+
+
+#ifdef ATH_EXT_AP
+    static inline int
+ath_ext_ap_nss_rx_deliver(os_if_t osif,  struct sk_buff * skb, int nwifi)
+{
+
+    struct net_device *dev = OSIF_TO_NETDEV(osif);
+    osif_dev  *osdev = (osif_dev *)osif;
+    wlan_if_t vap = osdev->os_if;
+    if( adf_os_unlikely(IEEE80211_VAP_IS_EXT_AP_ENABLED(vap))){
+        if (vap->iv_opmode == IEEE80211_M_STA){
+            struct ether_header *eh;
+
+            if(nwifi)
+                transcap_nwifi_to_8023(skb);
+            eh = (struct ether_header *)skb->data;
+            if (ieee80211_extap_input(vap, eh)) {
+                dev_kfree_skb(skb);
+                return 1;
+            }
+            skb->dev = dev;
+            skb->protocol = eth_type_trans(skb, dev);
+            osif_send_to_nss(osif, skb, 0);
+            return 1;
+
+        } else {
+            /*If DHCP flag is UNICAST, change to BROADCAST in EXT AP mode*/
+            if(nwifi){
+                transcap_nwifi_to_8023(skb);
+            }
+            struct ether_header *eh = (struct ether_header *)skb->data;
+            if(eh->ether_type == htons(ETHERTYPE_IP)){
+                struct iphdr *p_ip = (struct iphdr *)(eh+1);
+                if (p_ip->protocol == IPPROTO_UDP){
+                    struct udphdr *p_udp = (struct udphdr *) (((uint8_t *)p_ip) + (p_ip->ihl * 4));
+                    if ((p_udp->dest == htons(67))){
+                        struct dhcp_packet *p_dhcp = (struct dhcp_packet *)(((u_int8_t *)p_udp)+sizeof(struct udphdr));
+                        if (!(p_dhcp->flags & htons(DHCP_BOOTP_FLAG_BROADCAST))){
+                            uint16_t old_flags = p_dhcp->flags;
+                            p_dhcp->flags  |= htons(DHCP_BOOTP_FLAG_BROADCAST); /*Override UNICAST boot flag to BROADCAST*/
+
+                            /*Since the packet was modified, do incremental checksum update for UDP frame */
+                            p_udp->check = update_incremental_checksum(p_udp->check,old_flags,p_dhcp->flags);
+                        }
+                    }
+                }
+            }
+            ATH_ADD_VLAN_TAG(osif, skb);
+            if (NON_NSS_NWIFI_LIKELIHOOD(!nwifi)) {
+                skb->protocol = eth_type_trans(skb, dev);
+            }
+            osif_send_to_nss(osif, skb,0);
+            return 1;
+        }
+    }
+    return 0;
+}
+#else
+#define ath_ext_ap_nss_rx_deliver 0
+#endif
+
 
 void
 osif_deliver_data_ol(os_if_t osif, struct sk_buff *skb_list)
@@ -999,14 +1047,6 @@ osif_deliver_data_ol(os_if_t osif, struct sk_buff *skb_list)
         if (NON_NSS_NWIFI_LIKELIHOOD(!nwifi)) {
             skb->protocol = eth_type_trans(skb, dev);
         }
-		
-#if ATOPT_PACKET_TRACE
-	    PACKET_TRACE(IEEE802_3_FRAME_MODE,skb,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace
-		// zhaoyang1 modifies for y assistant access debug 2015-04-17
-		if (y_assistant_access_debug_hook)
-			y_assistant_access_debug_hook(skb, IEEE802_3_FRAME_MODE, 1);
-		
-#endif
         osif_send_to_nss(osif, skb, nwifi);
     }
     dev->last_rx = jiffies;
@@ -1043,13 +1083,6 @@ osif_deliver_data_ol(os_if_t osif, struct sk_buff *skb_list)
         skb_list = skb_list->next;
 
         skb->dev = dev;
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_3_FRAME_MODE,skb,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace
-		// zhaoyang1 modifies for y assistant access debug 2015-04-17
-		if (y_assistant_access_debug_hook)
-			y_assistant_access_debug_hook(skb, IEEE802_3_FRAME_MODE, 1);
-#endif
-		
         /*
          * SF#01368954
          * Thanks to customer for the fix.
@@ -1095,38 +1128,11 @@ osif_deliver_data_ol(os_if_t osif, struct sk_buff *skb_list)
                continue;
        }
 #endif
-#if ATOPT_THINAP
-    if(thinap && skb->protocol == 0x0030)
-    {
-#ifdef USE_HEADERLEN_RESV
-       ath_eth_type_trans(skb, dev);
-#else
-       eth_type_trans(skb, dev);
-#endif
-       wbuf_push(skb, ETH_HLEN);
-       wbuf_push(skb,6);
-       IEEE80211_ADDR_COPY(skb->data,vap->iv_myaddr);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
-       skb->mac.raw = skb->data;
-#else
-       skb_reset_mac_header(skb);
-#endif
 
-    }
-    else
-    {
 #ifdef USE_HEADERLEN_RESV
         skb->protocol = ath_eth_type_trans(skb, dev);
 #else
         skb->protocol = eth_type_trans(skb, dev);
-#endif
-    }
-#else
-#ifdef USE_HEADERLEN_RESV
-        skb->protocol = ath_eth_type_trans(skb, dev);
-#else
-        skb->protocol = eth_type_trans(skb, dev);
-#endif
 #endif
 
 #if ATH_RXBUF_RECYCLE
@@ -1382,8 +1388,8 @@ static void osif_scan_evhandler(wlan_if_t vap, ieee80211_scan_event *event, void
 {
     osif_dev  *osifp = (osif_dev *) arg;
     struct ieee80211com *ic = vap->iv_ic;
-    //IEEE80211_DPRINTF(vap, IEEE80211_MSG_SCAN, "%s scan_id %08X event %d reason %d \n",
-    //                  __func__, event->scan_id, event->type, event->reason);
+    IEEE80211_DPRINTF(vap, IEEE80211_MSG_SCAN, "%s scan_id %08X event %d reason %d requestor %X\n",
+                      __func__, event->scan_id, event->type, event->reason, event->requestor);
 #if ATH_SUPPORT_MULTIPLE_SCANS
     /*
      * Ignore notifications received due to scans requested by other modules
@@ -1423,9 +1429,12 @@ static void osif_scan_evhandler(wlan_if_t vap, ieee80211_scan_event *event, void
         osif_notify_scan_done(osifp->netdev, event->reason);
         /* The AP vaps might not have come up due to this scan ... */
         /* Fix for evid 97581 - Enhancement to support independent VAP in multi mode*/
-        if (!wlan_get_param(vap, IEEE80211_FEATURE_VAP_IND) &&
-            wlan_is_connected(vap) /* sta-vap is ready */) {
-            osif_check_pending_ap_vaps(wlan_vap_get_devhandle(vap), vap);
+        if (!wlan_get_param(vap, IEEE80211_FEATURE_VAP_IND)) {
+            if ((osifp->os_opmode == IEEE80211_M_HOSTAP) ||
+                /* sta-vap is ready */
+                ((osifp->os_opmode == IEEE80211_M_STA) && wlan_is_connected(vap))) {
+                osif_check_pending_ap_vaps(wlan_vap_get_devhandle(vap), vap);
+            }
         }
     }
     if (!wlan_is_connected(vap) &&
@@ -1440,11 +1449,20 @@ static void osif_scan_evhandler(wlan_if_t vap, ieee80211_scan_event *event, void
 static int osif_acs_start_bss(wlan_if_t vap, wlan_chan_t channel)
 {
     int error = 0;
+    osif_dev  *osifp = (osif_dev *)wlan_vap_get_registered_handle(vap);
 
     if ((error = wlan_mlme_start_bss(vap))!=0) {
-        IEEE80211_DPRINTF(vap, IEEE80211_MSG_ACS,
-                        "%s : failed start bss with error code %d\n",
-                        __func__, error);
+        if (error == EAGAIN) {
+            /* Radio resource is busy on scanning, try later */
+            IEEE80211_DPRINTF(vap, IEEE80211_MSG_IOCTL, "%s :mlme busy mostly scanning \n", __func__);
+            osifp->is_vap_pending = 1;
+            osifp->is_up = 0;
+        } else {
+            IEEE80211_DPRINTF(vap, IEEE80211_MSG_ACS,
+                              "%s : failed start bss with error code %d\n",
+                              __func__, error);
+        }
+        return error;
     } else {
         wlan_mlme_connection_up(vap);
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_ACS,
@@ -1455,6 +1473,9 @@ static int osif_acs_start_bss(wlan_if_t vap, wlan_chan_t channel)
     {
         wlan_determine_cw(vap, channel);
     }
+
+    osifp->is_up = 1;
+
     return error;
 }
 
@@ -1523,10 +1544,36 @@ static void osif_acs_event_handler(void *arg, wlan_chan_t channel)
 
     osif_acs_start_bss(vap, channel);
 
-    osifp->is_up = 1;
-
 done:
     wlan_autoselect_unregister_event_handler(vap, &osif_acs_event_handler, (void *)osifp);
+}
+
+static void osif_start_acs_on_other_vaps(void *arg, wlan_if_t vap)
+{
+    osif_dev *osifp     = NULL;
+    wlan_if_t *orig_vap = ((wlan_if_t *)arg);
+    wlan_chan_t chan    =  NULL;
+
+    chan = wlan_get_current_channel(vap, false);
+    osifp = (osif_dev *)wlan_vap_get_registered_handle(vap);
+
+    if(*orig_vap != vap) {
+        if(osifp->is_up == 0 && vap->iv_needs_up_on_acs == 1) {
+            if ((!chan) || (chan == IEEE80211_CHAN_ANYC)) {
+
+                wlan_autoselect_register_event_handler(vap,
+                            &osif_acs_event_handler,
+                            (void *)wlan_vap_get_registered_handle(vap));
+                wlan_autoselect_find_infra_bss_channel(vap);
+
+                IEEE80211_DPRINTF(vap, IEEE80211_MSG_ACS,
+                            "%s: vap-%d needs acs\n", __func__, vap->iv_unit);
+            }
+        }
+    } else {
+        IEEE80211_DPRINTF(vap, IEEE80211_MSG_ACS,
+            "%s: vap-%d brought down, acs not req.\n", __func__, vap->iv_unit);
+    }
 }
 
 void delete_default_vap_keys(struct ieee80211vap *vap)
@@ -1597,7 +1644,10 @@ static void osif_vap_down(struct net_device *dev)
         } else {
             wlan_mlme_stop_bss(vap,0);
         }
-
+    } else if(osdev->os_opmode == IEEE80211_M_STA) {
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        wlan_mlme_set_stacac_valid(vap,0);
+#endif
     }
     OS_DELAY(1000);
     if (osdev->is_delete_in_progress) {
@@ -1611,6 +1661,7 @@ static void osif_vap_down(struct net_device *dev)
         osif_wapi_rekeytimer_stop((os_if_t)osdev);
 #endif
 
+    vap->iv_needs_up_on_acs = 0;
 }
 
 static void
@@ -1718,6 +1769,15 @@ osif_assoc_indication_ap(os_handle_t osif, u_int8_t *macaddr,
 	        IEEE80211_ADDR_COPY(wreq.addr.sa_data, macaddr);
     	    wreq.addr.sa_family = ARPHRD_ETHER;
         	WIRELESS_SEND_EVENT(dev, IWEVREGISTERED, &wreq, NULL);
+#if ATH_BAND_STEERING
+        	struct ieee80211_node *ni = NULL;
+        	/* Send associated event as well to communicate BSS Transition Management Status */
+        	ni = ieee80211_find_node(&vap->iv_ic->ic_sta, macaddr);
+        	if (ni) {
+                    ieee80211_bsteering_send_node_associated_event(vap, ni);
+                    ieee80211_free_node(ni);
+                }
+#endif
         }
         ald_assoc_notify(((osif_dev *)osif)->os_if, macaddr, ALD_ACTION_ASSOC);
 #if ATH_SUPPORT_WAPI
@@ -2028,18 +2088,33 @@ static void  osif_ch_hop_channel_change(os_handle_t osif, u_int8_t channel)
 }
 
 #if ATH_BAND_STEERING
+#ifdef HOST_OFFLOAD
+extern void
+atd_bsteer_event_send(struct net_device *dev,
+        struct ath_netlink_bsteering_event *event,
+        a_uint16_t msg_len);
+#endif
+
 static void  osif_band_steering_event(os_handle_t osif,
                                       ATH_BSTEERING_EVENT type,
-                                      uint32_t len, const char *data,
-                                      uint32_t band_index)
+                                      uint32_t len, const char *data)
 {
+    struct net_device *dev = ((osif_dev *)osif)->netdev;
     ath_netlink_bsteering_event_t  netlink_event;
 
     memset(&netlink_event, 0x0, sizeof(netlink_event));
     netlink_event.type = type;
-    netlink_event.band_index = band_index;
-    OS_MEMCPY(&(netlink_event.data),data,len);
+    netlink_event.sys_index = dev->ifindex;;
+    if (len && data) {
+        OS_MEMCPY(&(netlink_event.data), data, len);
+    }
+#ifdef HOST_OFFLOAD
+    atd_bsteer_event_send(((osif_dev *)osif)->os_comdev,
+            &netlink_event,
+            sizeof(ath_netlink_bsteering_event_t));
+#else
     ath_band_steering_netlink_send(&netlink_event);
+#endif
     return;
 
 } /* void (*bsteering_event)(os_handle_t,enum,char eventlen,char *data); */
@@ -2135,6 +2210,33 @@ static void osif_rekey_indication_ap(os_handle_t osif, u_int8_t *macaddr)
 }
 #endif
 
+#if ATH_SUPPORT_MGMT_TX_STATUS
+/*
+ * Handler to provide TX status for MGMT frames
+ */
+void osif_mgmt_tx_status(os_handle_t osif, IEEE80211_STATUS status, wbuf_t wbuf)
+{
+    osif_dev *osifp = (osif_dev *)osif;
+    struct net_device *dev = ((osif_dev *)osif)->netdev;
+    union iwreq_data wreq;
+    int wbuf_len =  wbuf_get_pktlen(wbuf);
+    char *concat_buf;
+
+    concat_buf = OS_MALLOC(osifp->os_handle, wbuf_len + sizeof(IEEE80211_STATUS),
+                                GFP_ATOMIC);
+    if (!concat_buf) {
+        return;
+    }
+
+    OS_MEMSET(&wreq, 0, sizeof(wreq));
+    wreq.data.flags = IEEE80211_EV_TX_MGMT;
+    wreq.data.length = wbuf_len + sizeof(IEEE80211_STATUS);
+    *((IEEE80211_STATUS*)concat_buf) = status;
+    OS_MEMCPY(concat_buf+sizeof(IEEE80211_STATUS), wbuf_header(wbuf), wbuf_len);
+    WIRELESS_SEND_EVENT(dev, IWEVCUSTOM, &wreq, concat_buf);
+    OS_FREE(concat_buf);
+}
+#endif
 /*
  * handler called when the AP vap comes up asynchronously.
  * (happens only when resource  manager is present).
@@ -3697,6 +3799,9 @@ static wlan_misc_event_handler_table sta_misc_evt_handler = {
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
    osif_buffull_warning,                   /* wlan_buffull */
 #endif
+#if ATH_SUPPORT_MGMT_TX_STATUS
+   NULL,
+#endif
 #if ATH_BAND_STEERING
     NULL, /* bsteering_event ,  void (*bsteering_event)(os_handle_t,enum,char eventlen,char *data); */
 #endif
@@ -3806,6 +3911,9 @@ static wlan_misc_event_handler_table ibss_misc_evt_handler = {
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
     osif_buffull_warning,                                     /* wlan_buffull */
 #endif
+#if ATH_SUPPORT_MGMT_TX_STATUS
+    NULL,
+#endif
 #if ATH_BAND_STEERING
     NULL ,                /* void (*bsteering_event)(os_handle_t,enum,char eventlen,char *data); */
 #endif
@@ -3858,6 +3966,9 @@ static wlan_misc_event_handler_table ap_misc_evt_handler = {
 #endif
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
    osif_buffull_warning,                                     /* wlan_buffull */
+#endif
+#if ATH_SUPPORT_MGMT_TX_STATUS
+   osif_mgmt_tx_status,
 #endif
 #if ATH_BAND_STEERING
     osif_band_steering_event , /* void (*bsteering_event)(os_handle_t,enum,char eventlen,char *data); */
@@ -4389,6 +4500,14 @@ osif_vap_init(struct net_device *dev, int forcescan)
                         break;
                     }
                     if (error == -EINPROGRESS) {
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+                        /* if STA is in CAC no need to wait */
+                        if(wlan_mlme_is_stacac_running(vap)) {
+                            IEEE80211_DPRINTF(vap, IEEE80211_MSG_IOCTL, "Error %s : STA CAC is on\n",
+                                          __func__);
+                            return -EINVAL;
+                        }
+#endif
                         /* wait for 2 secs for connection to be stopped completely */
                         waitcnt = 0;
                         while(waitcnt < 40) {
@@ -4478,7 +4597,6 @@ osif_vap_init(struct net_device *dev, int forcescan)
                 }
                 OS_DELAY(1000);
             }
-
             if (osifp->is_stop_event_pending) {
                 printk("%s: Timeout waiting for vap to stop...returning\n", __FUNCTION__);
                 return -EINVAL;
@@ -4498,6 +4616,7 @@ osif_vap_init(struct net_device *dev, int forcescan)
                 }
 
                 /* start ACS module to get channel */
+                vap->iv_needs_up_on_acs = 1;
                 wlan_autoselect_register_event_handler(vap,
                         &osif_acs_event_handler, (void *)osifp);
                 wlan_autoselect_find_infra_bss_channel(vap);
@@ -4513,6 +4632,7 @@ osif_vap_init(struct net_device *dev, int forcescan)
                                                        &osif_ht40_event_handler,
                                                        (void *)osifp);
                 wlan_attempt_ht40_bss(vap);
+                vap->iv_needs_up_on_acs = 1;
                 return 0;
             }
             if (forcescan) {
@@ -4558,6 +4678,7 @@ osif_vap_init(struct net_device *dev, int forcescan)
                 }
             }
             osifp->is_up = 1;
+            vap->iv_needs_up_on_acs = 1;
         }
     }
     return 0;
@@ -4679,6 +4800,12 @@ static void osif_com_vap_event_handler(void *event_arg, wlan_dev_t devhandle, os
     case IEEE80211_VAP_STOPPED:
        osifp->is_stop_event_pending = 0;
        break;
+    case IEEE80211_VAP_STOP_ERROR:
+        /* The requested STOP returned error.
+         * Tasks waiting for is_stop_event_pending may not receive the Stop event.
+         */
+        /* TODO: handle this case in conjuction with is_stop_event_pending */
+       break;
     default:
         break;
     }
@@ -4705,6 +4832,7 @@ void osif_attach(struct net_device *comdev)
 #endif
     /* CR-765917 Create deferred work for obss scan */
     ATH_CREATE_WORK(&devhandle->ic_obss_scan_work, obss_scan_event, (void *)devhandle);
+    ATH_CREATE_WORK(&devhandle->ic_per_scan_wque, periodic_scan_work, (void *)devhandle);
 }
 
 void osif_detach(struct net_device *comdev)
@@ -4976,12 +5104,6 @@ osif_vap_hardstart_generic(struct sk_buff *skb, struct net_device *dev)
                                                  tx_spec,
                                                  skb);
             }
-#if  ATOPT_PACKET_TRACE
-			PACKET_TRACE(IEEE802_3_FRAME_MODE, skb,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace
-			// zhaoyang1 modifies for y assistant access debug 2015-04-17
-			if (y_assistant_access_debug_hook)
-				y_assistant_access_debug_hook(skb, IEEE802_3_FRAME_MODE, 0);
-#endif
             /*
              * Check whether all tx frames were accepted by the txrx stack.
              * If the txrx stack cannot accept all the provided tx frames,
@@ -5045,11 +5167,19 @@ osif_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
 extern void
 ol_tx_stats_inc_map_error(ol_txrx_vdev_handle vdev,
                              uint32_t num_map_error);
-
-
+#if ATOPT_ORI_ATHEROS_BUG
 extern void
 ol_tx_stats_inc_pkt_cnt(ol_txrx_vdev_handle vdev);
-
+#else
+#if defined(QCA_PARTNER_PLATFORM) || !QCA_OL_TX_CACHEDHDR
+extern void
+ol_tx_stats_inc_pkt_cnt(ol_txrx_vdev_handle vdev);
+#else
+extern void
+ol_tx_stats_inc_pkt_cnt(ol_txrx_vdev_handle vdev)
+                    __attribute__((always_inline));
+#endif
+#endif
 
 #if QCA_OL_SUPPORT_RAWMODE_TXRX && (QCA_SUPPORT_RAWMODE_PKT_SIMULATION || !QCA_OL_TX_CACHEDHDR)
 /**
@@ -5154,12 +5284,11 @@ osif_ol_ll_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
     wlan_if_t vap ;
     int ret_rawtx;
     struct sk_buff *nextskb;
-#if ATOPT_TRAFFIC_LIMIT
-	wlan_dev_t ic = NULL;
-	struct ether_header *e_head = NULL;
+    struct ether_header *eh;
+#if QCA_AIRTIME_FAIRNESS
     struct ieee80211_node *ni = NULL;
+    struct ieee80211com *ic = NULL;
 #endif
-
 
     if (adf_os_unlikely((dev->flags & (IFF_RUNNING|IFF_UP)) != (IFF_RUNNING|IFF_UP))) {
 	    goto bad1;
@@ -5167,12 +5296,30 @@ osif_ol_ll_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
 
     osdev = ath_netdev_priv(dev);
     vap = osdev->os_if;
-#if ATOPT_TRAFFIC_LIMIT
-    ic = vap->iv_ic;
-#endif
 
 
     VAP_TX_SPIN_LOCK(&osdev->tx_lock);
+  
+#if QCA_AIRTIME_FAIRNESS
+    ic = vap->iv_ic;
+    if(ic->atf_mode) {
+        if(vap->iv_block_tx_traffic == 1)
+        {
+            goto bad;
+        }
+
+        if(vap->tx_blk_cnt) {
+            eh = (struct ether_header *)wbuf_header(skb);
+            ni = ieee80211_find_txnode(vap, eh->ether_dhost);
+            if(ni && ni->ni_block_tx_traffic) {
+                ieee80211_free_node(ni);
+                goto bad;
+            } else if(ni) {
+                ieee80211_free_node(ni);
+            } 
+        }
+    }
+#endif
 
     if ((!osdev->is_up ) ||
 		   (!ieee80211_vap_ready_is_set(vap)) ||
@@ -5188,12 +5335,7 @@ osif_ol_ll_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
     if (skb == NULL) {
         goto bad;
     }
-#if  ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_3_FRAME_MODE, skb,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace
-	// zhaoyang1 modifies for y assistant access debug 2015-04-17
-	if (y_assistant_access_debug_hook)
-		y_assistant_access_debug_hook(skb, IEEE802_3_FRAME_MODE, 0);
-#endif
+
     if (OL_CFG_NONRAW_TX_LIKELINESS(vap->iv_tx_encap_type != wlan_frm_fmt_raw)) {
         if(ATH_TX_EXT_AP_PROCESS(vap, skb))
                     goto bad;
@@ -5201,9 +5343,6 @@ osif_ol_ll_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
                 goto bad;
 
         skb->next = NULL;
-#if ATOPT_TRAFFIC_LIMIT
-        skb->dev = dev;
-#endif
 
         OL_TX_LL_UMAC_VAP_HARDSTART_VOW_DEBUG(osdev, skb);
     } else {
@@ -5226,50 +5365,12 @@ osif_ol_ll_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
         }
 #endif /* QCA_SUPPORT_RAWMODE_PKT_SIMULATION */
    }
-#if ATOPT_TRAFFIC_LIMIT
-	e_head = (struct ether_header *)skb->data;
-    ni = NULL;
-    int ret = 0;
-    if ((IEEE80211_TL_ENABLE == vap->vap_tl_vap_enable) && // Vap
-        (vap->vap_tl_down_srtcm_vap.sr_cir > 0)) {
-        ret = ieee80211_tl_vap_cache_enqueue_tx(vap, skb, ic);
-        if (ret == IEEE80211_TL_ENQUEUE_OK) {
-			if (A_STATUS_FAILED == adf_nbuf_map_single(vap->iv_ic->ic_adf_dev , skb, ADF_OS_DMA_TO_DEVICE)) {
-				ol_tx_stats_inc_map_error(osdev->iv_txrx_handle, 1);
-				goto bad;
-			}
-            goto send_ok;
-        } else if (ret == IEEE80211_TL_ENQUEUE_IS_FULL) {
-            goto bad;
-        }
-    } else if((ni = ieee80211_find_txnode(vap, e_head->ether_dhost)) &&
-        ((IEEE80211_TL_ENABLE == ni->ni_tl_sp_enable && ni->ni_tl_down_srtcm_sp.sr_cir > 0) || // Specific node
-        (IEEE80211_TL_ENABLE == ni->ni_tl_ev_enable && ni->ni_tl_down_srtcm_ev.sr_cir > 0))) { // Everynode	
-        ret = ieee80211_tl_node_cache_enqueue_tx(ni, skb, ic);
-        if (ret == IEEE80211_TL_ENQUEUE_OK) {
-            ieee80211_free_node(ni);
-			if (A_STATUS_FAILED == adf_nbuf_map_single(vap->iv_ic->ic_adf_dev , skb, ADF_OS_DMA_TO_DEVICE)) {
-				ol_tx_stats_inc_map_error(osdev->iv_txrx_handle, 1);
-				goto bad;
-			}
-            goto send_ok;
-        } else if (ret == IEEE80211_TL_ENQUEUE_IS_FULL) {
-            ieee80211_free_node(ni);
-            goto bad;
-        }
-    } 
-    if (ni)
-        ieee80211_free_node(ni);
-#endif
    /* Raw mode or native wifi mode not
     * supported in qwrap , revisit later
     */
     OL_WRAP_TX_PROCESS(&osdev,vap,skb);
 
     OL_TX_LL_WRAPPER(osdev->iv_txrx_handle, skb, vap->iv_ic->ic_adf_dev);
-#if ATOPT_TRAFFIC_LIMIT
-send_ok:
-#endif
     VAP_TX_SPIN_UNLOCK(&osdev->tx_lock);
     return 0;
 
@@ -5616,6 +5717,8 @@ int osif_vap_stop(struct net_device *dev)
     if (!vap) {
        return 0;
     }
+    atomic_set(&vap->iv_down_progress,true);
+
 #ifdef QCA_PARTNER_PLATFORM
     osif_pltfrm_vap_stop( osifp );
 #endif
@@ -5753,6 +5856,11 @@ int osif_vap_stop(struct net_device *dev)
             dev_close(comdev);
         }
     }
+
+    /* check if other vaps need acs at this stage */
+    wlan_iterate_vap_list(wlan_vap_get_devhandle(vap),
+                    osif_start_acs_on_other_vaps, (void *) &vap);
+    atomic_set(&vap->iv_down_progress,false);
 
     return error;
 }
@@ -6453,9 +6561,6 @@ osif_ioctl_create_vap(struct net_device *comdev, struct ifreq *ifr,
         vap->iv_proc_entry->write_proc = osif_proc_pppdata_write;
     }
 #endif
-#if ATOPT_PROC_COMMAND
-    at_vap_sysctl_register(vap);
-#endif
     /* register scan event handler */
     ieee80211_scan_register_event_handler(vap->iv_ic->ic_scanner, &osif_scan_evhandler, (void *)osifp);
     wlan_scan_get_requestor_id(vap,(u_int8_t*)"osif_umac", &osifp->scan_requestor);
@@ -6527,11 +6632,13 @@ osif_ioctl_delete_vap(struct net_device *dev)
 #if UMAC_SUPPORT_IBSS
         wlan_scan_unregister_event_handler(vap, &osif_ibss_scan_evhandler, (void *)osnetdev);
 #endif
-#if ATOPT_PROC_COMMAND
-            at_vap_sysctl_unregister(vap);
-#endif
         ieee80211_scan_unregister_event_handler(vap->iv_ic->ic_scanner, &osif_scan_evhandler, (void *)osnetdev);
         wlan_scan_clear_requestor_id(vap, osnetdev->scan_requestor);
+
+	if(vap->iv_needs_up_on_acs == 1) {
+		osifp = (osif_dev *)wlan_vap_get_registered_handle(vap);
+		wlan_autoselect_unregister_event_handler(vap, &osif_acs_event_handler, (void *)osifp);
+	}
 
 #if UMAC_PER_PACKET_DEBUG
         remove_proc_entry(vap->iv_proc_fname, vap->iv_proc_root);
@@ -6940,6 +7047,38 @@ vapfound_obss_scan :
     }
 }
 
+void periodic_scan_work(void *arg) {
+
+    struct ieee80211com *ic = (struct ieee80211com *)arg;
+    struct ieee80211vap *vap = NULL;
+    struct net_device *dev = NULL;
+    osif_dev *osifp = NULL;
+    u_int32_t num_vaps = 0;
+
+    /* Loop through and figure the first VAP on this radio */
+    TAILQ_FOREACH(vap, &ic->ic_vaps, iv_next) {
+        if (vap->iv_opmode == IEEE80211_M_HOSTAP) {
+#ifdef QCA_PARTNER_PLATFORM
+	    if (vap->iv_des_chan[vap->iv_des_mode] == IEEE80211_CHAN_ANYC)
+	        return;
+	    if (!vap->iv_list_scanning)
+#endif
+	    goto vapfound;
+	}
+    }
+vapfound :
+    dev = OSIF_TO_NETDEV(vap->iv_ifp);
+    osifp = ath_netdev_priv(dev);
+    ieee80211_iterate_vap_list_internal(ic, ieee80211_vap_resetdeschan,vap,num_vaps);
+    wlan_iterate_vap_list(wlan_vap_get_devhandle(vap), osif_bringdown_vap_iter_func, NULL);
+    vap->iv_des_chan[vap->iv_des_mode] = IEEE80211_CHAN_ANYC;
+    wlan_autoselect_register_event_handler(vap,
+        &osif_bkscan_acs_event_handler, (void *)osifp);
+    wlan_autoselect_find_infra_bss_channel(vap);
+}
+
+
+
 static void osif_acs_bk_scantimer_fn( void *arg )
 {
     struct ieee80211com *ic = (struct ieee80211com *)arg ;
@@ -6979,15 +7118,7 @@ vapfound :
     if(vap == NULL)
         return;
     if(acs_ctrlflags & ACS_PEIODIC_SCAN_CHK){
-        struct net_device *dev = OSIF_TO_NETDEV(vap->iv_ifp);
-        osif_dev  *osifp = ath_netdev_priv(dev);
-        ieee80211_iterate_vap_list_internal(ic, ieee80211_vap_resetdeschan,vap,num_vaps);
-        wlan_iterate_vap_list(wlan_vap_get_devhandle(vap), osif_bringdown_vap_iter_func, NULL);
-        vap->iv_des_chan[vap->iv_des_mode] = IEEE80211_CHAN_ANYC;
-        wlan_autoselect_register_event_handler(vap,
-                &osif_bkscan_acs_event_handler, (void *)osifp);
-        wlan_autoselect_find_infra_bss_channel(vap);
-
+        adf_os_sched_work(NULL, &ic->ic_per_scan_wque);
     } else if(acs_ctrlflags & ACS_PEREODIC_OBSS_CHK){
         enum ieee80211_phymode des_mode = wlan_get_desired_phymode(vap);
         /* Check only for HT40 or HT20  do not change channel */

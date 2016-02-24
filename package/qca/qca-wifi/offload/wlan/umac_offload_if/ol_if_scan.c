@@ -234,6 +234,7 @@ static int ol_scan_get_last_scan_info(ieee80211_scanner_t ss, ieee80211_scan_inf
         info->default_channel_list_length = ss->ss_nallchans;
         info->channel_list_length         = ss->ss_nchans;
         info->restricted                  = ss->ss_restricted;
+        info->completion_reason           = ss->ss_termination_reason;
 
         if (ss->ss_common.ss_info.si_scan_in_progress) {
             info->scheduling_status      = IEEE80211_SCAN_STATUS_RUNNING;
@@ -791,6 +792,14 @@ static int ol_scan_start(ieee80211_scanner_t       ss, wlan_if_t                
     ss->ss_common.ss_info.si_scan_in_progress = TRUE;
     *scan_id =  (++ss->ss_id_generator) & ~(IEEE80211_SCAN_CLASS_MASK | IEEE80211_HOST_SCAN) ;
     spin_unlock(&ss->ss_lock);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    /* Update the channel list in the target Remove NOL if needed */
+    if(ic->ic_opmode == IEEE80211_M_STA &&  ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) {
+        ol_scan_update_channel_list(ic->ic_scanner);
+    }
+#endif
+
     *scan_id =  *scan_id | WMI_HOST_SCAN_REQ_ID_PREFIX ;
     /* check if vaps operational rates contain CCK , only then add CCK rates to probe request */
     /* p2p vaps do not include CCK rates in operations rate set */
@@ -992,7 +1001,12 @@ int ol_scan_update_channel_list(ieee80211_scanner_t ss)
 
     for (i = 0; i < IEEE80211_N(scan_order); ++i) {
         c = ol_ath_find_full_channel(ic,scan_order[i]);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        if (c != NULL && !IEEE80211_IS_CHAN_RADAR(c)) {
+#else
         if (c != NULL) {
+#endif
             ss->ss_all_chans[ss->ss_nallchans++] = c;
         }
 
@@ -1007,14 +1021,23 @@ int ol_scan_update_channel_list(ieee80211_scanner_t ss)
         c = NULL;
         c = ieee80211_find_channel(ic, scan_order[i],
                                    (IEEE80211_CHAN_A | IEEE80211_CHAN_HALF));
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        if (c != NULL && !IEEE80211_IS_CHAN_RADAR(c)) {
+#else
         if (c != NULL) {
+#endif
             ss->ss_all_chans[ss->ss_nallchans++] = c;
         }
 
         c = NULL;
         c = ieee80211_find_channel(ic, scan_order[i],
                                    (IEEE80211_CHAN_A | IEEE80211_CHAN_QUARTER));
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        if (c != NULL && !IEEE80211_IS_CHAN_RADAR(c)) {
+#else
         if (c != NULL) {
+#endif
             ss->ss_all_chans[ss->ss_nallchans++] = c;
         }
     }
@@ -1030,7 +1053,12 @@ int ol_scan_update_channel_list(ieee80211_scanner_t ss)
                 c = NULL;
                 c = ieee80211_find_channel(ic, scan_order[i], IEEE80211_CHAN_11AC_VHT40PLUS);
             }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            if (c != NULL && !IEEE80211_IS_CHAN_RADAR(c)) {
+#else
             if (c != NULL) {
+#endif
                 ss->ss_all_chans[ss->ss_nallchans++] = c;
             }
 
@@ -1038,7 +1066,11 @@ int ol_scan_update_channel_list(ieee80211_scanner_t ss)
                 c = NULL;
                 c = ieee80211_find_channel(ic, scan_order[i], IEEE80211_CHAN_11AC_VHT80);
             }
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            if (c != NULL && !IEEE80211_IS_CHAN_RADAR(c)) {
+#else
             if (c != NULL) {
+#endif
                 ss->ss_all_chans[ss->ss_nallchans++] = c;
             }
         }

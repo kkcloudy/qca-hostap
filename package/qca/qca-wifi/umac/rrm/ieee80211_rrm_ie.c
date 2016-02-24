@@ -162,32 +162,32 @@ u_int8_t ieee80211_rrm_get_measurement_token(struct ieee80211_node *ni,u_int8_t 
     switch(type)
     {
         case IEEE80211_MEASREQ_CHANNEL_LOAD_REQ:
-            retval = ni->chload_measure_token;
             ni->chload_measure_token++;
+            retval = ni->chload_measure_token;
             break;
         case IEEE80211_MEASREQ_NOISE_HISTOGRAM_REQ:
-            retval = ni->nhist_measure_token;
             ni->nhist_measure_token++;
+            retval = ni->nhist_measure_token;
             break;
         case IEEE80211_MEASREQ_BR_TYPE:
-            retval = ni->br_measure_token;
             ni->br_measure_token++;
+            retval = ni->br_measure_token;
             break;
         case IEEE80211_MEASREQ_FRAME_REQ: 	   
-            retval = ni->frame_measure_token;
             ni->frame_measure_token++;
+            retval = ni->frame_measure_token;
             break;
         case IEEE80211_MEASREQ_STA_STATS_REQ:
-            retval = ni->stastats_measure_token;
             ni->stastats_measure_token++;
+            retval = ni->stastats_measure_token;
             break;
         case IEEE80211_MEASREQ_LCI_REQ: 
-            retval = ni->lci_measure_token;
             ni->lci_measure_token++;
+            retval = ni->lci_measure_token;
             break;
         case IEEE80211_MEASREQ_TSMREQ_TYPE:
-            retval = ni->tsm_measure_token;
             ni->tsm_measure_token++;
+            retval = ni->tsm_measure_token;
             break;
         default:
             retval = EINVAL;
@@ -195,6 +195,32 @@ u_int8_t ieee80211_rrm_get_measurement_token(struct ieee80211_node *ni,u_int8_t 
     }
     return retval;
 }
+
+/**
+ * @brief Add the optional preference subelement ID to a
+ * neighbor report
+ *
+ * @param frm Pointer to the frame position for the start of the
+ * preference subelement ID
+ * @param preference Preference value (1 to 255, higher value is
+ * higher preference, 0 is reserved)
+ *
+ * @return Updated position in the frame to contain the next
+ * element
+ */
+static u_int8_t *iee80211_add_nr_preference_subie(u_int8_t *frm, uint8_t preference)
+{
+    struct ieee80211_nr_preference_subie* pref =
+        (struct ieee80211_nr_preference_subie *)(frm);
+
+    pref->id = IEEE80211_SUBELEMID_NEIGHBORREPORT_PREFERENCE;
+    /* subtract 2 for the fixed length header (id + length) */
+    pref->len = sizeof(struct ieee80211_nr_preference_subie) - 2;
+    pref->preference = preference;
+
+    return (frm + sizeof(struct ieee80211_nr_preference_subie));
+}
+
 /* Internal Functions */
 
 /*
@@ -348,6 +374,10 @@ u_int8_t *ieee80211_add_nr_ie(u_int8_t *frm, struct ieee80211_nrresp_info* nr_in
 
     frm = (u_int8_t *)(&nr->subelm[0]);
     /* Add sub elements */
+    if (nr_info->preference) {
+        /* preference value of 0 is reserved, don't add sub-element in that case */
+        frm = iee80211_add_nr_preference_subie(frm, nr_info->preference);
+    }
     nr->len = (frm - &nr->bssid[0]);
     return frm;
 }

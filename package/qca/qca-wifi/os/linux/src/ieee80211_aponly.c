@@ -149,6 +149,10 @@ ath_amsdu_stageq_flush(struct ath_softc_net80211 *scn, struct ath_amsdu_tx *amsd
 extern int
 ieee80211_amsdu_check(struct ieee80211vap *vap, wbuf_t wbuf);
 
+#if QCA_PARTNER_CBM_DIRECTPATH
+extern adf_nbuf_t ath_rxbuf_alloc_cbm_partner(struct ath_softc *sc, u_int32_t len);
+#endif
+
 inline int
 ath_get_amsdusupported_aponly(ath_dev_t dev, ath_node_t node, int tidno)
 {
@@ -322,6 +326,31 @@ ath_tx_set_retry_aponly(struct ath_softc *sc, struct ath_buf *bf)
 }
 
 
+static inline u_int32_t ath_get_retries_num_aponly(struct ath_buf *bf, u_int32_t rateindex, u_int32_t retries)
+{
+    u_int32_t totalretries = 0;
+    switch (rateindex)
+    {
+        case 0:
+            totalretries = retries;
+            break;
+        case 1:
+            totalretries = retries + bf->bf_rcs[0].tries;
+            break;
+        case 2:
+            totalretries = retries + bf->bf_rcs[1].tries +
+                          bf->bf_rcs[0].tries;
+            break;
+        case 3:
+            totalretries = retries + bf->bf_rcs[2].tries +
+                          bf->bf_rcs[1].tries + bf->bf_rcs[0].tries;
+            break;
+        default:
+            printk("Invalid rateindex \n\r");
+    }
+    return totalretries;
+}
+
 
 /*
  * Update block ack window
@@ -401,25 +430,11 @@ ath_bar_tx_aponly(struct ath_softc *sc, struct ath_node *an, struct ath_atx_tid 
     __11nstats(sc, tx_bars);
 
     /* pause TID until BAR completes */
-#if ATOPT_DRV_MONITOR
-	/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-	tid->sub_paused_trace[tid->sub_trace_index] = 8;
-	tid->sub_trace_index ++;
-	if(tid->sub_trace_index > 7)
-		tid->sub_trace_index = 0;
-#endif
     ATH_TX_PAUSE_TID(sc, tid);
 
     if (sc->sc_ieee_ops->send_bar) {
         if (sc->sc_ieee_ops->send_bar(an->an_node, tid->tidno, tid->seq_start)) {
             /* resume tid if send bar failed. */
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->add_paused_trace[tid->add_trace_index] = 10;
-			tid->add_trace_index ++;
-			if(tid->add_trace_index > 7)
-				tid->add_trace_index = 0;
-#endif
             ATH_TX_RESUME_TID(sc, tid);
         }
     }
@@ -556,6 +571,7 @@ ath_tx_complete_aggr_rifs_aponly(struct ath_softc *sc, struct ath_txq *txq, stru
                      __11nstats(sc, txaggr_compgood);
 #else
             __11nstats(sc, txaggr_compgood);
+
 #endif
         }
 #ifdef ATH_RIFS
@@ -784,6 +800,14 @@ ath_tx_complete_aggr_rifs_aponly(struct ath_softc *sc, struct ath_txq *txq, stru
 #endif
                     }
                     sc->sc_txbuf_free--;
+                    /**
+                     * Debug print added in case of NULL descriptor assignment
+                     */
+                    if( !(tbf->bf_desc) ) {
+                        printk("\nxxx NULL descriptor detected in %s for buffer %p line %d xxx\n",
+                                __func__,tbf,__LINE__);
+                    }
+
                     ATH_TXBUF_UNLOCK(sc);
 
                     ATH_TXBUF_RESET(tbf, sc->sc_num_txmaps);
@@ -857,13 +881,6 @@ ath_tx_complete_aggr_rifs_aponly(struct ath_softc *sc, struct ath_txq *txq, stru
             tid->cleanup_inprogress = AH_FALSE;
 
             /* send buffered frames as singles */
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->add_paused_trace[tid->add_trace_index] = 11;
-			tid->add_trace_index ++;
-			if(tid->add_trace_index > 7)
-				tid->add_trace_index = 0;
-#endif
             ATH_TX_RESUME_TID(sc, tid);
         } else {
             ATH_TXQ_UNLOCK(txq);
@@ -1099,6 +1116,14 @@ ath_tx_processq_aponly(struct ath_softc *sc, struct ath_txq *txq)
                 txq->axq_num_buf_used--;
 #endif
                 sc->sc_txbuf_free++;
+                /**
+                 * Debug print added in case of NULL descriptor assignment
+                 */
+                if( !(bf_held->bf_desc) ) {
+                    printk("\nxxx NULL descriptor detected in %s for buffer %p line %d xxx\n",
+                            __func__,bf_held,__LINE__);
+                }
+
 	            TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf_held, bf_list);
                 ATH_TXBUF_UNLOCK(sc);
             }
@@ -1699,6 +1724,8 @@ ath_tx_edma_tasklet_compact(ath_dev_t dev)
     struct ieee80211_frame *wh;
     bool istxfrag;
 #endif
+    int total_hw_retries = 0;
+
     for (;;) {
 
         /* hold lock while accessing tx status ring */
@@ -1814,18 +1841,53 @@ ath_tx_edma_tasklet_compact(ath_dev_t dev)
 
         if (likely(an != NULL)) {
             int noratectrl;
-
-#ifdef ATH_SWRETRY
-            ath_tx_dec_eligible_frms(sc, bf, txq->axq_qnum, &ts);
-#endif
-
-
+            struct ath_vap *avp = an->an_avp;
             if(!sc->sc_nodebug){
                 ath_hal_gettxratecode(sc->sc_ah, bf->bf_desc, (void *)&ts);
                 ath_tx_update_stats(sc, bf, txq->axq_qnum, &ts);
             }
-
-
+#if ATH_BAND_STEERING
+            if(wbuf_get_bsteering(bf->bf_mpdu))
+                {
+                    if ( bf->bf_isdata &&
+                         !bf->bf_ismcast)
+                        {
+                            u_int8_t subtype =0;
+                           if (sc->sc_ieee_ops->bsteering_rate_update && !bf->bf_useminrate)
+                                {
+                                    u_int32_t rateKbps;
+                                    wh = (struct ieee80211_frame *)wbuf_header(bf->bf_mpdu);
+                                    subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+                                    if(sc->sc_nodebug)
+                                        ath_hal_gettxratecode(sc->sc_ah, bf->bf_desc, (void *)&ts);
+                                    rateKbps = sc->sc_hwmap[ts.ts_ratecode].rateKbps;
+                                    if (IS_HT_RATE(ts.ts_ratecode)) {
+                                        u_int8_t rateFlags = bf->bf_rcs[ts.ts_rateindex].flags;
+                                        if (rateFlags & ATH_RC_CW40_FLAG) {
+                                            rateKbps = (rateKbps * 27) / 13;
+                                        }
+                                        if (rateFlags & ATH_RC_SGI_FLAG) {
+                                            rateKbps = (rateKbps * 10) / 9;
+                                        }
+                                    }
+                                    sc->sc_ieee_ops->bsteering_rate_update(sc->sc_ieee,
+                                                     ((struct ieee80211_frame *)
+                                                                            wbuf_header(bf->bf_mpdu))->i_addr1,
+                                                                           (ts.ts_status == 0),rateKbps);
+                                }
+                            if(subtype == IEEE80211_FC0_SUBTYPE_NODATA) {
+                                if(sc->sc_ieee_ops->bsteering_rssi_update)
+                                    sc->sc_ieee_ops->bsteering_rssi_update(sc->sc_ieee,
+                                                                           ((struct ieee80211_frame *)
+                                                                            wbuf_header(bf->bf_mpdu))->i_addr1,
+                                                                           (ts.ts_status == 0),ts.ts_rssi);
+                            }
+                        }
+                }
+#endif
+#ifdef ATH_SWRETRY
+            ath_tx_dec_eligible_frms(sc, bf, txq->axq_qnum, &ts);
+#endif
             noratectrl = an->an_flags & (ATH_NODE_CLEAN | ATH_NODE_PWRSAVE);
             OS_SYNC_SINGLE(sc->sc_osdev, bf->bf_daddr, sc->sc_txdesclen, BUS_DMA_FROMDEVICE, NULL);
 
@@ -1853,13 +1915,27 @@ ath_tx_edma_tasklet_compact(ath_dev_t dev)
                 n_head_fail = ((nbad >> 8) & 0xFF);
                 nbad = ((nbad >> 16) & 0xFF);
 #endif
+
 #if QCA_AIRTIME_FAIRNESS
                 if(sc->sc_atf_enable)
                     ath_atf_node_airtime_consumed(sc, bf, &ts, txok);
 #endif
+                total_hw_retries = ath_get_retries_num_aponly(bf, ts.ts_rateindex, ts.ts_longretry);
+                avp->av_stats.av_retry_count += bf->bf_nframes * total_hw_retries;
+                if (txok && total_hw_retries)
+                    avp->av_stats.av_ack_failures += total_hw_retries - 1;
+                else
+                    avp->av_stats.av_ack_failures += total_hw_retries;
+
+#if !ATH_SUPPORT_VOWEXT
+                /* if ATH_SUPPORT_VOWEXT is not supported update the nbad here*/
+                nbad = ath_tx_complete_aggr_compact(sc, txq, bf, &bf_head, &ts, txok ,&bf_headfree);
+#else
                 ath_tx_complete_aggr_compact(sc, txq, bf, &bf_head, &ts, txok ,&bf_headfree);
+#endif
 
             } else {
+                int i;
 #ifndef REMOVE_PKT_LOG
                 /* do pktlog */
 
@@ -1875,10 +1951,26 @@ ath_tx_edma_tasklet_compact(ath_dev_t dev)
                     }
                 }
 #endif
+                /* Account for all HW retries for this frame */
+                for (i=0; i < ts.ts_rateindex; i++) {
+                   bf->bf_retries += bf->bf_rcs[i].tries;
+                }
                 bf->bf_retries = ts.ts_longretry;
+                avp->av_stats.av_retry_count += bf->bf_retries;
+                if (txok && bf->bf_retries)
+                    avp->av_stats.av_ack_failures += bf->bf_retries - 1;
+                else
+                    avp->av_stats.av_ack_failures += bf->bf_retries;
+
                 if (ts.ts_status & HAL_TXERR_XRETRY) {
+                    avp->av_stats.av_tx_xretries++;
                     bf->bf_isxretried = 1;
                     __11nstats(sc,tx_sf_hw_xretries);
+                }
+                else if (bf->bf_retries) {
+                    avp->av_stats.av_tx_retries++;
+                    if (bf->bf_retries > 1)
+                        avp->av_stats.av_tx_mretries++;                        
                 }
                 nbad = 0;
 #if QCA_AIRTIME_FAIRNESS
@@ -1896,7 +1988,6 @@ ath_tx_edma_tasklet_compact(ath_dev_t dev)
             u_int8_t mac_addr[ETH_ALEN], status;
             wbuf_t wbuf;
             wbuf = bf->bf_mpdu;
-            status = 0;
             status = (ts.ts_status == 0)? 1 : 0;
             memcpy(&mac_addr, ((struct ieee80211_frame *)wbuf_header(wbuf))->i_addr1, ETH_ALEN);
             sc->sc_ieee_ops->update_ka_done(mac_addr, status);
@@ -1940,19 +2031,6 @@ ath_tx_edma_tasklet_compact(ath_dev_t dev)
             }
         }
 #endif
-#if ATH_BAND_STEERING
-       if(wbuf_get_bsteering(bf->bf_mpdu)) {
-            wbuf_t wbuf;
-            u_int8_t mac_addr[ETH_ALEN], status;
-            wbuf = bf->bf_mpdu;
-            status = 0;
-            status = (ts.ts_status == 0)? 1 : 0;
-            memcpy(&mac_addr, ((struct ieee80211_frame *)wbuf_header(wbuf))->i_addr1, ETH_ALEN);
-            if(sc->sc_ieee_ops->bsteering_rssi_update)
-                sc->sc_ieee_ops->bsteering_rssi_update(sc->sc_ieee, mac_addr, status,ts.ts_rssi);
-        }
-#endif
-
 #ifdef ATH_SUPPORT_UAPSD
                 if (txq == sc->sc_uapsdq)
                 {
@@ -3125,16 +3203,6 @@ ieee80211_input_data_aponly(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee8
 	mac_stats->ims_rx_bytes += wbuf_get_pktlen(wbuf);
 
     ieee80211_input_update_data_stats_aponly(ni, mac_stats, wbuf, rs, hdrsize);
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-    ieee80211_rx_rssi_statistics(ni);
-	ieee80211_rx_rate_statistics(vap, ni, rs);
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-	if (wh->i_fc[1] & IEEE80211_FC1_RETRY) {
-        mac_stats->ims_rx_retry_packets++;
-        mac_stats->ms_rx_retry_bytes += wbuf_get_pktlen(wbuf);						
-        IEEE80211_NODE_STAT(ni, rx_retry_packets);
-        IEEE80211_NODE_STAT_ADD(ni, rx_retry_bytes,wbuf_get_pktlen(wbuf));
-	}
 
     /* consumes the wbuf */
     ieee80211_deliver_data_aponly(vap, wbuf, ni, rs, hdrspace, is_mcast, subtype);
@@ -3146,15 +3214,6 @@ bad:
     wbuf_free(wbuf);
 }
 
-#if ATOPT_TRAFFIC_LIMIT
-void 
-ieee80211_input_data_aponly_for_tl(struct ieee80211_node *ni, wbuf_t wbuf, 
-                         struct ieee80211_rx_status *rs, int subtype, int dir)
-{
-    ieee80211_node_activity(ni); /* node has activity */
-    ieee80211_input_data_aponly(ni, wbuf, rs, subtype, dir); 
-}
-#endif
 /*
  * Process a received frame.  The node associated with the sender
  * should be supplied.  If nothing was found in the node table then
@@ -3298,43 +3357,6 @@ ieee80211_input_aponly(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_
         if (unlikely(!ieee80211_vap_ready_is_set(vap))) {
             goto bad;
         }
-#if ATOPT_TRAFFIC_LIMIT
-        {
-            int ret = 0;
-            if((IEEE80211_TL_ENABLE == vap->vap_tl_vap_enable) &&		   // Vap
-            (vap->vap_tl_up_srtcm_vap.sr_cir > 0))
-            {
-                ieee80211node_pause(ni); 
-                ret = ieee80211_tl_vap_cache_enqueue_rx(vap, wbuf, rs, subtype, dir, ic);
-                ieee80211node_unpause(ni);
-                if(ret == IEEE80211_TL_ENQUEUE_OK)
-                {
-                    (void) OS_ATOMIC_CMPXCHG(&vap->iv_rx_gate, 1, 0);
-                    return type;
-                }
-                else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-                {
-                    goto bad;
-                }
-            }
-            else if ((IEEE80211_TL_ENABLE == ni->ni_tl_sp_enable && ni->ni_tl_up_srtcm_sp.sr_cir > 0) ||	// Specific node 
-            (IEEE80211_TL_ENABLE == ni->ni_tl_ev_enable && ni->ni_tl_up_srtcm_ev.sr_cir > 0))		// Everynode
-            {
-                ieee80211node_pause(ni); 
-                ret = ieee80211_tl_node_cache_enqueue_rx(ni, wbuf, rs, subtype, dir, ic);
-                ieee80211node_unpause(ni); /* unpause it if we are the last one, the frame will be flushed out */  
-                if(ret == IEEE80211_TL_ENQUEUE_OK)
-                {
-                    (void) OS_ATOMIC_CMPXCHG(&vap->iv_rx_gate, 1, 0);
-                    return type;
-                }
-                else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-                {
-                    goto bad;
-                }
-            }  
-        }
-#endif
         /* ieee80211_input_data consumes the wbuf */
         ieee80211_node_activity(ni); /* node has activity */
         ieee80211_input_data_aponly(ni, wbuf, rs, subtype, dir);
@@ -3721,6 +3743,9 @@ ath_net80211_rx_aponly(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status
     struct ath_node *an;
     struct ieee80211_frame *wh;
     int type, selevm;
+#if ATOPT_ORI_ATHEROS_BUG
+	int frame_type, frame_subtype;
+#endif
     /*
      * From this point on we assume the frame is at least
      * as large as ieee80211_frame_min; verify that.
@@ -3758,6 +3783,12 @@ ath_net80211_rx_aponly(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status
      * for its use.  If the sender is unknown spam the
      * frame; it'll be dropped where it's not wanted.
      */
+#if ATOPT_ORI_ATHEROS_BUG
+	wh = (struct ieee80211_frame *) wbuf_header (wbuf);
+    frame_type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
+    frame_subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+#endif
+	
     IEEE80211_KEYMAP_LOCK(scn);
     ni = (keyix != HAL_RXKEYIX_INVALID) ? scn->sc_keyixmap[keyix] : NULL;
 
@@ -3782,6 +3813,16 @@ ath_net80211_rx_aponly(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status
      */
         ni = ieee80211_find_rxnode(ic, (struct ieee80211_frame_min *)
                                wbuf_header(wbuf));
+#if ATOPT_ORI_ATHEROS_BUG
+		if (IEEE80211_FC0_TYPE_MGT == frame_type && 
+			(IEEE80211_FC0_SUBTYPE_AUTH == frame_subtype ||
+			 IEEE80211_FC0_SUBTYPE_PROBE_REQ == frame_subtype)) {
+			if (ni) {
+				ieee80211_free_node(ni);
+				ni = NULL;
+			}
+		}
+#endif
         if (ni == NULL) {
             struct ieee80211_rx_status rs;
             rs.rs_flags =
@@ -3898,7 +3939,7 @@ ath_net80211_rx_aponly(ieee80211_handle_t ieee, wbuf_t wbuf, ieee80211_rx_status
      * as STA WDS path is not optimized now and only AP WDS packets should go through aponly path.
      * if ATH_WDS_SUPPORT_APONLY is not supported then all WDS packets should go through generic path.
      */
-    if (likely(IEEE80211_NODE_USEAMPDU(ni) && ((struct ath_softc *)scn->sc_dev)->sc_rxaggr)) {
+    if (likely(IEEE80211_NODE_ISAMPDU(ni) && ((struct ath_softc *)scn->sc_dev)->sc_rxaggr)) {
         u_int32_t input_aponly = TRUE;
 
         do {
@@ -4378,7 +4419,11 @@ static inline int ath_rx_indicate_aponly(struct ath_softc *sc, wbuf_t wbuf, ieee
     return type;
 #else /* !ATH_RXBUF_RECYCLE */
      /* allocate a new wbuf and queue it to for H/W processing */
-   	nwbuf = ath_rxbuf_alloc(sc, sc->sc_rxbufsize);
+#if QCA_PARTNER_CBM_DIRECTPATH
+    nwbuf = ath_rxbuf_alloc_cbm_partner(sc, sc->sc_rxbufsize);
+#else
+    nwbuf = ath_rxbuf_alloc(sc, sc->sc_rxbufsize);
+#endif
     if (likely(nwbuf != NULL)) {
         type = ath_net80211_rx_aponly(sc->sc_ieee, wbuf, status, keyix);
         bf->bf_mpdu = nwbuf;
@@ -5885,20 +5930,9 @@ ath_common_intr_aponly(ath_dev_t dev, HAL_INT status)
                 ath_hal_updatetxtriglevel(ah, AH_TRUE);
             }
             if (likely(sc->sc_enhanceddmasupport)) {
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor stuck stats*/
-				if(status & HAL_INT_RXHP )
-					sc->rx_intr_hp++;			
-				if(status & HAL_INT_RXLP )
-					sc->rx_intr_lp++;
-			/*AUTELAN-End:zhaoenjuan transplant for drv monitor stuck stats*/	
-#endif
                 ath_rx_edma_intr_aponly(sc, status, &sched);
             }
             else {
-#if ATOPT_DRV_MONITOR
-				sc->rx_intr_noedma++;/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor stuck stats*/
-#endif
                 if (unlikely(status & HAL_INT_RXEOL)) {
                     /*
                      * NB: the hardware should re-read the link when
@@ -6307,8 +6341,9 @@ ath_aggr_check_aponly(ath_dev_t dev, ath_node_t node, u_int8_t tidno)
     /* ADDBA exchange must be completed before sending aggregates */
     tid = ATH_AN_2_TID(an, tidno);
 
-    if (tid->cleanup_inprogress)
+    if (tid->cleanup_inprogress || (an->an_flags & ATH_NODE_CLEAN)){
         return 0;
+    }
 
     if (!tid->addba_exchangecomplete) {
         if (!tid->addba_exchangeinprogress &&
@@ -6480,6 +6515,14 @@ ath_tx_get_buf_aponly(struct ath_softc *sc, sg_t *sg, struct ath_buf **pbf,
         *pbf = bf;
         TAILQ_REMOVE(&sc->sc_txbuf, bf, bf_list);
         sc->sc_txbuf_free--;
+        /**
+         * Debug print added in case of NULL descriptor assignment
+         */
+        if( !(bf->bf_desc) ) {
+            printk("\nxxx NULL descriptor detected in %s for buffer %p xxx\n",
+                    __func__,bf);
+        }
+
 		(*buf_used)++;
         ATH_TXBUF_UNLOCK(sc);
         TAILQ_INSERT_TAIL(bf_head, bf, bf_list);
@@ -6541,6 +6584,13 @@ ath_tx_start_dma_aponly(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
     struct ath_rc_series *rcs;
     int send_to_cabq = 0;
     struct ath_vap *avp = sc->sc_vaps[txctl->if_id];
+#if QCA_AIRTIME_FAIRNESS
+    struct ieee80211com *ic = (struct ieee80211com *)(sc->sc_ieee);
+    u_int32_t max_allowed_buffers = 0;
+    u_int32_t num_buffers_held = 0;
+    u_int32_t tx_tokens, alloted_tx_tokens, unassigned_txtokens;
+    u_int8_t atf_commit;
+#endif
 
 #ifdef ATH_SUPPORT_TxBF
 #ifdef TXBF_TODO
@@ -6633,11 +6683,75 @@ ath_tx_start_dma_aponly(wbuf_t wbuf, sg_t *sg, u_int32_t n_sg, void *arg)
     /* For each sglist entry, allocate an ath_buf for DMA */
     TAILQ_INIT(&bf_head);
     for (i = 0; i < n_sg; i++, sg++) {
-        int more_maps;
+        int more_maps, atf_based_alloc;
         ath_get_buf_status_t retval;
 
         more_maps = (n_sg - i) > 1;//more than one descriptor
+#if QCA_AIRTIME_FAIRNESS
+        atf_based_alloc = 0;
+        if (an->an_node) {
+            atf_commit = sc->sc_ieee_ops->get_atf_allocations((ieee80211_node_t)((an)->an_node),
+                                          &tx_tokens, &alloted_tx_tokens, &unassigned_txtokens);
+            /*
+             * Check whether atf is enabled and we have enabled
+             * distribution of buffers based on share of txtokens
+             */
+            if (ic->atf_txbuf_share && atf_commit && alloted_tx_tokens) {
+                atf_based_alloc = 1;
+                ATH_NODE_ATF_TOKEN_LOCK(an);
+                if (an->an_allowed_buf_updated == 0) {
+                    if (an->an_atf_capable)
+                        max_allowed_buffers = (((tx_tokens * 100) / alloted_tx_tokens) * ATH_TXBUF) / 100;
+                    else
+                        max_allowed_buffers = (((unassigned_txtokens * 100) / alloted_tx_tokens) * ATH_TXBUF) / 100;
+                    if (max_allowed_buffers > ic->atf_txbuf_max)
+                        max_allowed_buffers = ic->atf_txbuf_max;
+                    else if (max_allowed_buffers < ic->atf_txbuf_min)
+                        max_allowed_buffers = ic->atf_txbuf_min;
+                    an->an_allowed_bufs = max_allowed_buffers;
+                    an->an_allowed_buf_updated = 1;
+                } else {
+                    max_allowed_buffers = an->an_allowed_bufs;
+                }
+                /* Check if we can allocate a new buffer */
+                if (an->an_atf_capable)
+                    num_buffers_held = an->an_num_buf_held;
+                else
+                    num_buffers_held = sc->sc_num_buf_held;
+                if (num_buffers_held < max_allowed_buffers) {
+                    ATH_NODE_ATF_TOKEN_UNLOCK(an);
+                    retval = ath_tx_get_buf_aponly(sc, sg, &bf, &bf_head, buf_used);
+                } else {
+                    an->an_pkt_drop_nobuf++;
+                    ATH_NODE_ATF_TOKEN_UNLOCK(an);
+                    retval = ATH_BUF_NONE;
+                }
+            } else {
+                retval = ath_tx_get_buf_aponly(sc, sg, &bf, &bf_head, buf_used);
+            }
+        } else {
+            printk("%s: no ni for an sending packet\n", __func__);
+            retval = ath_tx_get_buf_aponly(sc, sg, &bf, &bf_head, buf_used);
+        }
+#else
         retval = ath_tx_get_buf_aponly(sc, sg, &bf, &bf_head, buf_used);
+#endif
+#if QCA_AIRTIME_FAIRNESS
+        if ((likely(retval != ATH_BUF_NONE)) && (atf_based_alloc == 1)) {
+            ATH_NODE_ATF_TOKEN_LOCK(an);
+            if (bf->bf_atf_accounting)
+                printk("%s: buffer already marked for atf accounting\n", __func__);
+            bf->bf_atf_accounting = 1;
+            bf->bf_atf_accounting_size = wbuf_get_pktlen(wbuf);
+            if (!an->an_atf_capable)
+                sc->sc_num_buf_held++;
+            an->an_num_buf_held++;
+            if (an->an_num_buf_held > an->an_max_num_buf_held) {
+                an->an_max_num_buf_held = an->an_num_buf_held;
+            }
+            ATH_NODE_ATF_TOKEN_UNLOCK(an);
+        }
+#endif
         if (unlikely(more_maps && (ATH_BUF_CONT == retval))) {
             continue;
         } else if (unlikely(ATH_BUF_NONE == retval)) {
@@ -7380,7 +7494,6 @@ ath_tx_start_aponly(ath_dev_t dev, wbuf_t wbuf, ieee80211_tx_control_t *txctl)
 
 #if LMAC_SUPPORT_POWERSAVE_QUEUE
     if (wbuf_is_legacy_ps(wbuf)) {
-        struct ath_node_pwrsaveq *dataq, *mgmtq, *psq;
         struct ath_node *an = (struct ath_node *)txctl->an;
         ath_wbuf_t athwbuf = (ath_wbuf_t)OS_MALLOC(sc->sc_osdev,
                                                  sizeof(struct ath_wbuf), GFP_KERNEL);
@@ -7390,10 +7503,6 @@ ath_tx_start_aponly(ath_dev_t dev, wbuf_t wbuf, ieee80211_tx_control_t *txctl)
         }
 
         ASSERT(an);
-
-        dataq = ATH_NODE_PWRSAVEQ_DATAQ(an);
-        mgmtq  = ATH_NODE_PWRSAVEQ_MGMTQ(an);
-        psq = txctl->isdata ? dataq : mgmtq;
 
         athwbuf->wbuf = wbuf;
         athwbuf->next = NULL;
@@ -8824,12 +8933,62 @@ ieee80211_classify_aponly(struct ieee80211_node *ni, wbuf_t wbuf)
      * returning TOS for Maverick and Linux platform, where as for Windows it
      * just returns TOS.
      */
+#if ATH_SUPPORT_HS20
+    if (unlikely(vap->iv_qos_map.valid)) {
+        struct ieee80211_qos_map *qos_map = &vap->iv_qos_map;
+        struct ether_header *eh = (struct ether_header *)wbuf_header(wbuf);
+        int i;
+        u_int8_t dscp = 0;
+
+        if (eh->ether_type == __constant_htons(ETHERTYPE_IP)) {
+            const struct iphdr *ip = (struct iphdr *)
+                                     ((u_int8_t *)eh + sizeof(struct ether_header));
+            dscp = (ip->tos & (~INET_ECN_MASK)) >> 2;
+        } else if (eh->ether_type == __constant_htons(ETHERTYPE_IPV6)) {
+            unsigned long ver_pri_flowlabel = *(unsigned long*)(eh + 1);
+            unsigned long pri;
+
+            pri = (ntohl(ver_pri_flowlabel) & IPV6_PRIORITY_MASK) >> IPV6_PRIORITY_SHIFT;
+            dscp = (pri & (~INET_ECN_MASK)) >> 2;
+        } else if (eh->ether_type == __constant_htons(ETHERTYPE_PAE)) {
+            /* for EAPOL frames, override the tid value */
+            N_EAPOL_SET(wbuf);
+            tid = 6;    /* send it on VO queue */
+            goto found;
+        }
+
+        /* search the DSCP exceptions */
+        for (i = 0; i < qos_map->num_dscp_except; i++) {
+            if (qos_map->dscp_exception[i].dscp == dscp) {
+                tid = qos_map->dscp_exception[i].up;
+                goto found;
+            }
+        }
+
+        /* search the UP range */
+        for (i = 0; i < IEEE80211_MAX_QOS_UP_RANGE; i++) {
+            if (qos_map->up[i].low <= dscp &&
+                qos_map->up[i].high >= dscp) {
+                tid = i;
+                goto found;
+            }
+        }
+
+        /* the DSCP was not found on the QoS Map. Fallback mechanism. */
+        tid = (wbuf_classify(wbuf) & 0x7);
+    } else {
+        tid = (wbuf_classify(wbuf) & 0x7);
+    }
+found:
+    ac = TID_TO_WME_AC(tid);
+#else
+
     if ((tid = ieee80211_dscp_override(vap, wbuf)) < 0)
         tid = (wbuf_classify(wbuf) & 0x7);
 
     ac = TID_TO_WME_AC(tid);
 
-
+#endif /* ATH_SUPPORT_HS20 */
     /* default priority */
     if (!(ni->ni_flags & IEEE80211_NODE_QOS)) {
 	    wbuf_set_priority(wbuf, WME_AC_BE);
@@ -8963,9 +9122,6 @@ wlan_vap_send_aponly(wlan_if_t vap, wbuf_t wbuf)
     struct ieee80211_node *ni=NULL;
     u_int8_t *daddr;
     int is_data,retval;
-#if ATOPT_TRAFFIC_LIMIT
-    struct ieee80211com *ic = vap->iv_ic;
-#endif
 
     /*
      * Find the node for the destination so we can do
@@ -9032,7 +9188,6 @@ wlan_vap_send_aponly(wlan_if_t vap, wbuf_t wbuf)
                           __func__, ether_sprintf(daddr));
         goto bad;
     }
-
         if(ni != vap->iv_bss) {
             if (unlikely(ieee80211_node_get_associd(ni) == 0 || (
                 !ieee80211_node_is_authorized(ni)
@@ -9042,9 +9197,6 @@ wlan_vap_send_aponly(wlan_if_t vap, wbuf_t wbuf)
                 && !wbuf_is_eapol(wbuf)
 #ifdef ATH_SUPPORT_WAPI
                 && !wbuf_is_wai(wbuf)
-#endif
-#if ATOPT_THINAP
-                && !thinap
 #endif
                 ))) {
                 /*
@@ -9056,21 +9208,6 @@ wlan_vap_send_aponly(wlan_if_t vap, wbuf_t wbuf)
                 goto bad;
             }
         }
-#if ATH_SUPPORT_IQUE
-    /*
-     *  Headline block removal: if the state machine is in
-     *  BLOCKING or PROBING state, transmision of UDP data frames
-     *  are blocked untill swtiches back to ACTIVE state.
-     */
-      if (vap->iv_ique_ops.hbr_dropblocked) {
-          if (vap->iv_ique_ops.hbr_dropblocked(vap, ni, wbuf)) {
-               IEEE80211_DPRINTF(vap, IEEE80211_MSG_IQUE,
-                                 "%s: packet dropped coz it blocks the headline\n",
-                                 __func__);
-               goto bad;
-          }
-      }
-#endif
 
 #if ATH_SUPPORT_IQUE
     /*
@@ -9088,8 +9225,30 @@ wlan_vap_send_aponly(wlan_if_t vap, wbuf_t wbuf)
       }
 #endif
 
-    wbuf_set_node(wbuf, ni);    /* associate node with wbuf */
-
+#if ATH_SUPPORT_IQUE
+    /*
+     *  Headline block removal: if the state machine is in
+     *  BLOCKING or PROBING state, transmision of UDP data frames
+     *  are blocked untill swtiches back to ACTIVE state.
+     */
+      if (vap->iv_ique_ops.hbr_dropblocked) {
+          if (vap->iv_ique_ops.hbr_dropblocked(vap, ni, wbuf)) {
+               IEEE80211_DPRINTF(vap, IEEE80211_MSG_IQUE,
+                                 "%s: packet dropped coz it blocks the headline\n",
+                                 __func__);
+               goto bad;
+          }
+      }
+#endif
+      wbuf_set_node(wbuf, ni);    /* associate node with wbuf */
+#if ATH_BAND_STEERING
+      if(ieee80211_bsteering_is_vap_enabled(vap) &&
+         !IEEE80211_IS_MULTICAST(daddr) &&
+         !IEEE80211_IS_BROADCAST(daddr))
+          {
+              wbuf_set_bsteering(wbuf);
+          }
+#endif
     /* power-save checks */
     if (unlikely((!WME_UAPSD_AC_ISDELIVERYENABLED(wbuf_get_priority(wbuf), ni)) &&
         (ieee80211node_is_paused(ni)) &&
@@ -9106,47 +9265,11 @@ wlan_vap_send_aponly(wlan_if_t vap, wbuf_t wbuf)
                           __func__, ether_sprintf(daddr), (ni->ni_flags & IEEE80211_NODE_PWR_MGT) ?1 : 0, ieee80211node_is_paused(ni));
         ieee80211_node_saveq_queue(ni, wbuf, (is_data ? IEEE80211_FC0_TYPE_DATA : IEEE80211_FC0_TYPE_MGT));
         ieee80211node_unpause(ni); /* unpause it if we are the last one, the frame will be flushed out */
+#if !LMAC_SUPPORT_POWERSAVE_QUEUE
         ieee80211_free_node(ni);
-#if LMAC_SUPPORT_POWERSAVE_QUEUE
-        /* the node ref count will be reduced in tx_complete */
-        ieee80211_ref_node(ni);
-#else
         return 0;
 #endif
     }
-#if ATOPT_TRAFFIC_LIMIT
-    {
-        int ret = 0;
-        if((IEEE80211_TL_ENABLE == vap->vap_tl_vap_enable) &&		   // Vap
-        (vap->vap_tl_down_srtcm_vap.sr_cir > 0))
-        {
-            ret = ieee80211_tl_vap_cache_enqueue_tx(vap, wbuf, ic);
-            if(ret == IEEE80211_TL_ENQUEUE_OK)
-            {
-                return 0;
-            }
-            else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-            {
-                goto bad;
-            }
-        } 
-        else if((IEEE80211_TL_ENABLE == ni->ni_tl_sp_enable && ni->ni_tl_down_srtcm_sp.sr_cir > 0) ||	 // Specific node 
-        (IEEE80211_TL_ENABLE == ni->ni_tl_ev_enable && ni->ni_tl_down_srtcm_ev.sr_cir > 0)) 	 // Everynode
-        {
-            ieee80211node_pause(ni);  
-            ret = ieee80211_tl_node_cache_enqueue_tx(ni, wbuf, ic);
-            ieee80211node_unpause(ni); 
-            if(ret == IEEE80211_TL_ENQUEUE_OK)
-            {
-                return 0;
-            }
-            else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-            {
-                goto bad;
-            }
-        } 
-    }
-#endif
 
     ieee80211_vap_pause_update_xmit_stats(vap,wbuf); /* update the stats for vap pause module */
     retval = ieee80211_send_wbuf_internal_aponly(vap, wbuf);

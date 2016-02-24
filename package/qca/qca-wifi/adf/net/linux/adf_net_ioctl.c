@@ -98,6 +98,7 @@ PROTO_WIOCTL(get_ath_stats);
 PROTO_WIOCTL(clr_ath_stats);
 PROTO_WIOCTL(get_stats);
 PROTO_WIOCTL(set_phymode);
+PROTO_WIOCTL(get_phymode);
 PROTO_WIOCTL(get_assoc_sta_info);
 PROTO_WIOCTL(set_optie);
 PROTO_WIOCTL(get_chan_info);
@@ -141,7 +142,11 @@ PROTO_WIOCTL(get_wlan_profile);
 PROTO_WIOCTL(is_offload_vap);
 PROTO_WIOCTL(phyerr);
 PROTO_WIOCTL(set_chn_widthswitch); 
-PROTO_WIOCTL(set_country); 
+PROTO_WIOCTL(set_country);
+PROTO_WIOCTL(set_atf_addssid);
+PROTO_WIOCTL(set_atf_delssid);
+PROTO_WIOCTL(set_atf_addsta);
+PROTO_WIOCTL(set_atf_delsta);
 
 
 #define REQ_NUM(x)     [x]
@@ -202,6 +207,7 @@ const __wioctl_fn_t   __wioctl_sw[] = {
     REQ_NUM(ACFG_REQ_GET_SCANRESULTS)   = __wioctl_get_scan_results,
     REQ_NUM(ACFG_REQ_GET_STATS)         = __wioctl_get_stats,
     REQ_NUM(ACFG_REQ_SET_PHYMODE)       = __wioctl_set_phymode,
+    REQ_NUM(ACFG_REQ_GET_PHYMODE)       = __wioctl_get_phymode,
     REQ_NUM(ACFG_REQ_GET_ASSOC_STA_INFO)= __wioctl_get_assoc_sta_info,
     REQ_NUM(ACFG_REQ_SET_POWMGMT)       = __wioctl_set_powmgmt,
     REQ_NUM(ACFG_REQ_GET_POWMGMT)       = __wioctl_get_powmgmt,
@@ -245,7 +251,11 @@ const __wioctl_fn_t   __wioctl_sw[] = {
     REQ_NUM(ACFG_REQ_ACL_GETMAC)	= __wioctl_acl_getmac,
     REQ_NUM(ACFG_REQ_ACL_DELMAC)	= __wioctl_acl_delmac,
     REQ_NUM(ACFG_REQ_IS_OFFLOAD_VAP)	= __wioctl_is_offload_vap,
-    REQ_NUM(ACFG_REQ_SET_CHNWIDTHSWITCH)= __wioctl_set_chn_widthswitch, 
+    REQ_NUM(ACFG_REQ_SET_CHNWIDTHSWITCH)= __wioctl_set_chn_widthswitch,
+    REQ_NUM(ACFG_REQ_SET_ATF_ADDSSID) =  __wioctl_set_atf_addssid,
+    REQ_NUM(ACFG_REQ_SET_ATF_DELSSID) =  __wioctl_set_atf_delssid,
+    REQ_NUM(ACFG_REQ_SET_ATF_ADDSTA) =  __wioctl_set_atf_addsta,
+    REQ_NUM(ACFG_REQ_SET_ATF_DELSTA) =  __wioctl_set_atf_delsta,
     /* <add here> */
     REQ_NUM(ACFG_REQ_LAST_VAP)          = 0, /* Last VAP entry */
 };
@@ -1461,6 +1471,30 @@ __wioctl_set_phymode(__adf_softc_t *sc, acfg_data_t *data)
     return status;
 }
 
+/**
+ * @brief Get Phymode
+ *
+ * @param sc
+ * @param data
+ *
+ * @return
+ */
+static a_status_t
+__wioctl_get_phymode(__adf_softc_t *sc, acfg_data_t *data)
+{
+    a_status_t       status = A_STATUS_EINVAL;
+
+    adf_trace(ADF_DEBUG_FUNCTRACE, "%s(): \n",\
+                                     __FUNCTION__);
+
+    if(!sc2vap_cfg(sc)->get_phymode)
+        return A_STATUS_ENOTSUPP;
+
+    status = sc2vap_cfg(sc)->get_phymode(sc->drv_hdl, &data->phymode);
+
+    return status;
+}
+
 /*
  * Convert MHz frequency to IEEE channel number.
  */
@@ -1886,6 +1920,70 @@ __wioctl_set_chn_widthswitch(__adf_softc_t  *sc, acfg_data_t  *data)
         return A_STATUS_ENOTSUPP ;
 
     status = sc2vap_cfg(sc)->set_chn_widthswitch(sc->drv_hdl, &data->chnw);
+
+    return status;
+}
+
+static a_status_t
+__wioctl_set_atf_addssid(__adf_softc_t  *sc, acfg_data_t  *data)
+{
+    a_status_t       status = A_STATUS_EINVAL;
+    adf_trace(ADF_DEBUG_FUNCTRACE, "%s(): \n",__FUNCTION__);
+
+    if(!sc2vap_cfg(sc)->set_atf_ssid)
+        return A_STATUS_ENOTSUPP;
+
+    data->atf_ssid.id_type = ACFG_ATF_ADDSSID;
+
+    status = sc2vap_cfg(sc)->set_atf_ssid(sc->drv_hdl, &data->atf_ssid);
+
+    return status;
+}
+
+static a_status_t
+__wioctl_set_atf_delssid(__adf_softc_t  *sc, acfg_data_t  *data)
+{
+    a_status_t       status = A_STATUS_EINVAL;
+    adf_trace(ADF_DEBUG_FUNCTRACE, "%s(): \n",__FUNCTION__);
+
+    if(!sc2vap_cfg(sc)->set_atf_ssid)
+        return A_STATUS_ENOTSUPP;
+
+    data->atf_ssid.id_type = ACFG_ATF_DELSSID;
+
+    status = sc2vap_cfg(sc)->set_atf_ssid(sc->drv_hdl, &data->atf_ssid);
+
+    return status;
+}
+
+static a_status_t
+__wioctl_set_atf_addsta(__adf_softc_t  *sc, acfg_data_t  *data)
+{
+    a_status_t       status = A_STATUS_EINVAL;
+    adf_trace(ADF_DEBUG_FUNCTRACE, "%s(): \n",__FUNCTION__);
+
+    if(!sc2vap_cfg(sc)->set_atf_sta)
+        return A_STATUS_ENOTSUPP;
+
+    data->atf_sta.id_type = ACFG_ATF_ADDSTA;
+
+    status = sc2vap_cfg(sc)->set_atf_sta(sc->drv_hdl, &data->atf_sta);
+
+    return status;
+}
+
+static a_status_t
+__wioctl_set_atf_delsta(__adf_softc_t  *sc, acfg_data_t  *data)
+{
+    a_status_t       status = A_STATUS_EINVAL;
+    adf_trace(ADF_DEBUG_FUNCTRACE, "%s(): \n",__FUNCTION__);
+
+    if(!sc2vap_cfg(sc)->set_atf_sta)
+        return A_STATUS_ENOTSUPP;
+
+    data->atf_sta.id_type = ACFG_ATF_DELSTA;
+
+    status = sc2vap_cfg(sc)->set_atf_sta(sc->drv_hdl, &data->atf_sta);
 
     return status;
 }

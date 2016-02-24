@@ -139,11 +139,28 @@ int ol_cfg_target_tx_credit(ol_pdev_handle pdev)
   struct ol_ath_softc_net80211 *scn = (struct ol_ath_softc_net80211 *)pdev;
   u_int16_t vow_max_sta = ((scn->vow_config) & 0xffff0000) >> 16;
   u_int16_t vow_max_desc_persta = ((scn->vow_config) & 0x0000ffff);
-
+#if QCA_AIRTIME_FAIRNESS
+  struct ieee80211com *ic = &scn->sc_ic;
+#endif
 #if defined(CONFIG_HL_SUPPORT)
     if (scn->enable_max_clients)
         return CFG_TGT_NUM_MSDU_DESC_200;   /* FIX THIS : not HTT_DATA_SVC_PIPE_DEPTH - 4, should be HTTX_GUARANTEED_BUFS - 4 */
-    else 
+    else if (scn->max_peers && scn->max_peers <= CFG_TGT_NUM_PEERS_SPECIAL)
+        return CFG_TGT_NUM_MSDU_DESC_SPECIAL;
+#if QCA_AIRTIME_FAIRNESS
+    else if(ic->atf_mode) {
+        if(ic->atf_msdu_desc) {
+            if(ic->atf_msdu_desc < CFG_TGT_NUM_MSDU_DESC) {
+		return CFG_TGT_NUM_MSDU_DESC;
+            }else {
+                return ic->atf_msdu_desc;
+            }
+        } else {
+	    return CFG_TGT_NUM_MSDU_DESC_ATF;
+        }
+    }
+#endif
+    else
         return CFG_TGT_NUM_MSDU_DESC;
 #else
     /*
@@ -177,6 +194,21 @@ int ol_cfg_target_tx_credit(ol_pdev_handle pdev)
     }
     if (scn->enable_max_clients)
         return (CFG_TGT_NUM_MSDU_DESC_200 + (vow_max_sta*vow_max_desc_persta));
+    else if(scn->max_peers && scn->max_peers <=CFG_TGT_NUM_PEERS_SPECIAL)
+        return CFG_TGT_NUM_MSDU_DESC_SPECIAL + vow_max_sta*vow_max_desc_persta;
+#if QCA_AIRTIME_FAIRNESS
+    else if(ic->atf_mode) {
+        if(ic->atf_msdu_desc) {
+	    if(ic->atf_msdu_desc < CFG_TGT_NUM_MSDU_DESC) {
+		return (CFG_TGT_NUM_MSDU_DESC + (vow_max_sta*vow_max_desc_persta));
+            }else {
+                return (ic->atf_msdu_desc + (vow_max_sta*vow_max_desc_persta));
+            }
+        } else { 
+            return (CFG_TGT_NUM_MSDU_DESC_ATF + (vow_max_sta*vow_max_desc_persta));
+        }
+    }
+#endif
     else
         return (CFG_TGT_NUM_MSDU_DESC + (vow_max_sta*vow_max_desc_persta));
 #endif

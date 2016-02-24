@@ -71,6 +71,7 @@ struct ol_pl_os_dep_funcs *g_ol_pl_os_dep_funcs = NULL;
 #endif
 
 #include "ol_if_eeprom.h"
+#include "ol_txrx_types.h"
 #if ATH_PERF_PWR_OFFLOAD
 
 #include "ath_pci.h"
@@ -95,6 +96,10 @@ int wmi_unified_pdev_tpc_config_event_handler (ol_scn_t scn, u_int8_t *data, u_i
 int wmi_unified_gpio_input_event_handler (ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void *context);
 int wmi_unified_generic_buffer_event_handler (ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void *context);
 int wmi_unified_mcast_list_ageout_event_handler (ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void *context);
+
+#if QCA_AIRTIME_FAIRNESS
+int wmi_unified_tx_data_traffic_ctrl_event_handler (ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void *context);
+#endif
 
 #if OL_ATH_SUPPORT_LED
 static OS_TIMER_FUNC(ol_ath_led_blink_timed_out);
@@ -124,6 +129,8 @@ OL_LED_BLINK_RATES ol_led_blink_rate_table[] = {
 extern u_int32_t CalAddr[];
 extern int pci_dev_cnt;
 #endif
+
+extern void ol_if_mgmt_drain(struct ieee80211_node *ni);
 
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
 extern int ath_net80211_add_hmmc(struct ieee80211vap *vap, u_int32_t ip, u_int32_t mask);
@@ -1222,6 +1229,14 @@ ol_ath_disconnect_htc(struct ol_ath_softc_net80211 *scn)
     return 0;
 }
 
+#if QCA_AIRTIME_FAIRNESS
+static u_int32_t
+ol_ath_net80211_node_buf_held(struct ieee80211_node *ic)
+{
+    return 0;
+}
+#endif
+
 #if ATH_BAND_STEERING
 static bool
 ol_ath_bs_set_params(struct ieee80211com *ic,
@@ -1241,7 +1256,7 @@ ol_ath_bs_enable(struct ieee80211com *ic, bool enable)
 }
 
 static void
-ol_ath_bs_set_overload(struct ieee80211 *ic, bool overload)
+ol_ath_bs_set_overload(struct ieee80211com *ic, bool overload)
 {
     ol_txrx_set_overload((OL_ATH_SOFTC_NET80211(ic))->pdev_txrx_handle,
                          overload);
@@ -1428,6 +1443,9 @@ ol_ath_update_caps(struct ieee80211com *ic, wmi_service_ready_event *ev,
 void
 ol_ath_set_default_tgt_config(struct ol_ath_softc_net80211 *scn)
 {
+#if QCA_AIRTIME_FAIRNESS
+    struct ieee80211com *ic = &scn->sc_ic;
+#endif
     wmi_resource_config  tgt_cfg = {
         CFG_TGT_NUM_VDEV,
         CFG_TGT_NUM_PEERS + CFG_TGT_NUM_VDEV, /* need to reserve an additional peer for each VDEV */
@@ -1474,6 +1492,23 @@ ol_ath_set_default_tgt_config(struct ol_ath_softc_net80211 *scn)
         tgt_cfg.tx_dbg_log_size = CFG_TGT_DEFAULT_TX_DBG_LOG_SIZE_200;
         tgt_cfg.ast_skid_limit = CFG_TGT_AST_SKID_LIMIT_200;
     }
+    if (scn->max_peers && scn->max_peers <= CFG_TGT_NUM_PEERS_SPECIAL) {
+        tgt_cfg.num_msdu_desc = CFG_TGT_NUM_MSDU_DESC_SPECIAL;
+    }
+#if QCA_AIRTIME_FAIRNESS
+    if(ic->atf_mode) {
+    	if(ic->atf_msdu_desc) {
+            if(ic->atf_msdu_desc < CFG_TGT_NUM_MSDU_DESC) {
+		tgt_cfg.num_msdu_desc = CFG_TGT_NUM_MSDU_DESC;
+            }else {
+                tgt_cfg.num_msdu_desc = ic->atf_msdu_desc;
+            }
+        } else { 
+        	tgt_cfg.num_msdu_desc = CFG_TGT_NUM_MSDU_DESC_ATF;
+        }
+    }
+#endif
+
     /* reduce the peer/vdev if CFG_TGT_NUM_MSDU_DESC exceeds 1000 */
     // TODO:
 
@@ -1489,6 +1524,9 @@ ol_ath_set_default_tgt_config(struct ol_ath_softc_net80211 *scn)
 
         tgt_cfg.vow_config = scn->vow_config;
     }
+
+    tgt_cfg.fw_feature_bitmap |= FW_FEATURE_BSS_CHANNEL_INFO_64;
+
 #if  QCA_OL_RX_BATCHMODE
     tgt_cfg.fw_feature_bitmap |= FW_FEATURE_RX_BATCHMODE_BIT;
 #endif
@@ -1786,13 +1824,27 @@ ol_ath_service_ready_event(ol_scn_t scn_handle, wmi_service_ready_event *ev)
         if(ic->atf_mode) {
             if(ic->atf_fmcap) {
                 /*Before here, should add if host need to support this one */
-                scn->wlan_resource_config.num_peers = CFG_TGT_NUM_PEERS_ATF + CFG_TGT_NUM_VDEV;
+                if(ic->atf_max_vdevs) {
+                    scn->wlan_resource_config.num_vdevs = ic->atf_max_vdevs;
+                    if(ic->atf_peers) {
+                        scn->wlan_resource_config.num_peers = ic->atf_peers +
+                                            scn->wlan_resource_config.num_vdevs;
+                    } else {
+                        scn->wlan_resource_config.num_peers = CFG_TGT_NUM_PEERS_ATF +
+                                            scn->wlan_resource_config.num_vdevs;
+                    }
+                }
+                else if(ic->atf_peers) {
+                    scn->wlan_resource_config.num_peers = ic->atf_peers + CFG_TGT_NUM_VDEV;
+                } else
+                    scn->wlan_resource_config.num_peers = CFG_TGT_NUM_PEERS_ATF + CFG_TGT_NUM_VDEV;
+
                 /* When ATF is Enabled the number of active clients is 32 and number of Vdevs is 16 */
                 printk("ATF Enabled: Num peers = %d Num vdevs = %d Num TIDs = %d\n",
                         scn->wlan_resource_config.num_peers,
                         scn->wlan_resource_config.num_vdevs,
                         scn->wlan_resource_config.num_tids );
-                scn->wlan_resource_config.fw_feature_bitmap |= FW_FEATURE_ATF_CONFIG_BIT;
+                scn->wlan_resource_config.fw_feature_bitmap |= FW_FEATURE_ATF_MODE_BIT;
             }
         }
     }
@@ -1996,7 +2048,7 @@ wmi_unified_pdev_set_atf(wmi_unified_t wmi_handle, struct ieee80211vap *vap)
 {
 #define ENOBUFF 1
     struct ieee80211com *ic = vap->iv_ic;
-    struct wmi_atf_peer_info   *peer_info;
+    struct wmi_atf_peer_info *peer_info;
     wmi_peer_atf_request *cmd;
     wmi_buf_t buf;
     int len = sizeof(wmi_peer_atf_request);
@@ -2019,6 +2071,65 @@ wmi_unified_pdev_set_atf(wmi_unified_t wmi_handle, struct ieee80211vap *vap)
     retval = wmi_unified_cmd_send(wmi_handle, buf, len, WMI_PEER_ATF_REQUEST_CMDID);
     return retval;
 }
+    int
+wmi_unified_pdev_send_atf_peer_request(wmi_unified_t wmi_handle, struct ieee80211vap *vap)
+{
+#define ENOBUFF 1
+    struct ieee80211com *ic = vap->iv_ic;
+    struct wmi_atf_peer_ext_info *peer_ext_info;
+    wmi_peer_atf_ext_request *cmd;
+    wmi_buf_t buf;
+    int len = sizeof(wmi_peer_atf_ext_request);
+    int i,retval = 0;
+
+    len += ic->wmi_atf_peer_req.num_peers * sizeof(struct wmi_atf_peer_ext_info);
+    buf = wmi_buf_alloc(wmi_handle, len);
+    if (!buf) {
+        printk("%s:wmi_buf_alloc failed\n", __FUNCTION__);
+        return -ENOBUFF;
+    }
+
+    cmd = (wmi_peer_atf_ext_request *)wmi_buf_data(buf);
+    OS_MEMCPY((void *)&(cmd->num_peers),(void *)&(ic->wmi_atf_peer_req.num_peers),sizeof(u_int32_t));
+    peer_ext_info = (struct wmi_atf_peer_ext_info *)&(cmd->peer_ext_info[0]);
+    for (i = 0; i < ic->wmi_atf_peer_req.num_peers;i++)
+    {
+        OS_MEMCPY((void *)&(peer_ext_info[i]),(void *)&(ic->wmi_atf_peer_req.atf_peer_ext_info[i])
+                ,sizeof(struct wmi_atf_peer_ext_info));
+    }
+    retval = wmi_unified_cmd_send(wmi_handle, buf, len, WMI_PEER_ATF_EXT_REQUEST_CMDID);
+    return retval;
+}
+
+    int
+wmi_unified_pdev_set_atf_grouping(wmi_unified_t wmi_handle, struct ieee80211vap *vap)
+{
+#define ENOBUFF 1
+    struct ieee80211com *ic = vap->iv_ic;
+    struct wmi_atf_group_info *group_info;
+    wmi_atf_ssid_grp_request *cmd;
+    wmi_buf_t buf;
+    int len = sizeof(wmi_atf_ssid_grp_request);
+    int i,retval = 0;
+
+    len += ic->wmi_atf_group_req.num_groups * sizeof(struct wmi_atf_group_info);
+    buf = wmi_buf_alloc(wmi_handle, len);
+    if (!buf) {
+        printk("%s:wmi_buf_alloc failed\n", __FUNCTION__);
+        return -ENOBUFF;
+    }
+
+    cmd = (wmi_atf_ssid_grp_request *)wmi_buf_data(buf);
+    OS_MEMCPY((void *)&(cmd->num_groups),(void *)&(ic->wmi_atf_group_req.num_groups),sizeof(u_int32_t));
+    group_info = (struct wmi_atf_group_info *)&(cmd->group_info[0]);
+    for (i =0; i< ic->wmi_atf_group_req.num_groups;i++)
+    {
+        OS_MEMCPY((void *)&(group_info[i]),(void *)&(ic->wmi_atf_group_req.atf_group_info[i]),sizeof(struct wmi_atf_group_info));
+    }
+    retval = wmi_unified_cmd_send(wmi_handle, buf, len, WMI_ATF_SSID_GROUPING_REQUEST_CMDID);
+    return retval;
+}
+
 #endif
 
 int
@@ -2243,10 +2354,12 @@ static int
 ol_ath_init(struct ieee80211com *ic)
 {
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if ATOPT_ORI_ATHEROS_BUG
 	ieee80211_stop_running(ic);
 	ieee80211_start_running(ic);
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
     /* TBD */
     return 0;
@@ -2518,6 +2631,14 @@ static void
 ol_ath_net80211_enable_radar(struct ieee80211com *ic, int no_cac)
 {
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+static void
+ol_ath_net80211_enable_sta_radar(struct ieee80211com *ic, int no_cac)
+{
+    ol_if_dfs_configure(ic);
+}
+#endif
 
 static int
 ol_ath_set_channel(struct ieee80211com *ic)
@@ -3629,6 +3750,187 @@ ol_ath_net80211_get_mac_prealloc_idmask(struct ieee80211com *ic)
     return scn->sc_prealloc_idmask;
 }
 
+static int
+ol_ath_net80211_tr69_get_fail_retrans_cnt(struct ieee80211vap *vap, u_int32_t *failretranscnt)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+
+        *failretranscnt = avn->vdev_stats.tx.mpdu_fail_retry;
+
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_retry_cnt(struct ieee80211vap *vap, u_int32_t *retranscnt)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+
+        *retranscnt = avn->vdev_stats.tx.mpdu_suc_retry;
+
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_mul_retry_cnt(struct ieee80211vap *vap, u_int32_t *retranscnt)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+
+        *retranscnt = avn->vdev_stats.tx.mpdu_suc_multitry;
+
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_ack_fail_cnt(struct ieee80211vap *vap, u_int32_t *ackfailcnt)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+
+        *ackfailcnt = avn->vdev_stats.tx.ppdu_noack;
+
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_aggr_pkt_cnt(struct ieee80211vap *vap, u_int32_t *aggrpkts)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+
+        *aggrpkts = avn->vdev_stats.tx.ppdu_aggr_cnt;
+
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_sta_bytes_sent(struct ieee80211vap *vap, u_int32_t *bytessent, u_int8_t *dstmac)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ol_ath_softc_net80211 *scn = OL_ATH_SOFTC_NET80211(ic);
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, dstmac);
+    if (ni == NULL) {
+        return -ENOENT;
+    }
+    *bytessent = ni->ni_stats.ns_dot11_tx_bytes;
+
+    ieee80211_free_node(ni);
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_sta_bytes_rcvd(struct ieee80211vap *vap, u_int32_t *bytesrcvd, u_int8_t *dstmac)
+{
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ol_ath_softc_net80211 *scn = OL_ATH_SOFTC_NET80211(ic);
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, dstmac);
+    if (ni == NULL) {
+        return -ENOENT;
+    }
+    *bytesrcvd = ni->ni_stats.ns_dot11_rx_bytes;
+    ieee80211_free_node(ni);
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_chan_util(struct ieee80211vap *vap, u_int32_t *chanutil)
+{
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_get_retrans_cnt(struct ieee80211vap *vap, u_int32_t *retranscnt)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+
+        *retranscnt = avn->vdev_stats.tx.mpdu_sw_requed;
+    
+    return 0;
+}
+
+static int
+ol_ath_net80211_tr69_process_request(struct ieee80211vap *vap, int cmdid, void * arg1, void *arg2)
+{
+	struct ieee80211com *ic = vap->iv_ic;
+
+	switch(cmdid){
+#if 0
+        case IEEE80211_TR069_GET_PLCP_ERR_CNT:
+			ol_ath_net80211_tr69_get_plcp_err_cnt(dev, arg1);
+            break;
+        case IEEE80211_TR069_GET_FCS_ERR_CNT:
+			ol_ath_net80211_tr69_get_fcs_err_cnt(dev, arg1);
+            break;
+        case IEEE80211_TR069_GET_PKTS_OTHER_RCVD:
+			ol_ath_net80211_tr69_get_pkts_other_rcvd(dev, req);
+            break;
+#endif
+        case IEEE80211_TR069_GET_FAIL_RETRANS_CNT:
+			ol_ath_net80211_tr69_get_fail_retrans_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_RETRY_CNT:
+			ol_ath_net80211_tr69_get_retry_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_MUL_RETRY_CNT:
+			ol_ath_net80211_tr69_get_mul_retry_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_ACK_FAIL_CNT:
+			ol_ath_net80211_tr69_get_ack_fail_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_AGGR_PKT_CNT:
+			ol_ath_net80211_tr69_get_aggr_pkt_cnt(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_STA_BYTES_SENT:
+			ol_ath_net80211_tr69_get_sta_bytes_sent(vap, arg1, arg2);
+            break;
+        case IEEE80211_TR069_GET_STA_BYTES_RCVD:
+			ol_ath_net80211_tr69_get_sta_bytes_rcvd(vap, arg1, arg2);
+            break;
+#if 0
+        case IEEE80211_TR069_GET_DATA_SENT_ACK:
+			ol_ath_net80211_tr69_get_data_sent_ack(dev, arg1);
+            break;
+        case IEEE80211_TR069_GET_DATA_SENT_NOACK:
+			ol_ath_net80211_tr69_get_data_sent_noack(dev, req);
+            break;
+#endif
+        case IEEE80211_TR069_GET_CHAN_UTIL:
+			ol_ath_net80211_tr69_get_chan_util(vap, arg1);
+            break;
+        case IEEE80211_TR069_GET_RETRANS_CNT:
+			ol_ath_net80211_tr69_get_retrans_cnt(vap, arg1);
+            break;
+        default:
+			break;
+    }
+
+    return 0;
+}
+
+int
+ol_ath_net80211_get_vap_stats(struct ieee80211vap *vap)
+{
+    struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
+    if (NULL == avn) {
+        return;
+    }  
+    printk("-----VAP Stats------\n");
+    printk("\n");
+    printk("ppdu_aggr         = %d\n", avn->vdev_stats.tx.ppdu_aggr_cnt);
+    printk("ppdu_nonaggr      = %d\n", avn->vdev_stats.tx.ppdu_nonaggr_cnt);
+    printk("noack             = %d\n", avn->vdev_stats.tx.ppdu_noack);
+    printk("mpdu_queued       = %d\n", avn->vdev_stats.tx.mpdu_queued);
+    printk("mpdu_requeued     = %d\n", avn->vdev_stats.tx.mpdu_sw_requed);
+    printk("mpdu_suc_retry    = %d\n", avn->vdev_stats.tx.mpdu_suc_retry);
+    printk("mpdu_suc_multitry = %d\n", avn->vdev_stats.tx.mpdu_suc_multitry);
+    printk("mpdu_fail_retry   = %d\n", avn->vdev_stats.tx.mpdu_fail_retry);
+    printk("-----VAP Stats------\n");
+    printk("\n");
+
+    return 0;
+}
+
 /*
  * Register the DCS functionality
  * As such this is very small function and is not going to contain too many
@@ -3951,6 +4253,11 @@ ol_ath_dev_attach(struct ol_ath_softc_net80211 *scn,
      */
     ic->ic_set_channel = ol_ath_set_channel;
     ic->ic_enable_radar = ol_ath_net80211_enable_radar;
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    ic->ic_enable_sta_radar =  ol_ath_net80211_enable_sta_radar;
+#endif
+
     ic->ic_pwrsave_set_state = ol_ath_pwrsave_set_state;
     ic->ic_mhz2ieee = ol_ath_mhz2ieee;
     ic->ic_get_noisefloor = ol_ath_get_noisefloor;
@@ -4027,6 +4334,13 @@ ol_ath_dev_attach(struct ol_ath_softc_net80211 *scn,
     ic->ic_bs_set_overload = ol_ath_bs_set_overload;
     ic->ic_bs_set_params = ol_ath_bs_set_params;
 #endif
+#if QCA_AIRTIME_FAIRNESS
+    ic->ic_node_buf_held = ol_ath_net80211_node_buf_held;
+    ic->atf_txbuf_max = -1;
+    ic->atf_txbuf_min = -1;
+    ic->atf_txbuf_share = 1;
+#endif
+    ic->ic_tr69_request_process = ol_ath_net80211_tr69_process_request;
 
     ol_ath_nl_attach(ic);
 
@@ -4064,8 +4378,7 @@ ol_ath_dev_attach(struct ol_ath_softc_net80211 *scn,
 #if ATH_OL_FAST_CHANNEL_RESET_WAR
     ol_ath_fast_chan_change(scn);
 #endif
-	if (ic->ic_ath_enable_ap_stats)
-		ic->ic_ath_enable_ap_stats(ic, 1); //zhaoyang1 transplants statistics 2015-01-27
+
     return EOK;
 }
 
@@ -4135,7 +4448,10 @@ ol_asf_adf_attach(struct ol_ath_softc_net80211 *scn)
     return EOK;
 }
 
-extern u8 art_for_qca98xx[]; // zhaoyang1 modifies for loading 98xx caldata  
+#if ATOPT_QCA98XX_CAL
+extern u8 art_for_qca98xx[]; 
+#endif
+
 int
 ol_ath_attach(u_int16_t devid, struct ol_ath_softc_net80211 *scn,
               IEEE80211_REG_PARAMETERS *ieee80211_conf_parm,
@@ -4168,8 +4484,11 @@ ol_ath_attach(u_int16_t devid, struct ol_ath_softc_net80211 *scn,
     scn->cal_in_flash = 1;
     cal_location = CalAddr[pci_dev_cnt-1];
 #ifndef ATH_CAL_NAND_FLASH
-	// zhaoyang1 modifies for loading 98xx caldata  
-    scn->cal_mem = A_IOREMAP(art_for_qca98xx, HOST_CALDATA_SIZE);
+#if ATOPT_QCA98XX_CAL
+    scn->cal_mem = A_IOREMAP(art_for_qca98xx, HOST_CALDATA_SIZE); 
+#else 
+	scn->cal_mem = A_IOREMAP(cal_location, HOST_CALDATA_SIZE);
+#endif
     if (!scn->cal_mem) {
         printk("%s: A_IOREMAP failed\n", __func__);
         return -1;
@@ -4350,6 +4669,7 @@ ol_ath_attach(u_int16_t devid, struct ol_ath_softc_net80211 *scn,
          * 9. WLAN/UMAC initialization
          */
         ic->ic_is_mode_offload = ol_ath_net80211_is_mode_offload;
+        ic->ic_if_mgmt_drain = ol_if_mgmt_drain;
         ic->ic_is_macreq_enabled = ol_ath_net80211_is_macreq_enabled;
         ic->ic_get_mac_prealloc_idmask = ol_ath_net80211_get_mac_prealloc_idmask;
         ic->ic_osdev = osdev;
@@ -4463,6 +4783,11 @@ ol_ath_attach(u_int16_t devid, struct ol_ath_softc_net80211 *scn,
         wmi_unified_register_event_handler(scn->wmi_handle, WMI_MCAST_LIST_AGEOUT_EVENTID,
                                                 wmi_unified_mcast_list_ageout_event_handler, NULL);
 
+#if QCA_AIRTIME_FAIRNESS
+        wmi_unified_register_event_handler(scn->wmi_handle, WMI_TX_DATA_TRAFFIC_CTRL_EVENTID,
+                                                wmi_unified_tx_data_traffic_ctrl_event_handler, NULL);
+#endif
+
 #if OL_ATH_SUPPORT_LED
         if (scn->target_version == AR9888_REV2_VERSION || scn->target_version == AR9887_REV1_VERSION) {
             scn->scn_led_gpio = PEREGRINE_LED_GPIO ;
@@ -4498,6 +4823,13 @@ ol_ath_attach(u_int16_t devid, struct ol_ath_softc_net80211 *scn,
         scn->is_ani_enable = true;
     else
         scn->is_ani_enable = false;
+
+    ic->ic_def_bintval_override = 1;
+    status = wmi_unified_pdev_set_param(scn->wmi_handle,
+               WMI_PDEV_PARAM_BEACON_TX_MODE, 1);
+    if (status == EOK) {
+        scn->bcn_mode = (u_int8_t)true;
+    }
 
     return EOK;
 
@@ -4554,9 +4886,11 @@ ol_ath_detach(struct ol_ath_softc_net80211 *scn, int force)
     int status = 0,idx;
     ic = &scn->sc_ic;
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/	
+/*Added-Begin:pengdecai for 11ac station timeout*/	
+#if ATOPT_ORI_ATHEROS_BUG
     ieee80211_stop_running(ic);
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
 #if OL_ATH_SUPPORT_LED
     if (!bypasswmi && !scn->lteu_support) {
@@ -5634,6 +5968,71 @@ wmi_unified_mcast_list_ageout_event_handler (ol_scn_t scn, u_int8_t *data, u_int
     return 0;
 }
 
+#if QCA_AIRTIME_FAIRNESS
+int
+wmi_unified_tx_data_traffic_ctrl_event_handler (ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void *context)
+{
+    wmi_tx_data_traffic_ctrl_event *evt = (wmi_tx_data_traffic_ctrl_event *)data;
+    struct ol_txrx_pdev_t *txrx_pdev    = scn->pdev_txrx_handle;
+    struct ieee80211vap *vap            = ol_ath_vap_get(scn, evt->vdev_id);
+    struct ieee80211_node *ni           = NULL;
+    struct ol_txrx_peer_t *peer         = NULL;
+
+    if(evt->peer_ast_idx == WMI_INVALID_PEER_AST_INDEX) {
+        /* Invalid peer_ast_idx. Stop data tx traffic for a particular vap/vdev*/
+
+        if (vap) {
+            switch (evt->ctrl_cmd) {
+                case WMI_TX_DATA_TRAFFIC_CTRL_UNBLOCK:
+                    vap->iv_block_tx_traffic = 0; //allow traffic
+                    break;
+                case WMI_TX_DATA_TRAFFIC_CTRL_BLOCK:
+                    vap->iv_block_tx_traffic = 1; //stop traffic
+                    break;
+                default:
+                    break;
+            }
+        } else
+            printk("Could not find vap\n");
+
+    } else {
+        /* Stop data tx traffic for a particular node/peer */
+
+        peer = txrx_pdev->peer_id_to_obj_map[evt->peer_ast_idx];
+
+        if(peer) {
+            if(vap) {
+                ni = ieee80211_vap_find_node(vap, peer->mac_addr.raw);
+                if(ni) {
+                    switch (evt->ctrl_cmd) {
+                        case WMI_TX_DATA_TRAFFIC_CTRL_UNBLOCK:
+                            if(ni->ni_block_tx_traffic) {
+                                ni->ni_block_tx_traffic = 0; //allow traffic
+				vap->tx_blk_cnt--;
+                            }
+                            break;
+                        case WMI_TX_DATA_TRAFFIC_CTRL_BLOCK:
+                            if(!ni->ni_block_tx_traffic) {
+                                ni->ni_block_tx_traffic = 1; //stop traffic
+                                vap->tx_blk_cnt++;
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                    ieee80211_free_node(ni);
+                } else
+                    printk("Could not find node\n");
+            } else
+                printk("Could not find vap\n");
+        } else
+            printk("Could not find peer\n");
+    }
+
+    return 0;
+}
+#endif
+
 u_int8_t ol_scn_vow_extstats(ol_pdev_handle pdev)
 {
     struct ol_ath_softc_net80211 *scn = (struct ol_ath_softc_net80211 *)pdev;
@@ -5742,4 +6141,29 @@ ol_ath_led_event(struct ol_ath_softc_net80211 *scn, OL_LED_EVENT event)
 }
 #endif
 
+/*Added-Begin:pengdecai for 11ac station timeout*/	
+#if ATOPT_ORI_ATHEROS_BUG
+int ol_node_activity(struct ol_txrx_peer_t *peer)
+{
+	int status = 0;
+    struct ieee80211vap *vap = NULL;
+    struct ieee80211_node *ni = NULL;
+	
+    struct ol_ath_softc_net80211 *scn =
+        (struct ol_ath_softc_net80211 *)peer->vdev->pdev->ctrl_pdev;
+
+    vap = ol_ath_vap_get(scn, peer->vdev->vdev_id);
+    if(!vap)
+        return status;
+    ni = ieee80211_find_node(&vap->iv_ic->ic_sta,
+            peer->mac_addr.raw);
+
+    if (ni) {
+        ni->ni_inact = ni->ni_inact_reload;
+        ieee80211_free_node(ni);
+    }
+    return status;
+}
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 #endif

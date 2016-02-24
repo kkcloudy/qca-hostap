@@ -588,6 +588,10 @@ typedef struct atd_cfg_vap {
 
     a_status_t (*set_chn_widthswitch)(adf_drv_handle_t hdl, acfg_set_chn_width_t* chnw);
 
+    a_status_t (*set_atf_ssid)(adf_drv_handle_t hdl, acfg_atf_ssid_val_t* atf_ssid);
+
+    a_status_t (*set_atf_sta)(adf_drv_handle_t hdl, acfg_atf_sta_val_t* atf_sta);
+
 } atd_cfg_vap_t;
 
 

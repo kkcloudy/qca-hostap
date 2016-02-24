@@ -86,7 +86,6 @@ static void ath_band_steering_netlink_receive(struct sock *sk, int len)
 {
     struct sk_buff *skb;
     struct nlmsghdr *nlh = NULL;
-    u_int8_t *data = NULL;
     u_int32_t pid;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION (2,6,24)
@@ -97,7 +96,6 @@ static void ath_band_steering_netlink_receive(struct sock *sk, int len)
         /* process netlink message pointed by skb->data */
         nlh = (struct nlmsghdr *)skb->data;
         pid = nlh->nlmsg_pid;
-        data = NLMSG_DATA(nlh);
         printk("Band steering events being sent to PID:%d\n", pid);
         band_steering_nl->bsteer_pid = pid;
         kfree_skb(skb);

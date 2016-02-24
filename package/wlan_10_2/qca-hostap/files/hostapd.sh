@@ -160,6 +160,13 @@ hostapd_set_bss_options() {
 			config_get wep_key_len_unicast "$vif" wep_key_len_unicast
 			append "$var" "eapol_key_index_workaround=1" "$N"
 			append "$var" "ieee8021x=1" "$N"
+			config_get identity_request_retry_interval "$vif" identity_request_retry_interval
+			[ -n "$identity_request_retry_interval" ] && append "$var" "identity_request_retry_interval=$identity_request_retry_interval" "$N"
+			config_get radius_server_retries "$vif" radius_server_retries
+			[ -n "$radius_server_retries" ] && append "$var" "radius_server_retries=$radius_server_retries" "$N"
+			config_get radius_max_retry_wait "$vif" radius_max_retry_wait
+			[ -n "$radius_max_retry_wait" ] && append "$var" "radius_max_retry_wait=$radius_max_retry_wait" "$N"
+
 			[ -n "$wpa_group_rekey"  ] && append "$var" "wpa_group_rekey=$wpa_group_rekey" "$N"
 			[ -n "$wpa_strict_rekey"  ] && append "$var" "wpa_strict_rekey=$wpa_strict_rekey" "$N"
 			[ -n "$wpa_pair_rekey"   ] && append "$var" "wpa_ptk_rekey=$wpa_pair_rekey"    "$N"

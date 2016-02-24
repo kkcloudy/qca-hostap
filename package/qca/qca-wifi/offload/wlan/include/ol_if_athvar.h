@@ -88,7 +88,6 @@ typedef enum _ATH_BIN_FILE {
     ATH_PATCH_FILE,
     ATH_BOARD_DATA_FILE,
     ATH_FLASH_FILE,
-    ATH_TARGET_EEPROM_FILE,    
 } ATH_BIN_FILE;
 
 typedef enum _ol_target_status  {
@@ -504,6 +503,7 @@ struct ol_ath_vap_net80211 {
                                 av_use_mat:1;   /* use MAT for this VAP */
     u_int8_t                    av_mat_addr[IEEE80211_ADDR_LEN];    /* MAT addr */
 #endif
+    struct wal_dbg_vdev_stats               vdev_stats;
 };
 #define OL_ATH_VAP_NET80211(_vap)      ((struct ol_ath_vap_net80211 *)(_vap))
 
@@ -566,6 +566,8 @@ void ol_ath_rtt_meas_report_attach(struct ieee80211com *ic);
 
 #if QCA_AIRTIME_FAIRNESS
 int wmi_unified_pdev_set_atf(wmi_unified_t wmi_handle, struct ieee80211vap *vap);
+int wmi_unified_pdev_send_atf_peer_request(wmi_unified_t wmi_handle, struct ieee80211vap *vap);
+int wmi_unified_pdev_set_atf_grouping(wmi_unified_t wmi_handle, struct ieee80211vap *vap);
 #endif
 
 void ol_ath_power_attach(struct ieee80211com *ic);
@@ -654,12 +656,9 @@ int ol_ath_resume_target(struct ol_ath_softc_net80211 *scn);
 u_int ol_ath_mhz2ieee(struct ieee80211com *ic, u_int freq, u_int flags);
 void ol_ath_set_ht_vht_ies(struct ieee80211_node *ni);
 
-//zhaoyang1 transplants statistics 2015-01-27
-int ol_rx_rssi_statistics(struct ol_txrx_peer_t * peer, 
-	u_int16_t npackets, u_int8_t rssi);
-
+#if ATOPT_ORI_ATHEROS_BUG
 int ol_node_activity(struct ol_txrx_peer_t *peer); //added by pengdecai for 11ac station timeout
-
+#endif
 int wmi_unified_set_ap_ps_param(struct ol_ath_vap_net80211 *avn,
         struct ol_ath_node_net80211 *anode, A_UINT32 param, A_UINT32 value);
 int wmi_unified_set_sta_ps_param(struct ol_ath_vap_net80211 *avn,

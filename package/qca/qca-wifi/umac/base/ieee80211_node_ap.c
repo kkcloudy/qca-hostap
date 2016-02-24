@@ -218,15 +218,8 @@ bool _ieee80211_node_leave(struct ieee80211_node *ni)
         if (IEEE80211_NODE_USE_HT(ni)) {
             ic->ic_ht_sta_assoc--;
             if (ni->ni_htcap & IEEE80211_HTCAP_C_GREENFIELD) {
-/*AUTELAN-Begin:Added by duanmingzhe for greenfield bug. 2015-01-22, transplant by zhouke */
-#if 0
                 ASSERT(ic->ic_ht_gf_sta_assoc > 0);
                 ic->ic_ht_gf_sta_assoc--;
-#else
-				if(ic->ic_ht_gf_sta_assoc)
-	                ic->ic_ht_gf_sta_assoc--;
-#endif
-/* AUTELAN-End: Added by duanmingzhe for greenfield bug. 2015-01-22, transplant by zhouke */
             }
 #if ATH_TxBF_DYNAMIC_LOF_ON_N_CHAIN_MASK
             iee80211_txbf_loforce_check(ni,0);

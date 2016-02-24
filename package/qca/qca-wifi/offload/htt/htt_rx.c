@@ -184,7 +184,11 @@ static void
 htt_rx_ring_refill_retry(void *arg)
 {
     htt_pdev_handle pdev = (htt_pdev_handle)arg;
+#if QCA_PARTNER_CBM_DIRECTPATH
+    htt_rx_msdu_buff_replenish_partner(pdev);
+#else /* QCA_PARTNER_CBM_DIRECTPATH */
     htt_rx_msdu_buff_replenish(pdev);
+#endif
 }
 
 void
@@ -217,7 +221,15 @@ htt_rx_ring_fill_n(struct htt_pdev_t *pdev, int num)
         }
 
         /* Clear rx_desc attention word before posting to Rx ring */
-        rx_desc = htt_rx_desc(rx_netbuf);
+#if QCA_PARTNER_CBM_DIRECTPATH
+        if (is_partner_buffer((uint32_t)adf_nbuf_head(rx_netbuf))) {
+          rx_desc = htt_rx_desc_partner(rx_netbuf);
+        } else
+#endif
+        {
+          rx_desc = htt_rx_desc(rx_netbuf);
+        } /*QCA_PARTNER_CBM_DIRECTPATH */
+
         *(u_int32_t *)&rx_desc->attention = 0;
         *(((u_int32_t *)&rx_desc->msdu_end) + 4) = 0;
 
@@ -899,8 +911,14 @@ htt_rx_amsdu_pop_ll(
          * Set the length to the appropriate value.
          * Check if this MSDU completes a MPDU.
          */
-        rx_desc = htt_rx_desc(msdu);
-
+#if QCA_PARTNER_CBM_DIRECTPATH
+        if (is_partner_buffer((uint32_t)adf_nbuf_head(msdu))) {
+          rx_desc = htt_rx_desc_partner(msdu);
+        } else
+#endif /* QCA_PARTNER_CBM_DIRECTPATH */
+        {
+          rx_desc = htt_rx_desc(msdu);
+        } /* QCA_PARTNER_CBM_DIRECTPATH */
 #if RX_DEBUG
         if (!((*(u_int32_t *) &rx_desc->attention) &
                     RX_ATTENTION_0_MSDU_DONE_MASK)) {
@@ -949,8 +967,14 @@ htt_rx_amsdu_pop_ll(
                     dump_msdu_fillpaddr(pdev, msdu);
                 }
                 adf_nbuf_unmap(pdev->osdev, next_msdu, ADF_OS_DMA_FROM_DEVICE);
-                rx_desc = htt_rx_desc(next_msdu);
-
+#if QCA_PARTNER_CBM_DIRECTPATH
+                if (is_partner_buffer((uint32_t)adf_nbuf_head(next_msdu))) {
+                    rx_desc = htt_rx_desc_partner(next_msdu);
+                } else
+#endif /* QCA_PARTNER_CBM_DIRECTPATH */
+                {
+                    rx_desc = htt_rx_desc(next_msdu);
+                } /* QCA_PARTNER_CBM_DIRECTPATH */
                 printk("next_rx_desc %p next_msdu %p \n", rx_desc, next_msdu);
                 printk("Rx Attention of next_msdu 0x%x\n", *((u_int32_t *)&rx_desc->attention));
 
@@ -1299,7 +1323,20 @@ htt_rx_restitch_mpdu_from_msdus(
      * payload
      */
     msdu_orig = head_msdu;
-    rx_desc = htt_rx_desc(msdu_orig);
+
+#if QCA_PARTNER_CBM_DIRECTPATH
+    if (is_partner_buffer((uint32_t)adf_nbuf_head(msdu_orig))) {
+      rx_desc = htt_rx_desc_partner(msdu_orig);
+    } else
+#endif
+    {
+      rx_desc = htt_rx_desc(msdu_orig);
+    } /* QCA_PARTNER_CBM_DIRECTPATH */
+
+    /* Drop packets if it is mpdu Length Error */
+    if ( rx_desc->attention.mpdu_length_err ) {
+        return NULL;
+    }
 
     /* Fill out the rx_status from the PPDU start and end fields */
     if (rx_desc->attention.first_mpdu) {
@@ -1466,11 +1503,19 @@ htt_rx_restitch_mpdu_from_msdus(
             head_frag_list_cloned  = msdu;
         } else {
 
-            /* Maintain the linking of the cloned MSDUS */
-            adf_nbuf_set_next_ext(prev_buf, msdu);
+        /* Maintain the linking of the cloned MSDUS */
+        adf_nbuf_set_next_ext(prev_buf, msdu);
 
-            /* Reload the hdr ptr only on non-first MSDUs */
+        /* Reload the hdr ptr only on non-first MSDUs */
+#if QCA_PARTNER_CBM_DIRECTPATH
+        if (is_partner_buffer((uint32_t)adf_nbuf_head(msdu_orig))) {
+            rx_desc = htt_rx_desc_partner(msdu_orig);
+        } else
+#endif
+        {
             rx_desc = htt_rx_desc(msdu_orig);
+        } /* QCA_PARTNER_CBM_DIRECTPATH */
+
             hdr_desc = &rx_desc->rx_hdr_status[0];
 
         }
@@ -1593,7 +1638,16 @@ htt_rx_mpdu_desc_list_next_ll(htt_pdev_handle pdev, adf_nbuf_t rx_ind_msg)
     int idx = pdev->rx_ring.sw_rd_idx.msdu_desc;
     adf_nbuf_t netbuf = pdev->rx_ring.buf.netbufs_ring[idx];
     pdev->rx_ring.sw_rd_idx.msdu_desc = pdev->rx_ring.sw_rd_idx.msdu_payld;
-    return (void *) htt_rx_desc(netbuf);
+
+#if QCA_PARTNER_CBM_DIRECTPATH
+    if (is_partner_buffer((uint32_t)adf_nbuf_head(netbuf))) {
+        return (void *) htt_rx_desc_partner(netbuf);
+    } else
+#endif
+    {
+        return (void *) htt_rx_desc(netbuf);
+    } /* QCA_PARTNER_CBM_DIRECTPATH */
+
 }
 
 
@@ -1621,7 +1675,15 @@ htt_rx_mpdu_desc_list_next_hl(htt_pdev_handle pdev, adf_nbuf_t rx_ind_msg)
 void *
 htt_rx_msdu_desc_retrieve_ll(htt_pdev_handle pdev, adf_nbuf_t msdu)
 {
+#if QCA_PARTNER_CBM_DIRECTPATH
+  if (is_partner_buffer((uint32_t)adf_nbuf_head(msdu))) {
+    return htt_rx_desc_partner(msdu);
+  } else
+#endif
+  {
     return htt_rx_desc(msdu);
+  } /* QCA_PARTNER_CBM_DIRECTPATH */
+
 }
 
 void *
@@ -1695,7 +1757,14 @@ void htt_rx_get_vowext_stats(adf_nbuf_t msdu, struct vow_extstats *vowstats)
     u_int8_t preamble_type;
     u_int8_t rate = 0, nss=0, bw=0, sgi = 0, mcs = 0, rs_flags=0;
     struct htt_host_rx_desc_base *rx_desc;
-    rx_desc = htt_rx_desc(msdu);
+#if QCA_PARTNER_CBM_DIRECTPATH
+    if (is_partner_buffer((uint32_t)adf_nbuf_head(msdu))) {
+      rx_desc = htt_rx_desc_partner(msdu);
+    } else
+#endif /* QCA_PARTNER_CBM_DIRECTPATH */
+    {
+      rx_desc = htt_rx_desc(msdu);
+    } /* QCA_PARTNER_CBM_DIRECTPATH */
 
     ppdu = ((u_int32_t *)&rx_desc->ppdu_start);
     preamble_type = (ppdu[5] & 0xff000000) >> 24;
@@ -1773,7 +1842,14 @@ int  htt_rx_get_smart_ant_stats(adf_nbuf_t rx_ind_msg,  adf_nbuf_t head_msdu, ad
     num_msdu = HTT_RX_IND_FW_RX_DESC_BYTES_GET(*(msg_word + 2));
 
     /* If first MSDU set in head then only RSSI, Rate info is valid */
-    rx_desc = htt_rx_desc(head_msdu);
+#if QCA_PARTNER_CBM_DIRECTPATH
+    if (is_partner_buffer((uint32_t)adf_nbuf_head(head_msdu))) {
+      rx_desc = htt_rx_desc_partner(head_msdu);
+    } else
+#endif /* QCA_PARTNER_CBM_DIRECTPATH */
+    {
+      rx_desc = htt_rx_desc(head_msdu);
+    } /* QCA_PARTNER_CBM_DIRECTPATH */
     atten = *(u_int32_t *)&rx_desc->attention;
     if (atten & 0x1) { /* first MPDU */
 
@@ -1866,7 +1942,14 @@ int  htt_rx_get_smart_ant_stats(adf_nbuf_t rx_ind_msg,  adf_nbuf_t head_msdu, ad
 
 
     /* If Last MSDU set in head then only EVM, Antenna info is valid */
-    rx_desc = htt_rx_desc(tail_msdu);
+#if QCA_PARTNER_CBM_DIRECTPATH
+    if (is_partner_buffer((uint32_t)adf_nbuf_head(tail_msdu))) {
+      rx_desc = htt_rx_desc_partner(tail_msdu);
+    } else
+#endif /* QCA_PARTNER_CBM_DIRECTPATH */
+    {
+      rx_desc = htt_rx_desc(tail_msdu);
+    } /* QCA_PARTNER_CBM_DIRECTPATH */
     atten = *(u_int32_t *)&rx_desc->attention;
     if (atten & 0x2) { /* Last MPDU */
         ppdu = ((u_int32_t *)&rx_desc->ppdu_end);
@@ -1904,7 +1987,11 @@ htt_rx_attach(struct htt_pdev_t *pdev)
          * the initial value set here, to reflect the actual host latency
          * rather than a conservative assumption about the host latency.
          */
+#if QCA_PARTNER_CBM_DIRECTPATH
+        pdev->rx_ring.fill_level = QCA_PARTNER_CBM_DIRECTPATH_RX_RING_SIZE;
+#else
         pdev->rx_ring.fill_level = htt_rx_ring_fill_level(pdev);
+#endif
 
         pdev->rx_ring.buf.netbufs_ring = adf_os_mem_alloc(
             pdev->osdev, pdev->rx_ring.size * sizeof(adf_nbuf_t));

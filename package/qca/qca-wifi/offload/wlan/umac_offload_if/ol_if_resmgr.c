@@ -132,18 +132,21 @@ static int _ieee80211_resmgr_vap_start(ieee80211_resmgr_t resmgr,
     freq = ieee80211_chan2freq(resmgr->ic, chan);
     if (!freq) {
         printk("ERROR : INVALID Freq \n");
-        return 0;
+        return EBUSY;
     }
-    
+
+    spin_lock_dpc(&vap->init_lock);
     /*Return from here, if VAP init is already in progress*/
     if(true == vap->init_in_progress){
         printk("Warning:VAP Init in progress! \n");
-        return 0;
+        spin_unlock_dpc(&vap->init_lock);
+        return EBUSY;
     }
 
 #if ATH_SUPPORT_DFS
     if ( vap->iv_opmode == IEEE80211_M_HOSTAP &&
-        IEEE80211_IS_CHAN_DFS(chan)) {
+        IEEE80211_IS_CHAN_DFS(chan) &&
+        !ieee80211_vap_is_any_running(ic)) {
            disable_hw_ack = true;
     }
 #endif
@@ -158,10 +161,9 @@ static int _ieee80211_resmgr_vap_start(ieee80211_resmgr_t resmgr,
      */ 
     avn->av_ol_resmgr_wait = TRUE;
 
-    spin_lock(&vap->init_lock);
     if (wmi_unified_vdev_start_send(scn->wmi_handle, avn->av_if_id, chan, freq, disable_hw_ack, ic->ic_nl_handle)) {
         printk("Unable to bring up the interface for ath_dev.\n");
-        spin_unlock(&vap->init_lock);
+        spin_unlock_dpc(&vap->init_lock);
         return -1;
     }
 
@@ -169,7 +171,7 @@ static int _ieee80211_resmgr_vap_start(ieee80211_resmgr_t resmgr,
       due to 20/40 coexistence scenarios, so, channel is saved to configure on VDEV START RESP */
    avn->av_ol_resmgr_chan = chan;
    vap->init_in_progress = true;
-   spin_unlock(&vap->init_lock);
+   spin_unlock_dpc(&vap->init_lock);
 
     if (!ic->ic_nl_handle) {
         printk("OL vap_start -\n");
@@ -294,6 +296,7 @@ static int _ieee80211_resmgr_vap_stop(ieee80211_resmgr_t resmgr,
                                u_int16_t reqid)
 {
     struct ieee80211com *ic = resmgr->ic;
+    int ret = EOK;
 #if 0        
     struct ol_ath_softc_net80211 *scn = OL_ATH_SOFTC_NET80211(ic);
     struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);
@@ -303,13 +306,15 @@ static int _ieee80211_resmgr_vap_stop(ieee80211_resmgr_t resmgr,
         printk("OL vap_stop +\n");
     }
 
-    vap->iv_stopping(vap);
+    ret = vap->iv_stopping(vap);
+    if (ret != EOK)
+        ieee80211_vap_deliver_stop_error(vap);
 
     if (!ic->ic_nl_handle) {
         printk("OL vap_stop -\n");
     }
 
-    return EOK;
+    return ret;
 }
 
 static int 
@@ -338,7 +343,7 @@ ol_vdev_wmi_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void 
         printk("ol_vdev_start_resp_ev for vap %d (%p)\n", wmi_vdev_start_resp_ev->vdev_id, scn->wmi_handle);
     }
 
-    spin_lock(&vaphandle->init_lock);
+    spin_lock_dpc(&vaphandle->init_lock);
 
     switch (vaphandle->iv_opmode) {
 
@@ -349,7 +354,7 @@ ol_vdev_wmi_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void 
                return here
              */
             if(avn->av_ol_resmgr_wait == FALSE) {
-                spin_unlock(&vaphandle->init_lock);
+                spin_unlock_dpc(&vaphandle->init_lock);
                 return 0;
             }
              /* Resetting the ol_resmgr_wait flag*/
@@ -421,6 +426,15 @@ ol_vdev_wmi_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void 
             /* XXX reset erp state */
             ieee80211_reset_erp(ic, ic->ic_curmode, vaphandle->iv_opmode);
             ieee80211_wme_initparams(vaphandle);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            /* use the vap bsschan for dfs configure/enable */
+            if (IEEE80211_IS_CHAN_DFS(vaphandle->iv_bsschan)&& ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) {
+                   extern void ol_if_dfs_configure(struct ieee80211com *ic);
+                   ol_if_dfs_configure(ic);
+            }
+#endif
+
             if (wmi_vdev_start_resp_ev->resp_type == WMI_VDEV_RESTART_RESP_EVENT) {
                 do_notify = false;
             }
@@ -431,13 +445,13 @@ ol_vdev_wmi_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datalen, void 
     }
 
     vaphandle->init_in_progress = false;
-    spin_unlock(&vaphandle->init_lock);
+    spin_unlock_dpc(&vaphandle->init_lock);
 
     /* Intimate start completion to VAP module */
     /* if STA, bypass notification for RESTERT EVENT */
     if (do_notify)
     ieee80211_notify_vap_start_complete(resmgr, vaphandle, IEEE80211_RESMGR_STATUS_SUCCESS);
-
+   vaphandle->channel_switch_state = 0;
    return 0;
 }
 

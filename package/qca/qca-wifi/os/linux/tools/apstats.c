@@ -390,7 +390,7 @@ static int nodestats_hierarchy_init(vaplevel_stats_t *vapstats, int sockfd)
     nodelevel_stats_t *curr_ns_ptr = NULL;
     int buflen = 0;
     int remaining_len = 0;
-
+    int ret;
     buflen = sizeof(struct ieee80211req_sta_info) *
              EXPECTED_MAX_NODES_PERVAP;
 
@@ -405,10 +405,10 @@ static int nodestats_hierarchy_init(vaplevel_stats_t *vapstats, int sockfd)
     strncpy(iwr.ifr_name, vapstats->ifname, sizeof(iwr.ifr_name));
     iwr.u.data.pointer = (void *)buf;
     iwr.u.data.length = buflen;
-    if (ioctl(sockfd, IEEE80211_IOCTL_STA_INFO, &iwr) < 0) {
+    if ((ret = ioctl(sockfd, IEEE80211_IOCTL_STA_INFO, &iwr)) < 0) {
         perror("IEEE80211_IOCTL_STA_INFO");
         free(buf);
-        return -1;
+        return ret;
     }
     
     if (0 == iwr.u.data.length) {
@@ -432,10 +432,10 @@ static int nodestats_hierarchy_init(vaplevel_stats_t *vapstats, int sockfd)
         iwr.u.data.pointer = (void *)buf;
         iwr.u.data.length = buflen;
 
-        if (ioctl(sockfd, IEEE80211_IOCTL_STA_INFO, &iwr) < 0) {
+        if ((ret = ioctl(sockfd, IEEE80211_IOCTL_STA_INFO, &iwr)) < 0) {
             perror("IEEE80211_IOCTL_STA_INFO");
             free(buf);
-            return -1;
+            return ret;
         }
     }
 
@@ -699,7 +699,10 @@ static int stats_hierachy_init(aplevel_stats_t *apstats, int sockfd)
         if ((ret = nodestats_hierarchy_init(vapstats, sockfd)) < 0)
         {
             free(vapstats);
-            return ret;
+            if (ret == -EPERM)
+               return 0;
+            else
+               return ret;
         }
 
         vapstats->parent = curr_rs_ptr;
@@ -1756,7 +1759,7 @@ static int nodelevel_gather_stats(int sockfd,
     nodestats->tx_discard       = ns->ns_tx_discard + ns->ns_is_tx_nobuf;
     nodestats->rx_rssi          = si->isi_rssi;
     nodestats->host_discard     = ns->ns_is_tx_nobuf;
-    
+
 }
 
 static char* macaddr_to_str(const struct ether_addr *addr)

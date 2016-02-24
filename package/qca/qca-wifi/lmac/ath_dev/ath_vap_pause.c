@@ -253,6 +253,14 @@ static void ath_tx_vap_pause_txq(struct ath_softc *sc, struct ath_txq *txq, stru
                 {
                     ATH_TXBUF_LOCK(sc);
                     sc->sc_txbuf_free++;
+                    /**
+                     * Debug print added in case of NULL descriptor assignment
+                     */
+                    if( !(bf->bf_desc) ) {
+                        printk("\nxxx NULL descriptor detected in %s for buffer %p xxx\n",
+                                __func__,bf);
+                    }
+
 #if ATH_TX_BUF_FLOW_CNTL
 					if(bf) {
                     txq->axq_num_buf_used--;

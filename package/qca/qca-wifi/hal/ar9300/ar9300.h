@@ -575,6 +575,8 @@ struct ath_hal_9300 {
     u_int32_t   ah_cycle_count;
     u_int32_t   ah_ctl_busy;
     u_int32_t   ah_ext_busy;
+    u_int32_t   ah_rf;
+    u_int32_t   ah_tf;
 
     /* HT CWM state */
     HAL_HT_EXTPROTSPACING ah_ext_prot_spacing;
@@ -845,6 +847,7 @@ struct ath_hal_9300 {
 #if ATH_TxBF_DYNAMIC_LOF_ON_N_CHAIN_MASK
         ah_loforce_enabled      : 1,
 #endif
+        ah_scanning              : 1,
         tx_iq_cal_enable         : 1,
         tx_iq_cal_during_agc_cal : 1,
         tx_cl_cal_enable         : 1;
@@ -907,8 +910,8 @@ struct ath_hal_9300 {
     u_int32_t           ah_rx_cal_chan;     /* chan on which rx cal is done */
     u_int32_t           ah_rx_cal_chan_flag;
     u_int32_t           ah_rx_cal_corr[AR9300_MAX_CHAINS];
-    int16_t             cdd_gain_comp[AR9300_MAX_CHAINS];    /* power compensated due to CDD array gain (for FCC domain) */
-    int16_t             num_txchain_comp[AR9300_MAX_CHAINS]; /* power compensated due to multiple tx chains */
+    u_int16_t           ah_home_channel;                     /* our channel before we started a scan */
+    u_int32_t           ah_home_channel_flags;               /* our channel flags before we started a scan */
 };
 
 #define AH9300(_ah) ((struct ath_hal_9300 *)(_ah))
@@ -1333,6 +1336,7 @@ extern  bool ar9300_get_diag_state(struct ath_hal *ah, int request,
         void **result, u_int32_t *resultsize);
 extern void ar9300_get_desc_info(struct ath_hal *ah, HAL_DESC_INFO *desc_info);
 extern  int8_t ar9300_get_11n_ext_busy(struct ath_hal *ah);
+extern  u_int32_t ar9300_get_ch_busy_pct(struct ath_hal *ah);
 extern  void ar9300_set_11n_mac2040(struct ath_hal *ah, HAL_HT_MACMODE mode);
 extern  HAL_HT_RXCLEAR ar9300_get_11n_rx_clear(struct ath_hal *ah);
 extern  void ar9300_set_11n_rx_clear(struct ath_hal *ah, HAL_HT_RXCLEAR rxclear);
@@ -1555,7 +1559,6 @@ extern u_int16_t ar9300_get_ctl_center(struct ath_hal *ah,
 extern u_int16_t ar9300_get_ext_center(struct ath_hal *ah,
                                         HAL_CHANNEL_INTERNAL *chan);
 extern u_int32_t ar9300_get_mib_cycle_counts_pct(struct ath_hal *, u_int32_t*, u_int32_t*, u_int32_t*);
-extern u_int32_t ar9300_get_mib_counts(struct ath_hal *, HAL_MibCOUNTERS *p_mibcnts);	/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 
 extern void ar9300_dma_reg_dump(struct ath_hal *);
 extern  bool ar9300_set_11n_rx_rifs(struct ath_hal *ah, bool enable);

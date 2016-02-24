@@ -122,6 +122,19 @@
         }                                                                                                      \
     } while(0)
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+#define IEEE80211_DELIVER_EVENT_MLME_DISASSOC_INDICATION( _vap,_macaddr,_reason)  do {        \
+        int i;                                                                                \
+        (_vap)->iv_mlme_priv->im_is_stacac_cac_valid = 0;                                     \
+        for(i=0;i<IEEE80211_MAX_VAP_MLME_EVENT_HANDLERS; ++i) {                               \
+            if ((_vap)->iv_mlme_evtable[i] &&                                                 \
+            (_vap)->iv_mlme_evtable[i]->mlme_disassoc_indication) {                           \
+                (* (_vap)->iv_mlme_evtable[i]->mlme_disassoc_indication)                      \
+                                           ((_vap)->iv_mlme_arg[i], _macaddr, _reason);       \
+             }                                                                                \
+        }                                                                                     \
+    } while(0)
+#else
 #define IEEE80211_DELIVER_EVENT_MLME_DISASSOC_INDICATION( _vap,_macaddr,_reason)  do {        \
         int i;                                                                                \
         for(i=0;i<IEEE80211_MAX_VAP_MLME_EVENT_HANDLERS; ++i) {                               \
@@ -132,6 +145,7 @@
              }                                                                                \
         }                                                                                     \
     } while(0)
+#endif
 
 #define IEEE80211_DELIVER_EVENT_MLME_RADAR_DETECTED( _vap,_evt)  do {                         \
         int i;                                                                                \
@@ -394,21 +408,33 @@
         }                                                                                     \
     } while(0)
 #if ATH_BAND_STEERING
-#define IEEE80211_DELIVER_BSTEERING_EVENT(_vap,_event,_eventlen,_data,_band_index)  do { \
+#define IEEE80211_DELIVER_BSTEERING_EVENT(_vap,_event,_eventlen,_data)  do { \
         int i;                                                          \
         for(i = 0; i < IEEE80211_MAX_MISC_EVENT_HANDLERS; ++i) {        \
             if ((_vap)->iv_misc_evtable[i] &&                           \
                 (_vap)->iv_misc_evtable[i]->bsteering_event) {          \
                 (* (_vap)->iv_misc_evtable[i]->bsteering_event)         \
-                    ((_vap)->iv_misc_arg[i],_event,_eventlen,_data,_band_index); \
+                    ((_vap)->iv_misc_arg[i],_event,_eventlen,_data); \
             }                                                           \
         }                                                               \
     } while(0)
 #else
-#define IEEE80211_DELIVER_BSTEERING_EVENT( _vap,_event,_eventlen,_data,_band_index) do { \
+#define IEEE80211_DELIVER_BSTEERING_EVENT( _vap,_event,_eventlen,_data) do { \
     }    while(0)
 #endif
 
+#if ATH_SUPPORT_MGMT_TX_STATUS
+#define IEEE80211_DELIVER_EVENT_MGMT_TX_STATUS(_vap, _status,_wbuf)  do {                     \
+        int _i;                                                                                \
+        for(_i=0;_i<IEEE80211_MAX_MISC_EVENT_HANDLERS; ++_i) {                                   \
+            if ((_vap)->iv_misc_evtable[_i] &&                                                 \
+                (_vap)->iv_misc_evtable[_i]->wlan_mgmt_tx_status) {                            \
+                (* (_vap)->iv_misc_evtable[_i]->wlan_mgmt_tx_status)                           \
+                                           ((_vap)->iv_mlme_arg[_i], _status, _wbuf);            \
+             }                                                                                \
+        }                                                                                     \
+    } while(0)
+#endif
 struct ieee80211_mlme_priv;
 typedef struct ieee80211_mlme_priv *ieee80211_mlme_priv_t;
 
@@ -665,4 +691,15 @@ ieee80211_is_pmf_enabled(struct ieee80211vap *vap, struct ieee80211_node *ni);
 void ieee80211_scs_vattach(struct ieee80211vap *vap);
 void ieee80211_scs_vdetach(struct ieee80211vap *vap);
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void mlme_set_stacac_timer(struct ieee80211vap *vap, u_int32_t expire_ms);
+void mlme_cancel_stacac_timer(struct ieee80211vap *vap);
+bool mlme_is_stacac_running(struct ieee80211vap *vap);
+void mlme_set_stacac_running(struct ieee80211vap *vap, u_int8_t set);
+bool mlme_is_stacac_valid(struct ieee80211vap *vap);
+void mlme_set_stacac_valid(struct ieee80211vap *vap, u_int8_t set);
+void mlme_reset_mlme_req(struct ieee80211vap *vap);
+void mlme_indicate_sta_radar_detect(struct ieee80211_node *ni);
+#define wlan_mlme_set_stacac_valid mlme_set_stacac_valid
+#endif
 #endif /* _IEEE80211_MLME_H */

@@ -443,6 +443,28 @@ exit:
     return error;
 }
 
+int wlan_send_bstmreq_target(wlan_if_t vaphandle, u_int8_t *macaddr,
+                             struct ieee80211_bstm_reqinfo_target *bstmreq)
+{
+    struct ieee80211vap      *vap = vaphandle;
+    struct ieee80211_node    *ni;
+    int error = 0;
+
+    ni = ieee80211_vap_find_node(vap, macaddr);
+    if (ni == NULL) {
+        error = -EINVAL;
+        goto exit;
+    }
+
+    error = ieee80211_send_bstm_req_target(vap, ni, bstmreq);
+
+    /* claim node immediately */
+    ieee80211_free_node(ni);
+
+exit:
+    return error;
+}
+
 int wlan_wnm_vap_is_set(wlan_if_t vaphandle) 
 {
     struct ieee80211vap      *vap = vaphandle;

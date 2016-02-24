@@ -168,19 +168,11 @@ ieee80211_send_mgmt(struct ieee80211vap *vap,struct ieee80211_node *ni, wbuf_t w
             IEEE80211_DPRINTF(vap, IEEE80211_MSG_POWER,
                               "[%s] frame filtered out; do not send\n",
                               __func__);
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <SEND> [Step ** - SEND MGMT] %s: frame filtered out; do not send\n", 
-                __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
             return EOK;
         }
     }
     vap->iv_lastdata = OS_GET_TIMESTAMP();
 
-	IEEE80211_NODE_STAT(ni, tx_mgmt); //zhaoyang1 transplants statistics 2015-01-27
     ieee80211_sta_power_tx_start(vap);
 #if 0
 if (wbuf_is_keepalive(wbuf)){
@@ -209,12 +201,11 @@ if (wbuf_is_keepalive(wbuf)){
         ieee80211node_pause(ni); /* pause it to make sure that no one else unpaused it after the node_is_paused check above, pause operation is ref counted */  
         ieee80211_node_saveq_queue(ni,wbuf,IEEE80211_FC0_TYPE_MGT);
         ieee80211node_unpause(ni); /* unpause it if we are the last one, the frame will be flushed out */  
+#if !LMAC_SUPPORT_POWERSAVE_QUEUE
         ieee80211_free_node(ni);
+#endif
         ieee80211_sta_power_tx_end(vap);
-#if LMAC_SUPPORT_POWERSAVE_QUEUE
-        /* the node ref count will be reduced in tx_complete */
-        ieee80211_ref_node(ni);
-#else
+#if !LMAC_SUPPORT_POWERSAVE_QUEUE
         return EOK;
 #endif
     }
@@ -465,20 +456,8 @@ ieee80211_send_auth(
     u_int8_t *frm;
 
     wbuf = wbuf_alloc(ic->ic_osdev, WBUF_TX_MGMT, MAX_TX_RX_PACKET_SIZE);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    if (wbuf == NULL) {
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <FAIL> [Step 02 - SEND AUTH] %s: wbuf alloc failed\n", 
-            __func__);
-        return -ENOMEM;
-    }
-#else
     if (wbuf == NULL)
         return -ENOMEM;
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH,
                           "[%s] send auth frmae \n ", ether_sprintf(ni->ni_macaddr)); 
@@ -562,18 +541,6 @@ ieee80211_send_auth(
 
     wbuf_set_pktlen(wbuf, (frm - (u_int8_t *)wbuf_header(wbuf)));
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-		" <SEND> [Step 02 - SEND AUTH] %s: send auth frame, seq_num = %d, status = %d\n", 
-		__func__, seq, status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-	/* Autelan-Begin: zhaoyang1 modifies for y assistant access debug 2015-04-17*/
-	 if (status == IEEE80211_STATUS_SUCCESS)
-		y_assistant_netlink_access_debug_send(ni->ni_macaddr, 
-			vap->iv_myaddr, 1, vap->iv_des_ssid[0].ssid);
-	/* Autelan-End: zhaoyang1 modifies for y assistant access debug 2015-04-17*/
     return ieee80211_send_mgmt(vap,ni, wbuf,false);
 }
 
@@ -612,26 +579,15 @@ ieee80211_send_deauth(struct ieee80211_node *ni, u_int16_t reason)
         da = ni->ni_macaddr;
     } else {
         da = broadcast_addr;
-        if (ieee80211_is_pmf_enabled(vap, ni)) {
+    }
+
+    if (ieee80211_is_pmf_enabled(vap, ni)) {
             frlen = sizeof(struct ieee80211_mmie);
-        }   
     }
 
     wbuf = wbuf_alloc(ic->ic_osdev, WBUF_TX_MGMT, (sizeof(struct ieee80211_frame)+frlen));
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    if (wbuf == NULL) {
-	  IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-	  	" <FAIL> [Step 05 - SEND DEAUTH] %s: wbuf alloc failed\n", 
-	  	__func__);
-        return -ENOMEM;
-    }
-#else
     if (wbuf == NULL)
         return -ENOMEM;
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
 #if (UMAC_SUPPORT_TDLS == 1) && (ATH_TDLS_AUTO_CONNECT == 1)
     ic->ic_tdls_clean(vap);
@@ -660,8 +616,8 @@ ieee80211_send_deauth(struct ieee80211_node *ni, u_int16_t reason)
 
     if ((vap->iv_ccx_evtable && vap->iv_ccx_evtable->wlan_ccx_is_mfp &&
         vap->iv_ccx_evtable->wlan_ccx_is_mfp(vap->iv_ifp)) ||
-        (ieee80211_vap_mfp_test_is_set(vap) && ni->ni_ucastkey.wk_valid) ||
-         ieee80211_is_pmf_enabled(vap, ni)) {
+        ((ieee80211_vap_mfp_test_is_set(vap) ||
+        ieee80211_is_pmf_enabled(vap, ni)) && ni->ni_ucastkey.wk_valid)){
         if (!(IEEE80211_IS_BROADCAST(wh->i_addr1) || IEEE80211_IS_MULTICAST(wh->i_addr1))) {
             /* MFP is enabled and a key is established. */
             /* We need to turn on WEP bit of the frame */
@@ -693,15 +649,10 @@ ieee80211_send_deauth(struct ieee80211_node *ni, u_int16_t reason)
 
     vap->deauth_req_cnt++;
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-		" <SEND> [Step 05 - SEND DEAUTH] %s: send deauth frame, reason = %d\n", 
-		__func__, reason);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
-    return ieee80211_send_mgmt(vap,ni, wbuf,true);
+    if (vap->iv_vap_is_down)
+        return ieee80211_send_mgmt(vap, ni, wbuf, true);
+    else
+        return ieee80211_send_mgmt(vap, ni, wbuf, false);
 }
 
 /*
@@ -737,20 +688,8 @@ int ieee80211_send_disassoc_with_callback(struct ieee80211_node *ni, u_int16_t r
     }
 
     wbuf = wbuf_alloc(ic->ic_osdev, WBUF_TX_MGMT, MAX_TX_RX_PACKET_SIZE);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    if (wbuf == NULL) {
-	  IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-	  	" <FAIL> [Step 05 - SEND DISASSOC] %s: wbuf alloc failed\n", 
-	  	__func__);
-        return -ENOMEM;
-    }
-#else
     if (wbuf == NULL)
         return -ENOMEM;
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
 #if (UMAC_SUPPORT_TDLS == 1) && (ATH_TDLS_AUTO_CONNECT == 1)
     ic->ic_tdls_clean(vap);
@@ -779,8 +718,8 @@ int ieee80211_send_disassoc_with_callback(struct ieee80211_node *ni, u_int16_t r
 
     if ((vap->iv_ccx_evtable && vap->iv_ccx_evtable->wlan_ccx_is_mfp &&
         vap->iv_ccx_evtable->wlan_ccx_is_mfp(vap->iv_ifp)) ||
-        (ieee80211_vap_mfp_test_is_set(vap) && ni->ni_ucastkey.wk_valid) ||
-         ieee80211_is_pmf_enabled(vap, ni)) {
+        ((ieee80211_vap_mfp_test_is_set(vap) ||
+        ieee80211_is_pmf_enabled(vap, ni)) && ni->ni_ucastkey.wk_valid)){
         if (!(IEEE80211_IS_BROADCAST(wh->i_addr1) || IEEE80211_IS_MULTICAST(wh->i_addr1))) {
             /* MFP is enabled and a key is established. */
             /* We need to turn on WEP bit of the frame */
@@ -807,7 +746,10 @@ int ieee80211_send_disassoc_with_callback(struct ieee80211_node *ni, u_int16_t r
     if (handler) {
         ieee80211_vap_set_complete_buf_handler(wbuf, handler, arg);
     }
-    return ieee80211_send_mgmt(vap,ni, wbuf,true);
+    if (vap->iv_vap_is_down)
+        return ieee80211_send_mgmt(vap, ni, wbuf, true);
+    else
+        return ieee80211_send_mgmt(vap, ni, wbuf, false);
 }
 
 static int ieee80211_is_robust_action_frame(u_int8_t category)
@@ -1149,7 +1091,6 @@ ieee80211_send_action(
     case IEEE80211_ACTION_CAT_WMM_QOS: {
         struct ieee80211_action_wmm_qos *tsframe;
         struct ieee80211_wme_tspec *tsdata = (struct ieee80211_wme_tspec *) &actionbuf->buf;
-        struct ieee80211_frame *wh;
         u_int8_t    tsrsiev[16];
         u_int8_t    tsrsvlen = 0;
         u_int32_t   minphyrate;
@@ -1164,8 +1105,6 @@ ieee80211_send_action(
                 error = -ENOMEM;
                 break;
             }
-            wh = (struct ieee80211_frame*)wbuf_header(wbuf);
-
             tsframe = (struct ieee80211_action_wmm_qos *)frm;
             tsframe->ts_header.ia_category = actionargs->category;
             tsframe->ts_header.ia_action = actionargs->action;
@@ -1924,6 +1863,8 @@ ieee80211_get_phy_type (
                         }
                     break;
                     case IEEE80211_VHTOP_CHWIDTH_80 :
+                    case IEEE80211_VHTOP_CHWIDTH_80_80 :
+                    case IEEE80211_VHTOP_CHWIDTH_160 :
                         if (IEEE80211_SUPPORT_PHY_MODE(ic, IEEE80211_MODE_11AC_VHT80)) {
                             phymode = IEEE80211_MODE_11AC_VHT80;
                         } else if (IEEE80211_SUPPORT_PHY_MODE(ic, IEEE80211_MODE_11AC_VHT40)) {
@@ -2573,6 +2514,10 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
     u_int8_t *challenge = NULL, challenge_len = 0;
     int deref_reqd = 0;
     int ret_val = EOK;
+#if ATOPT_ORI_ATHEROS_BUG
+	struct ieee80211_node *tmp_node = NULL;
+	struct ieee80211com *ic = ni->ni_ic;
+#endif
 
 
     wh = (struct ieee80211_frame *) wbuf_header(wbuf);
@@ -2597,6 +2542,8 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
 
     frm = (u_int8_t *)&wh[1];
     efrm = wbuf_header(wbuf) + wbuf_get_pktlen(wbuf);
+
+#if !ATOPT_ORI_ATHEROS_BUG
     /*
      * XXX bug fix 89056: Station Entry exists in the node table, 
      * But the node is associated with the other vap, so we are 
@@ -2614,14 +2561,6 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
               (tmpvap->iv_opmode == IEEE80211_M_HOSTAP)) {
 
                if (ni != vap->iv_bss) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                    IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                        " <INFO> [Step 02 - RECV AUTH] %s: station exist in other vap, delete station\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
                   IEEE80211_NOTE(vap, IEEE80211_MSG_MLME, ni,
                             "%s", "Removing the node from the station node list\n");
                   ieee80211_ref_node(ni);
@@ -2650,13 +2589,31 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
            }
         }
     }
-
+#endif
 
     /*
      * XXX: when we're scanning, we may receive auth frames
      * of other stations in the same BSS.
      */
     IEEE80211_VERIFY_ADDR(ni);
+#if ATOPT_ORI_ATHEROS_BUG
+	tmp_node = ieee80211_find_rxnode(ic, wh);
+	/*Station Entry exists in the node table, we need free the old node*/
+	if (tmp_node) {
+		struct ieee80211vap *tmp_vap = tmp_node->ni_vap;
+		if (tmp_vap != vap) { //associate to another vap, need to clean old node
+			ieee80211_ref_node(tmp_node);
+			if(_ieee80211_node_leave(tmp_node)) {
+			 	/* Call MLME indication handler if node is in associated state */
+			 	IEEE80211_DELIVER_EVENT_MLME_DISASSOC_INDICATION(tmp_vap,
+				                                              tmp_node->ni_macaddr,
+				                                              IEEE80211_REASON_ASSOC_LEAVE);
+			}
+			ieee80211_free_node(tmp_node);
+		} else 
+			ni = tmp_node;
+	}
+#endif
     
     /*
      * auth frame format
@@ -2669,14 +2626,7 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
     algo = le16toh(*(u_int16_t *)frm); frm += 2;
     seq = le16toh(*(u_int16_t *)frm); frm += 2;
     status = le16toh(*(u_int16_t *)frm); frm += 2;
-	
-	// zhaoyang1 modifies for client access statistics 2015-03-27
-	if ((IEEE80211_AUTH_OPEN_REQUEST == seq) || (IEEE80211_AUTH_SHARED_REQUEST == seq)) {
-		vap->iv_stats.is_client_access_totally_cnt++;
-		// zhaoyang1 modifies for y assistant access debug 2015-04-17
-		y_assistant_netlink_access_debug_send(wh->i_addr2, 
-			vap->iv_myaddr, 0, vap->iv_des_ssid[0].ssid);
-	}
+
     /* Validate challenge TLV if any */
     if (algo == IEEE80211_AUTH_ALG_SHARED) {  
         if (frm + 1 < efrm) {
@@ -2685,18 +2635,6 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
                                       ni->ni_macaddr, "shared key auth",
                                       "ie %d/%d too long",
                                       frm[0], (frm[1] + 2) - (efrm - frm));
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                    " <FAIL> [Step 02 - RECV AUTH] %s: shared key auth, challenge text error, seq_num = %d\n", 
-                    __func__, seq);
-                IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                    " <INFO> [Step 02 - RECV AUTH] %s: ALGORITHM = SHARED, SEQ_NUM: 1-REQUEST, 2-CHALLENGE, 3-RESPONSE, 4-PASS\n", 
-                    __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 vap->iv_stats.is_rx_bad_auth++;
                 ret_val = -EINVAL;
                 goto exit;
@@ -2713,37 +2651,12 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
                 IEEE80211_DISCARD_MAC(vap, IEEE80211_MSG_AUTH,
                                       ni->ni_macaddr, "shared key auth",
                                       "%s", "no challenge");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                 " <FAIL> [Step 02 - RECV AUTH] %s: shared key auth, no challenge text, seq_num = %d\n", 
-                 __func__, seq);
-                IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                 " <INFO> [Step 02 - RECV AUTH] %s: ALGORITHM = SHARED, SEQ_NUM: 1-REQUEST, 2-CHALLENGE, 3-RESPONSE, 4-PASS\n", 
-                 __func__);  
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 vap->iv_stats.is_rx_bad_auth++;
                 ret_val = -EINVAL;
                 goto exit;
             }
         }
     }
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-	IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-		" <RECV> [Step 02 - RECV AUTH] %s: recv auth frame, algorithm = 0x%04X, seq_num = %d, status = %d\n", 
-		__func__, algo, seq, status);
-
-		/* ALGORITHM: 0x0000-OPEN, 0x0001-SHARED, 0x0080-LEAP
-		 * ALGORITHM - OPEN, SEQ_NUM: 1-REQUEST, 2-RESPONSE
-		 * ALGORITHM - SHARED, SEQ_NUM: 1-REQUEST, 2-CHALLENGE, 3-RESPONSE, 4-PASS
-		 */
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
     ieee80211_mlme_recv_auth(ni, algo, seq, status, challenge, challenge_len,wbuf,rs);
 exit:
@@ -2752,6 +2665,10 @@ exit:
 
     if (deref_reqd) 
         ieee80211_free_node(ni);
+#if ATOPT_ORI_ATHEROS_BUG
+	if (tmp_node)
+		ieee80211_free_node(tmp_node);
+#endif
     return ret_val;
 }
 
@@ -2778,7 +2695,7 @@ ieee80211_recv_deauth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
     }
     reason = le16toh(*(u_int16_t *)frm);
 
-    if ((ieee80211_is_pmf_enabled(vap, ni)|| 
+    if (((ieee80211_is_pmf_enabled(vap, ni) && ni->ni_ucastkey.wk_valid )||
         (vap->iv_ccx_evtable && vap->iv_ccx_evtable->wlan_ccx_is_mfp &&
             vap->iv_ccx_evtable->wlan_ccx_is_mfp(vap->iv_ifp))) && 
         !(wh->i_fc[1] & IEEE80211_FC1_WEP)) {
@@ -2791,24 +2708,11 @@ ieee80211_recv_deauth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                               wh, ieee80211_mgt_subtype_name[
                                   subtype >> IEEE80211_FC0_SUBTYPE_SHIFT],
                               "%s", "deauth frame is not encrypted");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, " <FAIL> [Step 05 - RECV DEAUTH] %s: deauth frame is not encrypted\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             return -EINVAL;
         }
     }
 
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "Received Deauth with reason %d\n", reason);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    IEEE80211_NOTE_MGMT_DEBUG(vap, ni, " <RECV> [Step 05 - RECV DEAUTH] %s: reason = %d\n", __func__, reason);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
     ieee80211_mlme_recv_deauth(ni, reason);
 
@@ -2838,7 +2742,7 @@ ieee80211_recv_disassoc(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
     }
     reason = le16toh(*(u_int16_t *)frm);
 
-    if ((ieee80211_is_pmf_enabled(vap, ni) || 
+    if (((ieee80211_is_pmf_enabled(vap, ni) && ni->ni_ucastkey.wk_valid) ||
         (vap->iv_ccx_evtable && vap->iv_ccx_evtable->wlan_ccx_is_mfp &&
             vap->iv_ccx_evtable->wlan_ccx_is_mfp(vap->iv_ifp))) && 
         !(wh->i_fc[1] & IEEE80211_FC1_WEP)) {
@@ -2851,24 +2755,13 @@ ieee80211_recv_disassoc(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                               wh, ieee80211_mgt_subtype_name[
                                   subtype >> IEEE80211_FC0_SUBTYPE_SHIFT],
                               "%s", "disassoc frame is not encrypted");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, " <FAIL> [Step 06 - RECV DISASSOC] %s: disassoc frame is not encrypted\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
             return -EINVAL;
         }
     }
 
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "Received Disassoc with reason %d\n", reason);
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    IEEE80211_NOTE_MGMT_DEBUG(vap, ni, " <RECV> [Step 06 - RECV DISASSOC] %s: reason = %d\n", __func__, reason);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
+    vap->disassoc_req_cnt++;
 
     ieee80211_mlme_recv_disassoc(ni, reason);
 
@@ -3081,7 +2974,7 @@ ieee80211_recv_action(struct ieee80211_node *ni, wbuf_t wbuf, int subtype, struc
                 wbuf_set_pktlen(wbuf, sizeof(struct ieee80211_frame) +
                                       sizeof(struct ieee80211_dls_response));
 
-                if (ieee80211_is_pmf_enabled(vap, ni)) {
+                if (ieee80211_is_pmf_enabled(vap, ni) && ni->ni_ucastkey.wk_valid) {
                     /* MFP is enabled, so we need to set Privacy bit */
                     wh1->i_fc[1] |= IEEE80211_FC1_WEP;
                 }
@@ -3141,7 +3034,7 @@ ieee80211_recv_action(struct ieee80211_node *ni, wbuf_t wbuf, int subtype, struc
              * NB: The user defined ADDBA response status code is overloaded for
              * non HT capable node and WDS node
              */
-            if (!IEEE80211_NODE_USEAMPDU(ni)) {
+            if (!IEEE80211_NODE_ISAMPDU(ni)) {
                 /* The node is not HT capable - set the ADDBA status to refused */
                 ic->ic_addba_setresponse(ni, baparamset.tid, IEEE80211_STATUS_REFUSED);
             } else if (IEEE80211_VAP_IS_WDS_ENABLED(ni->ni_vap)) {
@@ -3306,7 +3199,7 @@ ieee80211_recv_action(struct ieee80211_node *ni, wbuf_t wbuf, int subtype, struc
 #endif
 #endif  // for TxBF RC
 
-        if (!IEEE80211_NODE_USEAMPDU(ni)) {
+        if (!IEEE80211_NODE_ISAMPDU(ni)) {
             IEEE80211_NOTE(vap, IEEE80211_MSG_ACTION, ni,
                            "%s: HT action mgt frame ignored for non-HT association)\n", __func__);
             break;
@@ -3546,9 +3439,7 @@ ieee80211_recv_mgmt(struct ieee80211_node *ni,
     int    is_bcast, forward_to_filter = 1;
     int    i;
     int    eq=0;
-#if ATOPT_THINAP
-    int ret_val = EOK;
-#endif
+
     wh = (struct ieee80211_frame *) wbuf_header(wbuf);
 
     if(subtype ==  IEEE80211_FC0_SUBTYPE_AUTH ||
@@ -3685,11 +3576,7 @@ ieee80211_recv_mgmt(struct ieee80211_node *ni,
         break;
 
     case IEEE80211_FC0_SUBTYPE_AUTH:
-        #if ATOPT_THINAP
-        ret_val = ieee80211_recv_auth(ni, wbuf, subtype, rs );
-        #else
         ieee80211_recv_auth(ni, wbuf, subtype, rs );
-        #endif
         break;
 
     case IEEE80211_FC0_SUBTYPE_ASSOC_RESP:
@@ -3699,11 +3586,7 @@ ieee80211_recv_mgmt(struct ieee80211_node *ni,
 
     case IEEE80211_FC0_SUBTYPE_ASSOC_REQ:
     case IEEE80211_FC0_SUBTYPE_REASSOC_REQ:
-        #if ATOPT_THINAP
-        ret_val = ieee80211_recv_asreq(ni, wbuf, subtype);
-        #else
         ieee80211_recv_asreq(ni, wbuf, subtype);
-        #endif
         break;
         
     case IEEE80211_FC0_SUBTYPE_DEAUTH:
@@ -3731,11 +3614,8 @@ ieee80211_recv_mgmt(struct ieee80211_node *ni,
     if (forward_to_filter && vap->iv_evtable && vap->iv_evtable->wlan_receive_filter_80211) {
         vap->iv_evtable->wlan_receive_filter_80211(vap->iv_ifp, wbuf, IEEE80211_FC0_TYPE_MGT, subtype, rs);
     }
-#if ATOPT_THINAP
-    return ret_val;
-#else
+
     return EOK;
-#endif
 }
 
 int
@@ -4010,6 +3890,41 @@ ieee80211_cfend_alloc(struct ieee80211com *ic)
     return cfendbuf;
 }
 #endif
+
+ void
+wlan_delba_request_handler(void *arg, wlan_node_t node)
+{
+    struct ieee80211_addba_delba_request *ad = arg;
+    struct ieee80211_node *ni = node;
+    struct ieee80211com *ic = ad->ic;
+    int ret;
+    int tidno;
+    u_int16_t status;
+
+    if (ni->ni_associd == 0) {
+        printk("no sta associated \n");
+        return;
+    }
+
+    switch (ad->action)
+    {
+    default:
+        return;
+    case DELBA_SEND:
+        for (tidno = 0; tidno < (IEEE80211_TID_SIZE - 2); tidno++) {
+
+            if(ic->ic_addba_status) {
+                ic->ic_addba_status(ni, tidno, &status);
+            }
+            if (status == 0) {
+                ic->ic_delba_send(ni, tidno, ad->arg1, ad->arg2);
+            }
+        }
+        break;
+    }
+}
+
+
 
 void
 wlan_addba_request_handler(void *arg, wlan_node_t node)

@@ -213,7 +213,8 @@ wmi_unified_send_peer_assoc(wmi_unified_t wmi_handle, struct ieee80211com *ic,
             RSN_AUTH_IS_WPA2(&ni->ni_rsn) ||
             RSN_AUTH_IS_8021X(&ni->ni_rsn)||
             RSN_AUTH_IS_WAI(&ni->ni_rsn))) ||
-            IEEE80211_VAP_IS_SAFEMODE_ENABLED(ni->ni_vap))) {
+            IEEE80211_VAP_IS_SAFEMODE_ENABLED(ni->ni_vap) ||
+            (!isnew && ieee80211_is_pmf_enabled(ni->ni_vap,ni)))) {
         cmd->peer_flags |= WMI_PEER_AUTH;
         ol_txrx_peer_authorize((OL_ATH_NODE_NET80211(ni))->an_txrx_handle, 1);
     } else {
@@ -239,6 +240,12 @@ wmi_unified_send_peer_assoc(wmi_unified_t wmi_handle, struct ieee80211com *ic,
     /* safe mode bypass the 4-way handshake */
     if (IEEE80211_VAP_IS_SAFEMODE_ENABLED(ni->ni_vap)) {
         cmd->peer_flags &= ~(WMI_PEER_NEED_PTK_4_WAY | WMI_PEER_NEED_GTK_2_WAY);
+    }
+
+    /* Disable AMSDU for station transmit, if user configures it */
+    if ((vap->iv_opmode == IEEE80211_M_STA) && (ic->ic_sta_vap_amsdu_disable) &&
+       !(ni->ni_flags & IEEE80211_NODE_VHT)) {
+       cmd->peer_flags |= WMI_PEER_AMSDU_DISABLE;
     }
 
     cmd->peer_caps = ni->ni_capinfo;
@@ -982,6 +989,9 @@ wmi_unified_mgmt_rx_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datale
     struct ieee80211_node *ni;
     struct ieee80211_frame *wh;
     wbuf_t wbuf;
+#if ATOPT_ORI_ATHEROS_BUG
+	int frame_type, frame_subtype;
+#endif
     int size = sizeof(wmi_mgmt_rx_hdr);
 
     if (rx_event == NULL) {
@@ -1059,7 +1069,12 @@ wmi_unified_mgmt_rx_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datale
         wbuf_free(wbuf);
         return 0;
     }
-    
+
+#if ATOPT_ORI_ATHEROS_BUG
+	wh = (struct ieee80211_frame *) wbuf_header (wbuf);
+    frame_type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
+    frame_subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+#endif
     /*
      * Locate the node for sender, track state, and then
      * pass the (referenced) node up to the 802.11 layer
@@ -1068,6 +1083,18 @@ wmi_unified_mgmt_rx_event_handler(ol_scn_t scn, u_int8_t *data, u_int16_t datale
      */
     ni = ieee80211_find_rxnode(ic, (struct ieee80211_frame_min *)
                                wbuf_header(wbuf));
+#if ATOPT_ORI_ATHEROS_BUG
+	if (IEEE80211_FC0_TYPE_MGT == frame_type && 
+		(IEEE80211_FC0_SUBTYPE_AUTH == frame_subtype ||
+		 IEEE80211_FC0_SUBTYPE_PROBE_REQ == frame_subtype)) {
+		if (ni) {
+			ieee80211_free_node(ni);
+			ni = NULL;
+		}
+
+	}
+#endif
+	
     if (ni == NULL) {
         ol_ath_rxstat2ieee(ic, &rx_status, &rs);
         ieee80211_input_all(ic, wbuf, &rs);
@@ -1113,7 +1140,9 @@ mgmt_crypto_encap(wbuf_t wbuf)
 int
 ol_ath_tx_mgmt_wmi_send(struct ieee80211com *ic, wbuf_t wbuf)
 {
+#ifndef MGMT_HTT_ENABLE
     struct ol_ath_softc_net80211 *scn = OL_ATH_SOFTC_NET80211(ic);
+#endif
     struct ieee80211_node *ni = wbuf_get_node(wbuf);
     struct ieee80211vap *vap = ni->ni_vap;   
     struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(vap);

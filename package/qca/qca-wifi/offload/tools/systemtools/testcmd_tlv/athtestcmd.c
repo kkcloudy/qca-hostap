@@ -1761,7 +1761,9 @@ int main (int argc, char **argv)
             {           
                 int dutyCycle, frameLength;
                 float txFrameDurPercent;
-
+                if (dataRate >= ((sizeof(ActualDataRate))/(sizeof(ActualDataRate[0])))){
+                    return 0;
+                }
                 frameLength = (A_UINT32) (((TX_FRAME_DURATION + 20) *2 * ActualDataRate[dataRate]) / 8.0);
                 txFrameDurPercent = 1.0;
                 if (frameLength > MAX_FRAME_LENGTH) {

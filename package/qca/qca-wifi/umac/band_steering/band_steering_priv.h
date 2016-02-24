@@ -97,11 +97,11 @@ bool wlan_bsteering_update_inact_threshold(struct ieee80211com *ic,
 
 u_int8_t ieee80211_bsteering_is_enabled(const struct ieee80211com *ic);
 
+u_int8_t ieee80211_bsteering_is_event_enabled(const struct ieee80211vap *vap);
+
 bool ieee80211_bsteering_is_vap_valid(const struct ieee80211vap *vap);
 
 void wlan_bsteering_reset_inact_count(struct ieee80211com *ic);
-
-bool ieee80211_bsteering_is_vap_enabled(const struct ieee80211vap *vap);
 
 int ieee80211_bsteering_direct_attach_create(struct ieee80211com *ic);
 

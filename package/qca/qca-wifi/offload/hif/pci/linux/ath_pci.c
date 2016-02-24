@@ -18,6 +18,11 @@
 #include "hif_msg_based.h"
 #include <osapi_linux.h>
 
+#if QCA_PARTNER_PLATFORM
+#include "ath_carr_pltfrm.h"
+#endif
+
+
 unsigned int msienable = 1;
 module_param(msienable, int, 0644);
 
@@ -774,7 +779,6 @@ ol_ath_pci_remove(struct pci_dev *pdev)
     struct net_device *dev = pci_get_drvdata(pdev);
     struct ol_ath_softc_net80211 *scn;
     struct ath_hif_pci_softc *sc;
-    HIF_DEVICE *hifdev;
     void __iomem *mem;
     int target_paused = TRUE;
 
@@ -787,7 +791,6 @@ ol_ath_pci_remove(struct pci_dev *pdev)
     scn = ath_netdev_priv(dev);
     sc = (struct ath_hif_pci_softc *)scn->hif_sc;
     mem = (void __iomem *)dev->mem_start;
-    hifdev = sc->hif_device;
 
     __ol_vap_delete_on_rmmod(dev);
 

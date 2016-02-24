@@ -18,6 +18,8 @@
 #include <ieee80211_var.h>
 #include "ieee80211_ioctl.h"
 
+#include "ieee80211_band_steering.h"
+
 #if UMAC_SUPPORT_ACL
 
 /*! \file ieee80211_acl.c
@@ -180,8 +182,11 @@ ieee80211_acl_check(wlan_if_t vap, const u_int8_t mac[IEEE80211_ADDR_LEN])
      * return 1 to report success
      */
     if(vap->iv_wps_mode){
-        printk("\n WPS Enabled : Ignoring MAC Filtering\n");
-        return 1;
+        /* Only disallow ACL while not using band steering */
+        if (!ieee80211_bsteering_is_vap_enabled(vap)) {
+            printk("\n WPS Enabled : Ignoring MAC Filtering\n");
+            return 1;
+        }
     }
 
     switch (acl->acl_policy) {

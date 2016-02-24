@@ -134,20 +134,6 @@ typedef struct ath_atx_tid {
                       min_depth:2;/* num pkts that can be queued to h/w */
     int               paused;     /* TID is paused */
     int               bar_paused; /* TID is paused because of a BAR is sent */
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor tid trace*/
-    u_int8_t         add_paused_trace[8];
-    u_int8_t         sub_paused_trace[8];
-    u_int16_t     	 add_trace_index;
-    u_int16_t    	 sub_trace_index;	
-    u_int32_t      	 paused_period_sec;	
-    u_int32_t      	 paused_period_us;	
-    struct timeval   last_time;	
-    u_int32_t      	 error_trace_pause;
-    u_int32_t      	 error_trace_baw;
-    u_int32_t      	 error_trace_depth;
-/*AUTELAN-End:zhaoenjuan transplant for drv monitor tid trace*/
-#endif
     int               cleanup_inprogress; /* this TID's aggr being torn down */
     TAILQ_HEAD(ath_tid_bq,ath_buf) buf_q;      /* pending buffers */
     TAILQ_ENTRY(ath_atx_tid)       tid_qelem;  /* round-robin tid entry */
@@ -286,6 +272,11 @@ void ath_tx_node_free(struct ath_softc *sc, struct ath_node *an);
 void ath_tx_node_pause(struct ath_softc *sc, struct ath_node *an);
 void ath_tx_node_pause_nolock(struct ath_softc *sc, struct ath_node *an);
 void ath_tx_node_resume(struct ath_softc *sc, struct ath_node *an);
+#if QCA_AIRTIME_FAIRNESS
+void ath_tx_node_atf_pause(struct ath_softc *sc, struct ath_node *an);
+void ath_tx_node_atf_pause_nolock(struct ath_softc *sc, struct ath_node *an);
+void ath_tx_node_atf_resume(struct ath_softc *sc, struct ath_node *an);
+#endif
 #ifdef VOW_TIDSCHED
 void ath_wrr_schedule(struct ath_softc *sc);
 #endif
@@ -369,6 +360,11 @@ typedef struct ath_atx_tid {
 #define ath_tx_node_pause(sc,an) (sc=sc)
 #define ath_tx_node_pause_nolock(sc,an) (sc=sc)
 #define ath_tx_node_resume(sc,an) (sc=sc)
+#if QCA_AIRTIME_FAIRNESS
+#define ath_tx_node_atf_pause(sc,an) (sc=sc)
+#define ath_tx_node_atf_pause_nolock(sc,an) (sc=sc)
+#define ath_tx_node_atf_resume(sc,an) (sc=sc)
+#endif
 
 #define ath_tx_aggr_teardown(sc,an,tidno) /* */
 #define ath_rx_aggr_teardown(sc,an,tidno) /* */

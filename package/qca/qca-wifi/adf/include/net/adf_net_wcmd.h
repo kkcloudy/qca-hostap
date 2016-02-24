@@ -1210,6 +1210,8 @@ typedef struct adf_net_wcmd_11n_stats {
     a_uint32_t   tx_filtered;/**< total sub-frames filtered */
     a_uint32_t   rx_rb_on;/**< total rb on-s */
     a_uint32_t   rx_rb_off;/**< total rb off-s */
+    a_uint32_t   tx_deducted_tokens;/**< ATF txtokens deducted */
+    a_uint32_t   tx_unusable_tokens;/**< ATF txtokens unusable */
 } adf_net_wcmd_11n_stats_t;
 
 

@@ -193,12 +193,50 @@ struct ieee80211_tfsrsp {
     TAILQ_HEAD(, ieee80211_tfs_response)  tfs_rsp_head;
 }__packed;
 
+/**
+ * @brief BSS Transition Management response status codes 
+ * Taken from 802.11v standard 
+ */
+enum IEEE80211_WNM_BSTM_RESP_STATUS {
+    IEEE80211_WNM_BSTM_RESP_SUCCESS,
+    IEEE80211_WNM_BSTM_RESP_REJECT_UNSPECIFIED,
+    IEEE80211_WNM_BSTM_RESP_REJECT_INSUFFICIENT_BEACONS,
+    IEEE80211_WNM_BSTM_RESP_REJECT_INSUFFICIENT_CAPACITY,
+    IEEE80211_WNM_BSTM_RESP_REJECT_BSS_TERMINATION_UNDESIRED,
+    IEEE80211_WNM_BSTM_RESP_REJECT_BSS_TERMINATION_DELAY,
+    IEEE80211_WNM_BSTM_RESP_REJECT_STA_CANDIDATE_LIST_PROVIDED,
+    IEEE80211_WNM_BSTM_RESP_REJECT_NO_SUITABLE_CANDIDATES,
+    IEEE80211_WNM_BSTM_RESP_REJECT_LEAVING_ESS,
+
+    IEEE80211_WNM_BSTM_RESP_INVALID
+};
+
 struct ieee80211_bstm_reqinfo {
     u_int8_t dialogtoken;
     u_int8_t candidate_list;
     u_int8_t disassoc;
     u_int16_t disassoc_timer;
     u_int8_t validity_itvl;
+} __packed;
+
+/* candidate BSSID for BSS Transition Management Request */
+struct ieee80211_bstm_candidate {
+    /* candidate BSSID */
+    u_int8_t bssid[MAC_ADDR_LEN];
+    /* channel number for the candidate BSSID */
+    u_int8_t channel_number;
+    /* preference from 1-255 (higher number = higher preference) */
+    u_int8_t preference;
+} __packed;
+
+/* maximum number of candidates in the list.  Value 3 was selected based on a
+   2 AP network, so may be increased if needed */
+#define ieee80211_bstm_req_max_candidates 3
+/* BSS Transition Management Request information that can be specified via ioctl */
+struct ieee80211_bstm_reqinfo_target {
+    u_int8_t dialogtoken;
+    u_int8_t num_candidates;
+    struct ieee80211_bstm_candidate candidates[ieee80211_bstm_req_max_candidates];
 } __packed;
 
 enum IEEE80211_TFS_ERRORS {

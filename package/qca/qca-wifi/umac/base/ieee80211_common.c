@@ -939,6 +939,7 @@ ieee80211_vaps_ready(struct ieee80211com *ic, enum ieee80211_opmode opmode)
 #define OFFCHAN_EXT_TID_NONPAUSE    19
 #define OFFCHAN_EXT_TID_INVALID    31
 /* TODO: only support linux for now */
+
 void wlan_offchan_send_data_frame(struct ieee80211_node *ni, struct net_device *netdev)
 {
 #if defined(LINUX) || defined(__linux__)
@@ -946,6 +947,8 @@ void wlan_offchan_send_data_frame(struct ieee80211_node *ni, struct net_device *
     struct ieee80211com *ic = ni->ni_ic;
     wbuf_t wbuf;
     struct ieee80211_qosframe *qwh;
+    /*Setting both source and destination MAC addresses to random addresses*/
+    const u_int8_t src[6] = {0x00, 0x02, 0x03, 0x06, 0x02, 0x01};
     const u_int8_t dst[6] = {0x00, 0x02, 0x03, 0x04, 0x05, 0x06};
     struct sk_buff *skb;
 
@@ -958,8 +961,8 @@ void wlan_offchan_send_data_frame(struct ieee80211_node *ni, struct net_device *
 
     qwh = (struct ieee80211_qosframe *)wbuf_header(wbuf);
     ieee80211_send_setup(vap, ni, (struct ieee80211_frame *)qwh,
-        IEEE80211_FC0_TYPE_DATA,
-        vap->iv_myaddr, /* SA */
+        IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS,
+        src,             /* SA */
         dst,            /* DA */
         ni->ni_bssid);
 
@@ -991,9 +994,11 @@ void wlan_offchan_tx_scan_event_handler(struct ieee80211vap *orig_vap,
         ni = ieee80211_ref_node(vap->iv_bss);
         if (ni) {
             ieee80211_send_qosnulldata(ni, WME_AC_VI, 0);
-            printk("send a mgmt frame during offchan\n");
+
+            wlan_offchan_send_data_frame(ni, arg);
+            ieee80211_free_node(ni);
+            printk("sent mgmt & data frames during offchan\n");
         }
-        ieee80211_free_node(ni);
 
         break;
     case IEEE80211_SCAN_COMPLETED:

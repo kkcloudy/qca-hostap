@@ -18,9 +18,6 @@
 #include "ieee80211_aow.h"
 #endif
 
-#if ATOPT_MAC_RULE
-extern int new_dispatch_mac; /*redefine the creating rule of vap mac 2014-04-20*/
-#endif
 #if ATH_SUPPORT_HT
 
 static void ath_rx_flush_tid(struct ath_softc *sc, struct ath_arx_tid *rxtid, int drop);
@@ -423,9 +420,7 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
 
     wh = (struct ieee80211_frame *) wbuf_header(wbuf);
     is4addr = (wh->i_fc[1] & IEEE80211_FC1_DIR_MASK) == IEEE80211_FC1_DIR_DSTODS;
-#if  ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
+
     __11nstats(sc, rx_aggr);
     /*
      * collect stats of frames with non-zero version
@@ -435,11 +430,7 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
         wbuf_free(wbuf);
         DPRINTF(sc, ATH_DEBUG_AGGR_MEM, "%s[%d]: DROPPING bad version\n", __func__, __LINE__);
         return -1;
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
-	}
+    }
 
     if (rx_status->flags & ATH_RX_DECRYPT_ERROR) {
         __11nstats(sc, rx_aggrbadver);
@@ -487,59 +478,6 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
          * We are comparing the last 5 bytes first. If matches, then check the
          * first octet talking into account the BSSID mask.
          */
-#if ATOPT_MAC_RULE
-        if (new_dispatch_mac == 0) {
-#if ATH_SUPPORT_AP_WDS_COMBO
-        if (OS_MEMCMP(&(wh->i_addr1[1]), &(sc->sc_myaddr[1]), IEEE80211_ADDR_LEN - 2)) {
-            if (((wh->i_addr1[0] & sc->sc_bssidmask[0]) == (sc->sc_myaddr[0] & sc->sc_bssidmask[0])) &&
-                ((wh->i_addr1[IEEE80211_ADDR_LEN - 1] & sc->sc_bssidmask[IEEE80211_ADDR_LEN - 1]) == 
-                (sc->sc_myaddr[IEEE80211_ADDR_LEN - 1] & sc->sc_bssidmask[IEEE80211_ADDR_LEN - 1]))) {
-#else
-        if (!ismcast &&
-            (OS_MEMCMP(&(wh->i_addr1[0]), &(sc->sc_myaddr[0]), IEEE80211_ADDR_LEN - 1) ||
-             ((wh->i_addr1[5] & sc->sc_bssidmask[5]) != (sc->sc_myaddr[5] & sc->sc_bssidmask[5])))) {
-#endif
-                DPRINTF(sc, ATH_DEBUG_AGGR_MEM,
-                    "%s[%d]: dst[%02x:%02x:%02x:%02x:%02x:%02x] src[%02x:%02x:%02x:%02x:%02x:%02x] seq[%d], "
-                    "DROPPING frame tid %d, baw_head %d, baw_tail %d, seq_next %d\n",
-                    __func__, __LINE__,
-                    wh->i_addr1[0], wh->i_addr1[1], wh->i_addr1[2], wh->i_addr1[3], wh->i_addr1[4], wh->i_addr1[5],
-                    wh->i_addr2[0], wh->i_addr2[1], wh->i_addr2[2], wh->i_addr2[3], wh->i_addr2[4], wh->i_addr2[5],
-                    (le16toh(*(u_int16_t *)wh->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT),
-                    tid, rxtid->baw_head, rxtid->baw_tail, rxtid->seq_next); 
-#if ATOPT_PACKET_TRACE
-				PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
-
-                wbuf_free(wbuf);
-                return -1;
-            }
-        } else if (new_dispatch_mac == 1) {
-#if ATH_SUPPORT_AP_WDS_COMBO
-           	if ((OS_MEMCMP(&(wh->i_addr1[1]), &(sc->sc_myaddr[1]), IEEE80211_ADDR_LEN - 2)) &&
-                ((wh->i_addr1[0] & sc->sc_bssidmask[0]) == (sc->sc_myaddr[0] & sc->sc_bssidmask[0])) &&
-                ((wh->i_addr1[IEEE80211_ADDR_LEN - 1] & sc->sc_bssidmask[IEEE80211_ADDR_LEN - 1]) == 
-                (sc->sc_myaddr[IEEE80211_ADDR_LEN - 1] & sc->sc_bssidmask[IEEE80211_ADDR_LEN - 1])))
-#else
-            if (!ismcast &&
-                (OS_MEMCMP(&(wh->i_addr1[0]), &(sc->sc_myaddr[0]), 3) ||
-                OS_MEMCMP(&(wh->i_addr1[4]), &(sc->sc_myaddr[4]), 2)))
-#endif
-            {
-                DPRINTF(sc, ATH_DEBUG_AGGR_MEM,
-                    "%s[%d]: dst[%02x:%02x:%02x:%02x:%02x:%02x] src[%02x:%02x:%02x:%02x:%02x:%02x] seq[%d], "
-                    "DROPPING frame tid %d, baw_head %d, baw_tail %d, seq_next %d\n",
-                    __func__, __LINE__,
-                    wh->i_addr1[0], wh->i_addr1[1], wh->i_addr1[2], wh->i_addr1[3], wh->i_addr1[4], wh->i_addr1[5],
-                    wh->i_addr2[0], wh->i_addr2[1], wh->i_addr2[2], wh->i_addr2[3], wh->i_addr2[4], wh->i_addr2[5],
-                    (le16toh(*(u_int16_t *)wh->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT),
-                    tid, rxtid->baw_head, rxtid->baw_tail, rxtid->seq_next); 
-                wbuf_free(wbuf);
-                return -1;
-            }
-        } 
-    }
-#else
 #if ATH_SUPPORT_AP_WDS_COMBO
         if (OS_MEMCMP(&(wh->i_addr1[1]), &(sc->sc_myaddr[1]), IEEE80211_ADDR_LEN - 2)) {
             if (((wh->i_addr1[0] & sc->sc_bssidmask[0]) == (sc->sc_myaddr[0] & sc->sc_bssidmask[0])) &&
@@ -548,7 +486,11 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
 #else
         if (!ismcast &&
             (OS_MEMCMP(&(wh->i_addr1[1]), &(sc->sc_myaddr[1]), IEEE80211_ADDR_LEN - 1) ||
+#if ATOPT_MAC_RULE
+             ((wh->i_addr1[5] & sc->sc_bssidmask[5]) != (sc->sc_myaddr[5] & sc->sc_bssidmask[5])))) {
+#else
              ((wh->i_addr1[0] & sc->sc_bssidmask[0]) != (sc->sc_myaddr[0] & sc->sc_bssidmask[0])))) {
+#endif
 #endif
             DPRINTF(sc, ATH_DEBUG_AGGR_MEM,
                 "%s[%d]: dst[%02x:%02x:%02x:%02x:%02x:%02x] src[%02x:%02x:%02x:%02x:%02x:%02x] seq[%d], "
@@ -562,7 +504,7 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
             return -1;
         }
     }
-#endif
+
     if ((type == IEEE80211_FC0_TYPE_CTL) &&
         (subtype == IEEE80211_FC0_SUBTYPE_BAR)) {
         return ath_bar_rx(sc, an, wbuf);
@@ -587,10 +529,6 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
     if (!rxtid->addba_exchangecomplete) {
         ATH_RXTID_UNLOCK(rxtid);
         __11nstats(sc, rx_nonqos);
-		
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
         return sc->sc_ieee_ops->rx_subframe(an->an_node, wbuf, rx_status);
     }
 #if ATH_SUPPORT_TIDSTUCK_WAR
@@ -625,10 +563,6 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
             tid, rxtid->baw_head, rxtid->baw_tail, rxtid->seq_next, index,
             (IEEE80211_SEQ_MAX - (rxtid->baw_size << 2)),
             (le16toh(*(u_int16_t *)wh->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT));
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
         wbuf_free(wbuf);
         return IEEE80211_FC0_TYPE_DATA;
     }
@@ -655,10 +589,6 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
                 wbuf_to_indicate = rxbuf->rx_wbuf;
                 rxbuf->rx_wbuf = NULL; 
                 __11nstats(sc, rx_baresetpkts);
-				
-#if ATOPT_PACKET_TRACE
-			 PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf_to_indicate,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace
-#endif
                 sc->sc_ieee_ops->rx_subframe(an->an_node, wbuf_to_indicate,
                                              &rxbuf->rx_status);
                 __11nstats(sc, rx_recvcomp);                             
@@ -691,10 +621,6 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
                 __func__, __LINE__, tid, rxtid->baw_head, rxtid->baw_tail, rxtid->seq_next, cindex);
         ATH_RXTID_UNLOCK(rxtid);
         __11nstats(sc, rx_dup);
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
         wbuf_free(wbuf);
         return IEEE80211_FC0_TYPE_DATA;
     }
@@ -735,10 +661,6 @@ ath_ampdu_input(struct ath_softc *sc, struct ath_node *an, wbuf_t wbuf, ieee8021
         
         wbuf_to_indicate = rxbuf->rx_wbuf;
         rxbuf->rx_wbuf = NULL;
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf_to_indicate,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
         sc->sc_ieee_ops->rx_subframe(an->an_node, wbuf_to_indicate, &rxbuf->rx_status);
     }
 
@@ -975,9 +897,6 @@ ath_rx_timer(void *context)
                                                      wbuf_to_indicate,
                                                      apktindex));
         }
-#endif
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf_to_indicate,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
 #endif
         sc->sc_ieee_ops->rx_subframe(an->an_node, wbuf_to_indicate,
                                      &rxbuf->rx_status);

@@ -22,6 +22,33 @@
 #error "ACL support must be enabled when band steering is enabled"
 #endif /* !UMAC_SUPPORT_ACL */
 
+
+void ieee80211_bsteering_direct_attach_txrate_update(struct ieee80211com *ic, u_int8_t *macaddress,
+                                                     u_int8_t status,
+                                                     u_int32_t txrateKbps)
+{
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, macaddress);
+    if(!ni) {
+        printk("%s: Requested STA %02x:%02x:%02x:%02x:%02x:%02x is not "
+               "associated\n", __func__, macaddress[0], macaddress[1],
+               macaddress[1], macaddress[3], macaddress[4], macaddress[5]);
+        return ;
+    }
+    if ( ni->ni_stats.ns_last_tx_rate ) {
+        if ( txrateKbps != ni->ni_stats.ns_last_tx_rate ) {
+            ni->ni_stats.ns_last_tx_rate = txrateKbps;
+            ieee80211_bsteering_update_rate(ni, ni->ni_stats.ns_last_tx_rate);
+        }
+    }
+    else {
+        ni->ni_stats.ns_last_tx_rate = txrateKbps;
+        ieee80211_bsteering_update_rate(ni, ni->ni_stats.ns_last_tx_rate);
+    }
+    ieee80211_free_node(ni);
+    return;
+}
 /* TBD:- header */
 void ieee80211_bsteering_direct_attach_rssi_update(struct ieee80211com *ic, u_int8_t *macaddress,u_int8_t status,int8_t rssi) 
 {

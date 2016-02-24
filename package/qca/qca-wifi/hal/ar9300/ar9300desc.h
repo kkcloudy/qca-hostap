@@ -531,8 +531,6 @@ extern  void ar9300_get_raw_tx_desc(struct ath_hal *ah, u_int32_t *);
 extern  void ar9300_get_tx_rate_code(struct ath_hal *ah, void *, struct ath_tx_status *);
 extern  u_int32_t ar9300_calc_tx_airtime(struct ath_hal *ah, void *, struct ath_tx_status *, 
         HAL_BOOL comp_wastedt, u_int8_t nbad, u_int8_t nframes);
-//zhaoyang1 transplants statistics 2015-01-27
-extern  u_int32_t ar9300CalcTxRetryCount(struct ath_hal *ah, void *, struct ath_tx_status *);
 extern  void ar9300_setup_tx_status_ring(struct ath_hal *ah, void *, u_int32_t , u_int16_t);
 extern void ar9300_set_paprd_tx_desc(struct ath_hal *ah, void *ds, int chain_num);
 HAL_STATUS ar9300_is_tx_done(struct ath_hal *ah);

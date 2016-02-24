@@ -59,9 +59,10 @@
 
 #include "if_athvar.h"
 
-#if ATOPT_PROC_COMMAND
-#include <at_proc_command.h>
+#if ATOPT_IOCTL
+#include <han_ioctl.h>
 #endif
+
 #define ONEMBPS 1000
 #define THREE_HUNDRED_FIFTY_MBPS 350000
 #define NETDEV_TO_VAP(_dev) (((osif_dev *)netdev_priv(_dev))->os_if)
@@ -102,7 +103,7 @@ static int ieee80211_ioctl_wrapper(struct net_device *dev,
 #endif
 static char *find_ieee_priv_ioctl_name(int param, int set_flag);  /* for debugging use */
 static void debug_print_ioctl(char *dev_name, int ioctl, char *ioctl_name) ;  /* for debugging */
-#if ATH_PERF_PWR_OFFLOAD
+#if defined(ATH_PERF_PWR_OFFLOAD) || defined(ATH_SUPPORT_HS20)
 extern int ol_ath_set_vap_dscp_tid_map(struct ieee80211vap *vap);
 extern  A_UINT32 dscp_tid_map[64];
 #endif
@@ -110,7 +111,7 @@ extern  A_UINT32 dscp_tid_map[64];
 extern int wlan_pltfrm_set_param(wlan_if_t vaphandle, u_int32_t val);
 extern int wlan_pltfrm_get_param(wlan_if_t vaphandle);
 #endif
-
+extern int ol_ath_net80211_get_vap_stats(struct ieee80211vap *vap);
 int whal_kbps_to_mcs(int, int, int, int);
 int whal_mcs_to_kbps(int, int, int, int);
 
@@ -1051,7 +1052,6 @@ ieee80211_ioctl_siwfreq(struct net_device *dev,
                tmp_osnetdev->is_stop_event_pending = 0;
            }
 
-           vap = TAILQ_FIRST(&(ic)->ic_vaps);
 
            retval = wlan_set_channel(vap, i);
            if(!retval) {
@@ -2015,7 +2015,7 @@ ieee80211_ioctl_siwscan(struct net_device *dev,
     * scanning prior to being up but that'll require some
     * changes to the infrastructure.
     */
-    if (!(dev->flags & IFF_UP)
+    if ((!(osifp->is_up)  || ! ((dev->flags & IFF_RUNNING)==IFF_RUNNING)  || atomic_read(&(vap->iv_down_progress)))
 #ifdef QCA_PARTNER_PLATFORM
         || (vap->iv_list_scanning)
 #endif
@@ -2517,7 +2517,7 @@ giwscan_cb(void *arg, wlan_scan_entry_t se)
     /* This is not available for AP Scan */
     if (opmode == IEEE80211_M_HOSTAP) {
         ieee80211_ssid    ssid_list[IEEE80211_SCAN_MAX_SSID];
-        int               n_ssid;
+        int               n_ssid = 0;
 
         n_ssid = wlan_get_desired_ssidlist(vap, ssid_list, 1);
         iwe.u.data.length = n_ssid > 0 ?
@@ -3366,15 +3366,11 @@ domlme(void *arg, wlan_node_t node)
     switch (op->mlme->im_op) {
     case IEEE80211_MLME_DISASSOC:
         wlan_mlme_disassoc_request(op->vap,wlan_node_getmacaddr(node),op->mlme->im_reason);
-		node->ni_vap->iv_stats.is_tx_disassoc_ioctl_kicknode++; //zhaoyang1 transplants statistics 2015-01-27
-
         break;
     case IEEE80211_MLME_DEAUTH:
         IEEE80211_DPRINTF(op->vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, domlme deauth reason %d\n",
                 __func__, ether_sprintf(wlan_node_getmacaddr(node)), op->mlme->im_reason);
         wlan_mlme_deauth_request(op->vap,wlan_node_getmacaddr(node),op->mlme->im_reason);
-		node->ni_vap->iv_stats.is_deauth_ioctl_kicknode++; //zhaoyang1 transplants statistics 2015-01-27
-
         break;
     case IEEE80211_MLME_ASSOC:
          wlan_mlme_assoc_resp(op->vap,wlan_node_getmacaddr(node),op->mlme->im_reason, 0, NULL);
@@ -3423,7 +3419,7 @@ ieee80211_ioctl_setmlme(struct net_device *dev, struct iw_request_info *info,
     osif_dev  *osifp = ath_netdev_priv(dev);
     wlan_if_t vap = osifp->os_if;
     struct ieee80211_app_ie_t optie;
-#if UMAC_SUPPORT_SMARTANTENNA  || ATH_SUPPORT_DEFERRED_NODE_CLEANUP || UNIFIED_SMARTANTENNA
+#if UMAC_SUPPORT_SMARTANTENNA  || ATH_SUPPORT_DEFERRED_NODE_CLEANUP || UNIFIED_SMARTANTENNA || ATH_BAND_STEERING
     struct ieee80211_node *ni = NULL;
 #endif
     //int force_scan = 0;
@@ -3432,15 +3428,6 @@ ieee80211_ioctl_setmlme(struct net_device *dev, struct iw_request_info *info,
 
     if (!(dev->flags & IFF_UP)) {
         printk(" DEVICE IS DOWN ifname=%s\n", dev->name);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, mlme->im_macaddr, 
-            " <INFO> [Step ** - IOCTL] %s: device is  down ifname = %s\n", 
-            __func__, dev->name);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         return -EINVAL;     /* XXX */
     }
     optie.ie = &mlme->im_optie[0];
@@ -3454,15 +3441,6 @@ ieee80211_ioctl_setmlme(struct net_device *dev, struct iw_request_info *info,
             osifp->os_opmode != IEEE80211_M_P2P_CLIENT) {
             IEEE80211_DPRINTF(vap, IEEE80211_MSG_IOCTL,
                     "[%s] non sta mode, skip to set bssid\n", __func__);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, mlme->im_macaddr, 
-                " <INFO> [Step ** - IOCTL] %s: ifname = %s, im_op = %s(%d) , os_opmode = %d\n", 
-                __func__, dev->name, "ASSOC", mlme->im_op, osifp->os_opmode);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
         } else {
             u_int8_t des_bssid[IEEE80211_ADDR_LEN];
 
@@ -3526,15 +3504,6 @@ ieee80211_ioctl_setmlme(struct net_device *dev, struct iw_request_info *info,
         break;
     case IEEE80211_MLME_DISASSOC:
     case IEEE80211_MLME_DEAUTH:
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, mlme->im_macaddr, 
-            " <INFO> [Step ** - IOCTL] %s: ifname = %s, im_op = %s(%d), os_opmode = %d\n", 
-            __func__, dev->name, (mlme->im_op == 2) ? "DISASSOC" : "DEAUTH", mlme->im_op, osifp->os_opmode);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         switch (osifp->os_opmode) {
         case IEEE80211_M_STA:
         case IEEE80211_M_P2P_CLIENT:
@@ -3582,29 +3551,11 @@ ieee80211_ioctl_setmlme(struct net_device *dev, struct iw_request_info *info,
         break;
     case IEEE80211_MLME_AUTHORIZE:
     case IEEE80211_MLME_UNAUTHORIZE:
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, mlme->im_macaddr, 
-            " <INFO> [Step ** - IOCTL] %s: ifname = %s, im_op = %s(%d), os_opmode = %d\n", 
-            __func__, dev->name, (mlme->im_op == 4) ? "AUTHORIZE" : "UNAUTHORIZE", mlme->im_op, osifp->os_opmode);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         if (osifp->os_opmode != IEEE80211_M_HOSTAP &&
             osifp->os_opmode != IEEE80211_M_P2P_GO) {
             return -EINVAL;
         }
         if (mlme->im_op == IEEE80211_MLME_AUTHORIZE) {
-			vap->iv_stats.is_client_access_successfully_cnt++; // zhaoyang1 modifies for client access statistics 2015-03-27
-			/* Autelan-Begin: zhaoyang1 modifies for y assistant access debug 2015-04-17*/
-			ni = ieee80211_vap_find_node(vap, mlme->im_macaddr);
-			if (ni) {
-				y_assistant_netlink_access_debug_send(ni->ni_macaddr, 
-					vap->iv_myaddr, 12, vap->iv_des_ssid[0].ssid);
-				ieee80211_free_node(ni);
-			}
-			/* Autelan-End: zhaoyang1 modifies for y assistant access debug 2015-04-17*/
             wlan_node_authorize(vap, 1, mlme->im_macaddr);
 #if UMAC_SUPPORT_SMARTANTENNA
             ni = ieee80211_vap_find_node(vap, mlme->im_macaddr);
@@ -3623,22 +3574,17 @@ ieee80211_ioctl_setmlme(struct net_device *dev, struct iw_request_info *info,
             }
 #endif
 #if ATH_BAND_STEERING
-            ieee80211_bsteering_send_node_authorized_event(vap, mlme->im_macaddr);
+            ni = ieee80211_find_node(&vap->iv_ic->ic_sta, mlme->im_macaddr);
+            if (ni) {
+                ieee80211_bsteering_send_node_associated_event(vap, ni);
+                ieee80211_free_node(ni);
+            }
 #endif
         } else {
             wlan_node_authorize(vap, 0, mlme->im_macaddr);
         }
         break;
     case IEEE80211_MLME_CLEAR_STATS:
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, mlme->im_macaddr, 
-            " <INFO> [Step ** - IOCTL] %s: ifname = %s, im_op = %s(%d), os_opmode = %d\n", 
-            __func__, dev->name, "CLEAR_STATS" , mlme->im_op, osifp->os_opmode);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
 #ifdef notyet
         if (vap->iv_opmode != IEEE80211_M_HOSTAP)
                 return -EINVAL;
@@ -5427,105 +5373,6 @@ int ieee80211_get_extchan( wlan_if_t vap)
       return(elem->extchan);
 }
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-static int
-ieee80211_ioctl_autelan_mgmt_debug(struct net_device *dev, struct iwreq *iwr)
-{
-	wlan_if_t vap = NETDEV_TO_VAP(dev);
-	struct ieee80211_autelan_mgmt_debug ik;
-
-    u_int32_t flag = 0;
-    
-	memset(&ik, 0x00, sizeof(ik));
-
-	if (copy_from_user(&ik, iwr->u.data.pointer, sizeof(ik))) {
-		return -EFAULT;
-	}
-    
-	switch (ik.type) { 
-        case IEEE80211_PARAM_MGMT_DEBUG_SET_SWITCH :
-            if(1 == ik.arg) {
-                vap->iv_mgmt_debug_switch = 1;
-            } else if(0 == ik.arg) {
-                vap->iv_mgmt_debug_switch = 0;
-            } else {
-                return -EINVAL;
-            }
-            break;
-        case IEEE80211_PARAM_MGMT_DEBUG_GET_SWITCH :
-            flag = vap->iv_mgmt_debug_switch;
-            copy_to_user(iwr->u.data.pointer, &(flag), sizeof(flag));
-            break;
-        default  :
-            break;
-	}
-    return 0;
-}
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-static int 
-ieee80211_ioctl_get_channel_utility(struct net_device *dev, struct iwreq *iwr)
-{
-	osif_dev  *osifp = ath_netdev_priv(dev);
-    wlan_if_t vap = osifp->os_if;
-    struct req_channel_utility req_cu;
-	struct req_ch_utility_head * cu_h_temp;
-	u_int32_t timeval;
-    int error;
-
-//	memset(&timeval, 0x00, sizeof(u_int32_t));
-
-	if (copy_from_user(&timeval, iwr->u.data.pointer, sizeof(u_int32_t))) {
-		return -EFAULT;
-	}
-	
-    /* estimate space required for station info */
-    error = 0;
-    req_cu.cu_h.space = sizeof(struct req_channel_utility);
-	
-	if(timeval <= 5)
-	{
-		req_cu.cu_h.space = 60 * sizeof(struct ieee80211_channel_utility);
-	}
-	else
-	{
-		req_cu.cu_h.space = 1440  * sizeof(struct ieee80211_channel_utility);
-	}
-    if (req_cu.cu_h.space > iwr->u.data.length)
-        req_cu.cu_h.space = iwr->u.data.length;
-    if (req_cu.cu_h.space > 0)
-    {
-        void *p;
-
-        p = (void *)OS_MALLOC(osifp->os_handle, req_cu.cu_h.space + sizeof(size_t) * 2, GFP_KERNEL);
-        if (p == NULL)
-            return ENOMEM;
-	cu_h_temp = (struct req_ch_utility_head *)((char *)p);
-       req_cu.cu = (struct ieee80211_channel_utility *)((char *)p + sizeof(struct req_ch_utility_head));
-
-	error = wlan_get_channel_utility(vap, (char *)(req_cu.cu), &(req_cu.cu_h.ch_utility_ptr), timeval);  // if the result is -1, the switch is off!
-	if(error)
-	{
-		OS_FREE(p);
-		return -EFAULT;
-	}
-	cu_h_temp->ch_utility_ptr = req_cu.cu_h.ch_utility_ptr;
-	cu_h_temp->space = req_cu.cu_h.space;
-	
-        iwr->u.data.length = req_cu.cu_h.space;
-        error = _copy_to_user(iwr->u.data.pointer, p, iwr->u.data.length);
-        OS_FREE(p);
-    }
-    else
-        iwr->u.data.length = 0;
-
-    return (error ? -EFAULT : 0);
-}
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
 
 static int
 ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
@@ -6014,14 +5861,24 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
         retv = wlan_set_param(vap, IEEE80211_WEP_KEYCACHE, value);
         break;
     case IEEE80211_PARAM_BEACON_INTERVAL:
-        if (value > IEEE80211_BINTVAL_IWMAX || value < IEEE80211_BINTVAL_IWMIN) {
+        if (value == 0) {
+            /* 
+             * This setting will automatically control beacon interval
+             * based on the num of vaps created .
+             */
+            ic->ic_def_bintval_override = 0;
+            ic->ic_intval = IEEE80211_BINTVAL_MBSSID_MIN;
+        } else if (value > IEEE80211_BINTVAL_IWMAX || value < IEEE80211_BINTVAL_IWMIN) {
             IEEE80211_DPRINTF(vap, IEEE80211_MSG_IOCTL,
                               "BEACON_INTERVAL should be within %d to %d\n",
                               IEEE80211_BINTVAL_IWMIN,
                               IEEE80211_BINTVAL_IWMAX);
             return -EINVAL;
+        } else {
+            ic->ic_def_bintval_override = 1;
+            ic->ic_intval = (u_int16_t)value;
         }
-        retv = wlan_set_param(vap, IEEE80211_BEACON_INTVAL, value);
+        retv = wlan_set_param(vap, IEEE80211_BEACON_INTVAL, ic->ic_intval);
         if (retv == EOK) {
             //retv = ENETRESET;
             wlan_if_t tmpvap;
@@ -6240,8 +6097,25 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
         if (value > 1 || value < 0) {
             return -EINVAL;
         }
+    if (wlan_get_device_param(ic, IEEE80211_DEVICE_ADDBA_MODE) == value) {
+        return -EINVAL;
+    }
 
-        retv = wlan_set_device_param(ic, IEEE80211_DEVICE_ADDBA_MODE, value);
+         retv = wlan_set_device_param(ic, IEEE80211_DEVICE_ADDBA_MODE, value);
+        if (retv == EOK) {
+            if (value == ADDBA_MODE_MANUAL) {
+                struct ieee80211_addba_delba_request ad;
+
+                ad.action = DELBA_SEND;
+                ad.ic = ic;
+                ad.aid = 0;
+                ad.tid  = 0;
+                ad.arg1 = 1;
+                ad.arg2 = IEEE80211_REASON_UNSPECIFIED;
+                wlan_iterate_station_list(vap, wlan_delba_request_handler, &ad);
+            }
+        }
+
         break;
     case IEEE80211_PARAM_WMM:
         retv = wlan_set_param(vap, IEEE80211_FEATURE_WMM, value);
@@ -6724,6 +6598,20 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
                 retv = ENETRESET;
         }
         break;
+#if ATH_SUPPORT_HS20
+    case IEEE80211_PARAM_HC_BSSLOAD:
+        retv = wlan_set_param(vap, IEEE80211_HC_BSSLOAD, value);
+        if (retv == EOK) {
+            retv = ENETRESET;
+        }
+        break;
+    case IEEE80211_PARAM_OSEN:
+        if (value > 1 || value < 0)
+            return -EINVAL;
+        else
+            wlan_set_param(vap, IEEE80211_OSEN, value);
+        break;
+#endif /* ATH_SUPPORT_HS20 */
 #endif /* UMAC_SUPPORT_BSSLOAD */
 #if UMAC_SUPPORT_CHANUTIL_MEASUREMENT
     case IEEE80211_PARAM_CHAN_UTIL_ENAB:
@@ -6748,7 +6636,16 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
         break;
 #endif /* UMAC_SUPPORT_QUIET */
     case IEEE80211_PARAM_START_ACS_REPORT:
-        retv = wlan_set_param(vap, IEEE80211_START_ACS_REPORT, !!value);
+        if ((osifp->is_up) && ((dev->flags & IFF_RUNNING)==IFF_RUNNING) && !atomic_read(&(vap->iv_down_progress)))
+        {
+            retv = wlan_set_param(vap, IEEE80211_START_ACS_REPORT, !!value);
+        }
+        else
+        {
+            printk("%s interface is disabled => do not to process acsreport (%d %d %d)\r\n",dev->name,
+                    osifp->is_up,((dev->flags & IFF_RUNNING)==IFF_RUNNING),vap->iv_down_progress);
+            return EINVAL;
+        }
         break;
     case IEEE80211_PARAM_MIN_DWELL_ACS_REPORT:
         retv = wlan_set_param(vap, IEEE80211_MIN_DWELL_ACS_REPORT, value);
@@ -7380,12 +7277,20 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
 		wlan_set_vap_dscp_tid_map(osifp->os_if, (u_int8_t)i[1], (u_int8_t)i[2]);
 	break;
 #endif
+    case IEEE80211_PARAM_TXRX_VAP_STATS:
+        if(!osifp->osif_is_mode_offload){
+            printk("TXRX_DBG Only valid for 11ac  \n");
+            break ;
+        }
+        printk("Get vap stats\n");
+        ol_ath_net80211_get_vap_stats(vap);
+        break;
     case IEEE80211_PARAM_TXRX_DBG:
-    if(!osifp->osif_is_mode_offload){
-        printk("TXRX_DBG Only valid for 11ac  \n");
-        break ;
-    }
-    ol_txrx_debug(vap->iv_txrx_handle, value);
+        if(!osifp->osif_is_mode_offload){
+            printk("TXRX_DBG Only valid for 11ac  \n");
+            break ;
+        }
+        ol_txrx_debug(vap->iv_txrx_handle, value);
     break;
 
     case IEEE80211_PARAM_TXRX_FW_STATS:
@@ -7652,18 +7557,6 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
             printk("Not supported in this vap \n");
         }
         break;
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-    case IEEE80211_PARAM_MONITOR:
-		if(value > 0)
-			vap->iv_monitor = 1;
-		else
-			vap->iv_monitor = 0;
-		break;
-
-    case IEEE80211_PARAM_SCANCHAN_INDEX:
-			vap->iv_scan_channel = value;
-		break;
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
 #if UMAC_VOW_DEBUG
     case IEEE80211_PARAM_VOW_DBG_ENABLE:
         {
@@ -7686,13 +7579,137 @@ ieee80211_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
 #endif /* ATH_PERF_PWR_OFFLOAD */
 
 #if QCA_AIRTIME_FAIRNESS
+    case IEEE80211_PARAM_ATF_TXBUF_SHARE:
+        vap->iv_ic->atf_txbuf_share = !!value;
+        {
+            wlan_if_t tmpvap;
+            TAILQ_FOREACH(tmpvap, &ic->ic_vaps, iv_next) {
+                struct net_device *tmpdev = ((osif_dev *)tmpvap->iv_ifp)->netdev;
+                retv = IS_UP(tmpdev) ? -osif_vap_init(tmpdev, RESCAN) : 0;
+            }
+        }
+        break;
+    case IEEE80211_PARAM_ATF_TXBUF_MAX:
+        if (value >= 0 && value <= ATH_TXBUF)
+            vap->iv_ic->atf_txbuf_max = value;
+        else
+            vap->iv_ic->atf_txbuf_max = ATF_MAX_BUFS;
+        break;
+    case IEEE80211_PARAM_ATF_TXBUF_MIN:
+        if (value >= 0 && value <= ATH_TXBUF)
+            vap->iv_ic->atf_txbuf_min = value;
+        else
+            vap->iv_ic->atf_txbuf_min = ATF_MIN_BUFS;
+        break;
     case  IEEE80211_PARAM_ATF_OPT:
         retv = wlan_set_param(vap, IEEE80211_ATF_OPT, value);
+        if(retv != EOK)
+        {
+            u_int16_t old_max_aid = 0, old_len = 0;
+            u_int32_t numclients = 0;
+            struct net_device *tmpdev = NULL;
+
+            numclients = retv;
+            TAILQ_FOREACH(tmpvap, &ic->ic_vaps, iv_next) {
+                old_max_aid = tmpvap->iv_max_aid;
+                old_len = howmany(tmpvap->iv_max_aid, 32) * sizeof(u_int32_t);
+                tmpdev = ((osif_dev *)tmpvap->iv_ifp)->netdev;
+                retv = IS_UP(tmpdev) ? -osif_vap_init(tmpdev, RESCAN) : 0;
+
+                /* We will reject station when associated aid >= iv_max_aid, such that
+                max associated station should be value + 1 */
+                tmpvap->iv_max_aid = numclients;
+                /* The interface is up, we may need to reallocation bitmap(tim, aid) */
+                if (IS_UP(tmpdev)) {
+                    if (tmpvap->iv_alloc_tim_bitmap) {
+                        error = tmpvap->iv_alloc_tim_bitmap(tmpvap);
+                    }
+                    if(!error)
+                        error = wlan_node_alloc_aid_bitmap(tmpvap, old_len);
+                }
+                if(error) {
+                    printk("Error! Failed to change the number of max clients to %d\n\r",numclients);
+                    vap->iv_max_aid = old_max_aid;
+                    return -ENOMEM;
+                }
+            }
+            ic->ic_num_clients = numclients;
+        }
         break;
     case  IEEE80211_PARAM_ATF_PER_UNIT:
         ic->atfcfg_set.percentage_unit = PER_UNIT_1000;
         break;
+    case  IEEE80211_PARAM_ATF_MAX_CLIENT:
+    {
+        if(!osifp->osif_is_mode_offload) {
+            u_int8_t resetvap = 0;
+            u_int16_t old_max_aid = 0, old_len = 0;
+            u_int32_t numclients = 0;
+            struct net_device *tmpdev = NULL;
+
+            ic->ic_atf_maxclient = !!value;
+            if(ic->ic_atf_maxclient)
+            {
+                /* set num_clients to IEEE80211_AID_DEF when ic_atf_maxclient is set */
+                if(ic->ic_num_clients != IEEE80211_AID_DEF)
+                {
+                    numclients = IEEE80211_AID_DEF;
+                    resetvap = 1;
+                }
+            } else {
+                if( (ic->atf_commit) && (ic->ic_num_clients != IEEE80211_ATF_AID_DEF))
+                {
+                    /* When ATF is enabled, set num_clients to IEEE80211_ATF_AID_DEF */
+                    numclients = IEEE80211_ATF_AID_DEF;
+                    resetvap = 1;
+                } else if (!(ic->atf_commit) && (ic->ic_num_clients != IEEE80211_AID_DEF)) {
+                    /* When ATF is disabled, set num_clients to IEEE80211_AID_DEF */
+                    numclients = IEEE80211_AID_DEF;
+                    resetvap = 1;
+                }
+            }
+            if(resetvap)
+            {
+                TAILQ_FOREACH(tmpvap, &ic->ic_vaps, iv_next) {
+                    old_max_aid = tmpvap->iv_max_aid;
+                    old_len = howmany(tmpvap->iv_max_aid, 32) * sizeof(u_int32_t);
+                    tmpdev = ((osif_dev *)tmpvap->iv_ifp)->netdev;
+                    retv = IS_UP(tmpdev) ? -osif_vap_init(tmpdev, RESCAN) : 0;
+                    /* We will reject station when associated aid >= iv_max_aid, such that
+                    max associated station should be value + 1 */
+                    tmpvap->iv_max_aid = numclients;
+
+                    /* The interface is up, we may need to reallocation bitmap(tim, aid) */
+                    if (IS_UP(tmpdev)) {
+                        if (tmpvap->iv_alloc_tim_bitmap) {
+                            error = tmpvap->iv_alloc_tim_bitmap(tmpvap);
+                        }
+                        if(!error)
+                            error = wlan_node_alloc_aid_bitmap(tmpvap, old_len);
+                    }
+                    if(error) {
+                        printk("Error! Failed to change the number of max clients to %d\n\r",numclients);
+                        vap->iv_max_aid = old_max_aid;
+                        return -ENOMEM;
+                    }
+                    ic->ic_num_clients = numclients;
+                }
+            }
+        } else {
+            printk("ATF_MAX_CLIENT not valid for this VAP \n");
+            retv = EOPNOTSUPP;
+        }
+    }
+    break;
 #endif
+    case IEEE80211_PARAM_BSS_CHAN_INFO:
+        if (value < BSS_CHAN_INFO_READ || value > BSS_CHAN_INFO_READ_AND_CLEAR)
+        {
+            printk("Setting Param value to 1(read only)\n");
+            value = BSS_CHAN_INFO_READ;
+        }
+        ic->ic_ath_bss_chan_info_stats(ic, value);
+        break;
     }
     if (retv == ENETRESET)
     {
@@ -9614,6 +9631,9 @@ ieee80211_ioctl_getparam(struct net_device *dev, struct iw_request_info *info,
 
     switch (param[0])
     {
+    case IEEE80211_PARAM_GETADDBAOPER:
+        param[0] = wlan_get_device_param(ic, IEEE80211_DEVICE_ADDBA_MODE);
+    break;
     case IEEE80211_PARAM_MAXSTA:
         printk("Getting Max Stations: %d\n", vap->iv_max_aid - 1);
         param[0] = vap->iv_max_aid - 1;
@@ -10141,6 +10161,11 @@ ieee80211_ioctl_getparam(struct net_device *dev, struct iw_request_info *info,
     case IEEE80211_PARAM_QBSS_LOAD:
         param[0] = wlan_get_param(vap, IEEE80211_QBSS_LOAD);
 	break;
+#if ATH_SUPPORT_HS20
+    case IEEE80211_PARAM_HC_BSSLOAD:
+        param[0] = vap->iv_hc_bssload;
+        break;
+#endif /* ATH_SUPPORT_HS20 */
 #endif /* UMAC_SUPPORT_BSSLOAD */
 #if UMAC_SUPPORT_CHANUTIL_MEASUREMENT
     case IEEE80211_PARAM_CHAN_UTIL_ENAB:
@@ -10643,18 +10668,6 @@ ieee80211_ioctl_getparam(struct net_device *dev, struct iw_request_info *info,
     case IEEE80211_PARAM_SCANENTRY_TIMEOUT:
         param[0] = wlan_get_param(vap, IEEE80211_SCANENTRY_TIMEOUT);
         break;
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-		case IEEE80211_PARAM_CH_UTILITY:
-		{
-			u_int32_t rxc_pcnt = 0, rxf_pcnt = 0, txf_pcnt = 0;
-			ic->ic_get_channel_utility_once(ic, &rxc_pcnt, &rxf_pcnt, &txf_pcnt);
-			param[0] = rxc_pcnt;
-	//		param[1] = rxf_pcnt;
-	//		param[2] = txf_pcnt;
-			printk("rx_clear=%3u%%\trx_frame=%3u%%\ttx_frame=%3u%%\n", rxc_pcnt, rxf_pcnt, txf_pcnt);
-			break;
-		}
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 #if ATH_PERF_PWR_OFFLOAD && QCA_SUPPORT_RAWMODE_PKT_SIMULATION
     case IEEE80211_PARAM_RAWMODE_PKT_SIM_STATS:
         param[0] = wlan_get_param(vap, IEEE80211_RAWMODE_PKT_SIM_STATS);
@@ -10670,20 +10683,22 @@ ieee80211_ioctl_getparam(struct net_device *dev, struct iw_request_info *info,
         param[0] = vap->iv_pause_scan;
         break;
     case IEEE80211_PARAM_RX_SIGNAL_DBM:
-    {
- 	int8_t signal_dbm[6];
+        if (!osifp->osif_is_mode_offload){
+            int8_t signal_dbm[6];
+            param[0] = ic->ic_get_rx_signal_dbm(ic, signal_dbm);
 
-	param[0] = ic->ic_get_rx_signal_dbm(ic, signal_dbm);
-
-	printk("Signal Strength in dBm [ctrl chain 0]: %d\n", signal_dbm[0]);
-	printk("Signal Strength in dBm [ctrl chain 1]: %d\n", signal_dbm[1]);
-	printk("Signal Strength in dBm [ctrl chain 2]: %d\n", signal_dbm[2]);
-	printk("Signal Strength in dBm [ext chain 0]: %d\n", signal_dbm[3]);
-	printk("Signal Strength in dBm [ext chain 1]: %d\n", signal_dbm[4]);
-	printk("Signal Strength in dBm [ext chain 2]: %d\n", signal_dbm[5]);
-
-	break;
-    }
+            printk("Signal Strength in dBm [ctrl chain 0]: %d\n", signal_dbm[0]);
+            printk("Signal Strength in dBm [ctrl chain 1]: %d\n", signal_dbm[1]);
+            printk("Signal Strength in dBm [ctrl chain 2]: %d\n", signal_dbm[2]);
+            printk("Signal Strength in dBm [ext chain 0]: %d\n", signal_dbm[3]);
+            printk("Signal Strength in dBm [ext chain 1]: %d\n", signal_dbm[4]);
+            printk("Signal Strength in dBm [ext chain 2]: %d\n", signal_dbm[5]);
+        } else {
+            printk("IEEE80211_PARAM_RX_SIGNAL_DBM is valid only for DA not supported for offload \n");
+            retv = EOPNOTSUPP;
+            param[0] = 0;
+        }
+        break;
     default:
 #if ATHEROS_LINUX_P2P_DRIVER
         retv = ieee80211_ioctl_getp2p(dev, info, w, extra);
@@ -10722,14 +10737,22 @@ ieee80211_ioctl_getparam(struct net_device *dev, struct iw_request_info *info,
             printk("Not supported in this Vap\n");
        }
        break;
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-   case IEEE80211_PARAM_MONITOR:
-	   param[0] = vap->iv_monitor;
-	   break;
-   case IEEE80211_PARAM_SCANCHAN_INDEX:
-	   param[0] = vap->iv_scan_channel;
-	   break;
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
+   case IEEE80211_PARAM_SCAN_STATUS:
+       {
+#define SCAN_IN_PROGRESS 0x10 /* Scan in progress is determined by the higher 4 bits*/
+           ieee80211_scan_info last_scan_info;
+           if (wlan_get_last_scan_info(vap, &last_scan_info) == EOK)
+           {
+               if (last_scan_info.in_progress || wlan_get_param(vap,IEEE80211_GET_ACS_STATE))
+                   param[0] = SCAN_IN_PROGRESS;
+               else
+                   param[0]=last_scan_info.completion_reason;
+           }
+           else
+               return   -EOPNOTSUPP;
+#undef SCAN_IN_PROGRESS
+       }
+       break;
 #if UMAC_VOW_DEBUG
     case IEEE80211_PARAM_VOW_DBG_ENABLE:
         param[0] = (int)osifp->vow_dbg_en;
@@ -10737,11 +10760,28 @@ ieee80211_ioctl_getparam(struct net_device *dev, struct iw_request_info *info,
 #endif
 
 #if QCA_AIRTIME_FAIRNESS
+    case IEEE80211_PARAM_ATF_TXBUF_SHARE:
+        param[0] = vap->iv_ic->atf_txbuf_share;
+        break;
+    case IEEE80211_PARAM_ATF_TXBUF_MAX:
+        param[0] = vap->iv_ic->atf_txbuf_max;
+        break;
+    case IEEE80211_PARAM_ATF_TXBUF_MIN:
+        param[0] = vap->iv_ic->atf_txbuf_min;
+        break;
     case  IEEE80211_PARAM_ATF_OPT:
         param[0] = wlan_get_param(vap, IEEE80211_ATF_OPT);
         break;
     case  IEEE80211_PARAM_ATF_PER_UNIT:
         param[0] = ic->atfcfg_set.percentage_unit;
+        break;
+    case  IEEE80211_PARAM_ATF_MAX_CLIENT:
+        if(!osifp->osif_is_mode_offload) {
+            param[0] = ic->ic_atf_maxclient;
+        } else {
+            printk("ATF_MAX_CLIENT not valid for this VAP \n");
+            retv = EOPNOTSUPP;
+        }
         break;
 #endif
     }
@@ -12208,6 +12248,15 @@ ieee80211dbg_sendbstmreq(struct net_device *dev, struct ieee80211req_athdbg *req
          (struct ieee80211_bstm_reqinfo *)(&req->data.bstmreq);
     return wlan_send_bstmreq(vap, req->dstmac, bstmreq);
 }
+
+static int
+ieee80211dbg_sendbstmreq_target(struct net_device *dev, struct ieee80211req_athdbg *req)
+{
+    wlan_if_t vap = NETDEV_TO_VAP(dev);
+    struct ieee80211_bstm_reqinfo_target *bstmreq = &req->data.bstmreq_target;
+
+    return wlan_send_bstmreq_target(vap, req->dstmac, bstmreq);
+}
 #endif
 
 #if UMAC_SUPPORT_ADMCTL
@@ -12235,7 +12284,6 @@ ieee80211_ioctl_getstarssi(struct net_device *dev, struct ieee80211req_athdbg *r
 
     return 0;
 }
-
 
 static int
 ieee80211acs_ioctl_getchanlist(struct net_device *dev, struct ieee80211req_athdbg *req)
@@ -13005,6 +13053,24 @@ ieee80211dbg_ioctl_tr069(struct net_device *dev, struct ieee80211req_athdbg *req
         case TR069_GETSUPPORTEDFREQUENCY:
             ieee80211_ioctl_supported_freq_band(dev,req);
             break;
+        case TR069_GET_PLCP_ERR_CNT: /* notice fall through */
+        case TR069_GET_FCS_ERR_CNT:
+        case TR069_GET_PKTS_OTHER_RCVD:
+        case TR069_GET_FAIL_RETRANS_CNT:
+        case TR069_GET_RETRY_CNT:
+        case TR069_GET_MUL_RETRY_CNT:
+        case TR069_GET_ACK_FAIL_CNT:
+        case TR069_GET_AGGR_PKT_CNT:
+        case TR069_GET_STA_BYTES_SENT:
+        case TR069_GET_STA_BYTES_RCVD:
+        case TR069_GET_DATA_SENT_ACK:
+        case TR069_GET_DATA_SENT_NOACK:
+        case TR069_GET_CHAN_UTIL:
+        case TR069_GET_RETRANS_CNT:
+            if (ic->ic_tr69_request_process) {
+              ic->ic_tr69_request_process(vap, (int) cmdid, (void *)reqptr->data_addr, (void *)req->dstmac);
+            }
+            break;
         default:
 			break;
 	}
@@ -13050,6 +13116,14 @@ ieee80211dbg_bsteering_enable(struct net_device *dev,
 {
     struct ieee80211vap *vap = NETDEV_TO_VAP(dev);
     return wlan_bsteering_enable(vap, req);
+}
+
+static int
+ieee80211dbg_bsteering_enable_events(struct net_device *dev,
+                                     struct ieee80211req_athdbg *req)
+{
+    struct ieee80211vap *vap = NETDEV_TO_VAP(dev);
+    return wlan_bsteering_enable_events(vap, req);
 }
 
 static int
@@ -13103,6 +13177,45 @@ ieee80211dbg_ioctl_ap_scan(struct net_device *dev, struct ieee80211req_athdbg *r
 
     return ieee80211_ap_scan(ic, vap, reqptr);
 }
+
+#if ATH_SUPPORT_HS20
+static int ieee80211dbg_setqosmapconf(struct net_device *dev,
+                                      struct ieee80211req_athdbg *req)
+{
+    wlan_if_t vap = NETDEV_TO_VAP(dev);
+    osif_dev *osifp = ath_netdev_priv(dev);
+
+    OS_MEMCPY(&vap->iv_qos_map, &req->data.qos_map, sizeof(struct ieee80211_qos_map));
+
+#ifdef ATH_SUPPORT_DSCP_OVERRIDE
+    if(osifp->osif_is_mode_offload) {
+#define WMI_DSCP_MAP_MAX    (64)
+	    struct ieee80211com *ic = vap->iv_ic;
+	    A_UINT32 dscp, i;
+	    struct ieee80211_qos_map *qos_map = &vap->iv_qos_map;
+
+        for (dscp = 0 ; dscp < WMI_DSCP_MAP_MAX; dscp++) {
+		    for (i = 0; i < IEEE80211_MAX_QOS_UP_RANGE; i++)
+			    if (qos_map->up[i].low <= dscp &&
+					    qos_map->up[i].high >= dscp) {
+				    ic->ic_dscp_tid_map[dscp] = i;
+				    break;
+			    }
+
+		    for (i = 0; i < qos_map->num_dscp_except; i++) {
+			    if (qos_map->dscp_exception[i].dscp == dscp) {
+				    ic->ic_dscp_tid_map[dscp] = qos_map->dscp_exception[i].up;
+				    break;
+			    }
+		    }
+	    }
+	    ic->ic_override_dscp = 1;
+	    ol_ath_set_vap_dscp_tid_map(vap);
+ }
+#endif
+ return 0;
+}
+#endif
 
 static int
 ieee80211dbg_ioctl_mu_scan(struct net_device *dev, struct ieee80211req_athdbg *req)
@@ -13262,6 +13375,50 @@ ieee80211dbg_ioctl_lteu_config(struct net_device *dev, struct ieee80211req_athdb
 }
 
 static int
+ieee80211dbg_ioctl_atf_debug_size(struct net_device *dev, struct ieee80211req_athdbg *req)
+{
+    int ret = -EINVAL;
+#if QCA_AIRTIME_FAIRNESS
+    struct ieee80211vap *vap = NETDEV_TO_VAP(dev);
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, req->dstmac);
+    if (ni) {
+        ret = ieee80211_atf_set_debug_size(ni, req->data.param[0]);
+        ieee80211_free_node(ni);
+    } else
+        ret = -ENOENT;
+#endif
+    return ret;
+}
+
+static int
+ieee80211dbg_ioctl_atf_dump_debug(struct net_device *dev, struct ieee80211req_athdbg *req)
+{
+    int ret = -EINVAL;
+#if QCA_AIRTIME_FAIRNESS
+    struct ieee80211vap *vap = NETDEV_TO_VAP(dev);
+    struct ieee80211com *ic = vap->iv_ic;
+    struct ieee80211_node *ni = NULL;
+
+    ni = ieee80211_find_node(&ic->ic_sta, req->dstmac);
+    if (ni) {
+        ret = ieee80211_atf_get_debug_dump(ni);
+        ieee80211_free_node(ni);
+    } else
+        ret = -ENOENT;
+#endif
+    return ret;
+}
+static int ieee80211dbg_bsteering_get_datarate_info(const struct net_device *dev,
+                                         struct ieee80211req_athdbg *req)
+{
+    const struct ieee80211vap *vap = NETDEV_TO_VAP(dev);
+    return wlan_bsteering_get_datarate_info(vap, req);
+}
+
+static int
 ieee80211_ioctl_dbgreq(struct net_device *dev, struct iw_request_info *info,
     void *w, char *extra)
 {
@@ -13345,6 +13502,9 @@ ieee80211_ioctl_dbgreq(struct net_device *dev, struct iw_request_info *info,
         case IEEE80211_DBGREQ_SENDBSTMREQ:
             retv = ieee80211dbg_sendbstmreq(dev, req);
             break;
+        case IEEE80211_DBGREQ_SENDBSTMREQ_TARGET:
+            retv = ieee80211dbg_sendbstmreq_target(dev, req);
+            break;
 #endif
 #if UMAC_SUPPORT_ADMCTL
         case IEEE80211_DBGREQ_SENDDELTS:
@@ -13354,10 +13514,20 @@ ieee80211_ioctl_dbgreq(struct net_device *dev, struct iw_request_info *info,
             retv = ieee80211dbg_sendaddtsreq(dev, req);
             break;
 #endif
+#if ATH_SUPPORT_HS20
+        case IEEE80211_DBGREQ_SETQOSMAPCONF:
+            retv = ieee80211dbg_setqosmapconf(dev, req);
+            break;
+#endif
         case IEEE80211_DBGREQ_GETRRSSI:
             ieee80211_ioctl_getstarssi(dev, req);
             return 0;
             break;
+#if ATH_SUPPORT_WIFIPOS
+        case IEEE80211_DBGREQ_INITRTT3:
+            retv = ieee80211_ioctl_initrtt3(dev,req);
+            break;
+#endif
         case IEEE80211_DBGREQ_GETACSREPORT:
             retv = ieee80211dbg_ioctl_acs(dev, req);
             break;
@@ -13401,6 +13571,10 @@ ieee80211_ioctl_dbgreq(struct net_device *dev, struct iw_request_info *info,
             retv = ieee80211dbg_bsteering_enable(dev, req);
             break;
 
+        case IEEE80211_DBGREQ_BSTEERING_ENABLE_EVENTS:
+            retv = ieee80211dbg_bsteering_enable_events(dev, req);
+            break;
+
         case IEEE80211_DBGREQ_BSTEERING_SET_OVERLOAD:
             retv = ieee80211dbg_bsteering_set_overload(dev, req);
             break;
@@ -13410,6 +13584,13 @@ ieee80211_ioctl_dbgreq(struct net_device *dev, struct iw_request_info *info,
             if (EOK == retv) {
                 retv = (copy_to_user(wri->pointer, req, sizeof(*req))) ?
                     -EFAULT : 0;
+            }
+            break;
+        case IEEE80211_DBGREQ_BSTEERING_GET_DATARATE_INFO:
+            retv = ieee80211dbg_bsteering_get_datarate_info(dev, req);
+            if (EOK == retv) {
+                retv = (copy_to_user(wri->pointer, req, sizeof(*req))) ?
+                        -EFAULT : 0;
             }
             break;
 
@@ -13436,6 +13617,12 @@ ieee80211_ioctl_dbgreq(struct net_device *dev, struct iw_request_info *info,
             break;
         case IEEE80211_DBGREQ_AP_SCAN:
             retv = ieee80211dbg_ioctl_ap_scan(dev, req);
+            break;
+        case IEEE80211_DBGREQ_ATF_DEBUG_SIZE:
+            retv = ieee80211dbg_ioctl_atf_debug_size(dev, req);
+            break;
+        case IEEE80211_DBGREQ_ATF_DUMP_DEBUG:
+            retv = ieee80211dbg_ioctl_atf_dump_debug(dev, req);
             break;
             
     default:
@@ -14749,6 +14936,9 @@ get_sta_info(void *arg, wlan_node_t node)
     si->isi_htcap = wlan_node_get_htcap(node);
     si->isi_stamode= wlan_node_get_mode(node);
 
+    /* Extended capabilities */
+    si->isi_ext_cap = wlan_node_get_extended_capabilities(node);
+
     cp = (u_int8_t *)(si+1);
 #ifdef notyet
     /* Currently RSN/WPA IE store in the same place */
@@ -14794,15 +14984,34 @@ get_sta_info(void *arg, wlan_node_t node)
 
 static int ieee80211_ioctl_checkatfset(struct net_device *dev, struct iwreq *iwr)
 {
-    osif_dev  *osifp = ath_netdev_priv(dev);
-    int error = 0;
-    struct ssid_val  *buf;
-    /*    if(osifp->os_opmode == IEEE80211_M_STA) {
-          return -EPERM;
-          }*/
-    buf = (struct ssid_val *)(iwr->u.data.pointer);
-    error = buf->id_type;
-    return error;
+    struct atf_subtype buf;
+
+    if(copy_from_user(&buf, iwr->u.data.pointer, sizeof(struct atf_subtype)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        return 0;
+    }
+    return buf.id_type;
+}
+
+static void osif_vap_iter_atf_ssid_validate(void *arg, struct ieee80211vap *vap)
+{
+    enum ieee80211_opmode opmode = wlan_vap_get_opmode(vap);
+    struct ssid_val *atf_ssid_config = (struct ssid_val *)arg;
+    ieee80211_ssid ssidlist;
+    int des_nssid;
+
+    des_nssid = wlan_get_desired_ssidlist(vap, &ssidlist, 1);
+    if ( (des_nssid > 0) && (opmode == IEEE80211_M_HOSTAP) )
+    {
+        /* Compare VAP ssid with user provided SSID */
+        if( (strlen((char *)(atf_ssid_config->ssid)) == ssidlist.len) &&
+            !strncmp( (char *)(atf_ssid_config->ssid), ssidlist.ssid, strlen( (char*)atf_ssid_config->ssid)) )
+        {
+            atf_ssid_config->ssid_exist = 1;
+        }
+    }
+    return;
 }
 
 /**
@@ -14820,13 +15029,34 @@ int ieee80211_ioctl_setatfssid(struct net_device *dev, struct iwreq *iwr)
     struct ssid_val  *buf;
     u_int8_t   num_vaps = 0, vap_index;
     u_int32_t  cumulative_vap_cfg_value = 0;
-    /*    if(osifp->os_opmode == IEEE80211_M_STA) {
-          return -EPERM;
-          }*/
-    buf = (struct ssid_val *)(iwr->u.data.pointer);
+
+
+    buf = (struct ssid_val *)OS_MALLOC(osifp->os_handle, sizeof(struct ssid_val), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return 0;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct ssid_val)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return 0;
+    }
+
+    /* Validate the SSID provided by the user
+       display a message if configuration was done for a non-existing SSID
+       Note that the configuration will be applied even for a non-exiting SSID
+    */
+    buf->ssid_exist = 0;
+    wlan_iterate_vap_list(ic, osif_vap_iter_atf_ssid_validate ,(void *)buf);
+    if(!buf->ssid_exist)
+    {
+       printk("Airtime configuration applied for a non-existing SSID - %s:%d%\n\r", buf->ssid, (buf->value/10));
+    }
 
     num_vaps = ic->atfcfg_set.vap_num_cfg;
-    for (vap_index = 0; (vap_index < CFG_NUM_VDEV) && (num_vaps != 0); vap_index++)
+    for (vap_index = 0; (vap_index < ATF_CFG_NUM_VDEV) && (num_vaps != 0); vap_index++)
     {
         if(ic->atfcfg_set.vap[vap_index].cfg_flag)
         {
@@ -14841,10 +15071,11 @@ int ieee80211_ioctl_setatfssid(struct net_device *dev, struct iwreq *iwr)
     if(cumulative_vap_cfg_value > PER_UNIT_1000)
     {
         printk(" WRONG CONFIGURATION VALUE %d MAX VALUE  100 !!!!! \n", cumulative_vap_cfg_value/10);
+        kfree(buf);
         return -EFAULT;
     }
 
-    for (i = 0, vap_flag = 0; i < CFG_NUM_VDEV; i++)
+    for (i = 0, vap_flag = 0; i < ATF_CFG_NUM_VDEV; i++)
     {
         if(ic->atfcfg_set.vap[i].cfg_flag)
         {
@@ -14859,7 +15090,7 @@ int ieee80211_ioctl_setatfssid(struct net_device *dev, struct iwreq *iwr)
         }
     }
  
-    if(i == CFG_NUM_VDEV)
+    if(i == ATF_CFG_NUM_VDEV)
     {
         if(firstIndex != 0xff)
         {
@@ -14874,6 +15105,8 @@ int ieee80211_ioctl_setatfssid(struct net_device *dev, struct iwreq *iwr)
     }
     else
         ic->atfcfg_set.vap[i].vap_cfg_value = buf->value;
+
+    kfree(buf);
     return (error ? -EFAULT : 0);
 }
 
@@ -14890,19 +15123,31 @@ int ieee80211_ioctl_delatfssid(struct net_device *dev, struct iwreq *iwr)
     int error = 0;
     u_int8_t  i, j;
     struct ssid_val  *buf;
-    /*    if(osifp->os_opmode == IEEE80211_M_STA) {
-          return -EPERM;
-          }*/
-    buf = (struct ssid_val *)(iwr->u.data.pointer);
-    for (i = 0; (i < CFG_NUM_VDEV)&&(ic->atfcfg_set.vap[i].cfg_flag); i++)
+
+    buf = (struct ssid_val *)OS_MALLOC(osifp->os_handle, sizeof(struct ssid_val), GFP_KERNEL);
+    if (!buf)
     {
-        if (strcmp((char *)(ic->atfcfg_set.vap[i].essid), (char *)(buf->ssid)) == 0)
-            break;
+        printk("%s: memory alloc failed\n",__func__);
+        return 0;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct ssid_val)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return 0;
     }
 
-    if(i == CFG_NUM_VDEV)
+    for (i = 0; (i < ATF_CFG_NUM_VDEV); i++)
     {
-        printf(" The input ssid is not exist\n");
+        if(ic->atfcfg_set.vap[i].cfg_flag){
+            if (strcmp((char *)(ic->atfcfg_set.vap[i].essid), (char *)(buf->ssid)) == 0)
+                break;
+        }
+    }
+
+    if(i == ATF_CFG_NUM_VDEV)
+    {
+        printf(" The input ssid does not exist\n");
     } else {
         memset(&(ic->atfcfg_set.vap[i].essid[0]), 0, IEEE80211_NWID_LEN+1);
         ic->atfcfg_set.vap[i].cfg_flag = 0;
@@ -14910,7 +15155,7 @@ int ieee80211_ioctl_delatfssid(struct net_device *dev, struct iwreq *iwr)
 
         if((i+1)<ic->atfcfg_set.vap_num_cfg )
         {
-            for (j = 0; j < ACTIVED_MAX_CLIENTS; j++)
+            for (j = 0; j < ATF_ACTIVED_MAX_CLIENTS; j++)
             {
                 if(ic->atfcfg_set.peer_id[j].index_vap == ic->atfcfg_set.vap_num_cfg)
                     ic->atfcfg_set.peer_id[j].index_vap = i+1;
@@ -14924,6 +15169,7 @@ int ieee80211_ioctl_delatfssid(struct net_device *dev, struct iwreq *iwr)
         }
         ic->atfcfg_set.vap_num_cfg--;
     }
+    kfree(buf);
     return (error ? -EFAULT : 0);
 }
 
@@ -14940,11 +15186,23 @@ int ieee80211_ioctl_setatfsta(struct net_device *dev, struct iwreq *iwr)
     int error = 0;
     u_int8_t  i,sta_flag,staIndex = 0xff;
     struct sta_val  *buf;
-    u_int16_t calbitmap;
+    u_int64_t calbitmap;
     u_int8_t  sta_mac[IEEE80211_ADDR_LEN]={0,0,0,0,0,0};
 
-    buf = (struct sta_val *)(iwr->u.data.pointer);
-    for (i = 0, calbitmap = 1, sta_flag = 0; i < ACTIVED_MAX_CLIENTS; i++)
+    buf = (struct sta_val *)OS_MALLOC(osifp->os_handle, sizeof(struct sta_val), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return 0;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct sta_val)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return 0;
+    }
+
+    for (i = 0, calbitmap = 1, sta_flag = 0; i < ATF_ACTIVED_MAX_CLIENTS; i++)
     {
         if(ic->atfcfg_set.peer_id[i].cfg_flag)
         {
@@ -14967,7 +15225,7 @@ int ieee80211_ioctl_setatfsta(struct net_device *dev, struct iwreq *iwr)
         }
     }
     }
-    if(i == ACTIVED_MAX_CLIENTS)
+    if(i == ATF_ACTIVED_MAX_CLIENTS)
     {
         if(staIndex != 0xff)
         {
@@ -14986,6 +15244,8 @@ int ieee80211_ioctl_setatfsta(struct net_device *dev, struct iwreq *iwr)
     }
     else
         ic->atfcfg_set.peer_id[i].sta_cfg_value = buf->value;
+
+    kfree(buf);
     return (error ? -EFAULT : 0);
 }
 
@@ -15002,13 +15262,22 @@ int ieee80211_ioctl_delatfsta(struct net_device *dev, struct iwreq *iwr)
     int error = 0;
     u_int8_t  i, j, k;
     struct sta_val  *buf;
-    u_int16_t calbitmap = 1;
-    /*    if(osifp->os_opmode == IEEE80211_M_STA) {
-          return -EPERM;
-          }*/
-    buf = (struct sta_val *)(iwr->u.data.pointer);
+    u_int64_t calbitmap = 1;
 
-    for (i = 0; i < ACTIVED_MAX_CLIENTS; i++)
+    buf = (struct sta_val *)OS_MALLOC(osifp->os_handle, sizeof(struct sta_val), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return 0;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct sta_val)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return 0;
+    }
+
+    for (i = 0; i < ATF_ACTIVED_MAX_CLIENTS; i++)
     {
         if (ic->atfcfg_set.peer_id[i].cfg_flag == 1)
         {
@@ -15016,7 +15285,7 @@ int ieee80211_ioctl_delatfsta(struct net_device *dev, struct iwreq *iwr)
                 break;
         }
     }
-    if(i == ACTIVED_MAX_CLIENTS)
+    if(i == ATF_ACTIVED_MAX_CLIENTS)
     {
         printk(" The input sta is not exist\n");
     } else {
@@ -15026,7 +15295,7 @@ int ieee80211_ioctl_delatfsta(struct net_device *dev, struct iwreq *iwr)
         ic->atfcfg_set.peer_id[i].sta_cfg_mark = 0;
         if((ic->atfcfg_set.peer_id[i].sta_cal_value == 0 )&&(ic->atfcfg_set.peer_id[i].sta_assoc_status == 0))
         {
-            for (k = 0, j = 0; k < ACTIVED_MAX_CLIENTS; k++)
+            for (k = 0, j = 0; k < ATF_ACTIVED_MAX_CLIENTS; k++)
             {
                 if (ic->atfcfg_set.peer_id[k].index_vap != 0)
                     j = k;
@@ -15062,92 +15331,245 @@ int ieee80211_ioctl_delatfsta(struct net_device *dev, struct iwreq *iwr)
         }
     }
 
+    kfree(buf);
     return (error ? -EFAULT : 0);
+}
+
+/**
+ * @brief function to show the configured groups & associated SSID's
+ *
+ */
+static int ieee80211_atf_grouptable(struct ieee80211com *ic, struct atftable  *buf)
+{
+#define OTHER_SSID "Others   \0"
+    u_int8_t  *sta_mac;
+    u_int8_t  i, j, init_flag, k;
+    u_int8_t  grp_index[ATF_CFG_NUM_VDEV];
+    u_int32_t  leftperuint = (ic->atfcfg_set.percentage_unit == 0)?1000:ic->atfcfg_set.percentage_unit;
+    struct     ieee80211_node *ni = NULL;
+
+    if(ic->atfcfg_set.grp_num_cfg)
+    {
+         buf->atf_group = 1;
+
+        for (i = 0, buf->info_cnt = 0, k = 0; i < ic->atfcfg_set.grp_num_cfg; i++)
+        {
+            for (j = 0, init_flag = 0; j < ATF_ACTIVED_MAX_CLIENTS; j++)
+            {
+                ni = ieee80211_find_node(&ic->ic_sta, ic->atfcfg_set.peer_id[j].sta_mac);
+
+                if(ni == NULL)
+                    continue;
+
+                if((ni != NULL) && ((ni == ni->ni_bss_node) ||
+                            (ni->ni_vap->iv_opmode == IEEE80211_M_STA)))
+                {
+                    ieee80211_free_node(ni);
+                    continue;
+                } else if (ic->atfcfg_set.peer_id[j].index_group == (i+1)) {
+                    if(init_flag == 0)
+                    {
+                        OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].grpname),(char *)(ic->atfcfg_set.atfgroup[i].grpname),strlen(ic->atfcfg_set.atfgroup[i].grpname));
+                        buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.atfgroup[i].grp_cfg_value;
+                        buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.atfgroup[i].grp_cfg_value;
+                        buf->atf_info[buf->info_cnt].info_mark =0;
+                        buf->info_cnt++;
+                        init_flag++;
+                        grp_index[i] = i+1;
+                        k += 1;
+                    }
+                    sta_mac = &(ic->atfcfg_set.peer_id[j].sta_mac[0]);
+                    buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.peer_id[j].sta_cal_value;
+                    OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ni->ni_vap->iv_bss->ni_essid),strlen(ni->ni_vap->iv_bss->ni_essid));
+                    buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.peer_id[j].sta_cfg_value;
+                    buf->atf_info[buf->info_cnt].assoc_status = ic->atfcfg_set.peer_id[j].sta_assoc_status;
+                    OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].sta_mac),(char *)sta_mac,IEEE80211_ADDR_LEN);
+                    buf->atf_info[buf->info_cnt].info_mark =1;
+                    buf->info_cnt++;
+
+                }
+                ieee80211_free_node(ni);
+            }
+            leftperuint -= ic->atfcfg_set.atfgroup[i].grp_cfg_value;
+        }
+        if((ic->atfcfg_set.grp_num_cfg != k) && (ni != NULL) )
+        {
+            for (i = 0; i < ic->atfcfg_set.grp_num_cfg; i++)
+            {
+                if((ic->atfcfg_set.vap[i].cfg_flag == 1)&&(grp_index[i] == 0))
+                {
+                    OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ni->ni_vap->iv_bss->ni_essid),strlen(ni->ni_vap->iv_bss->ni_essid));
+                    buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.vap[i].vap_cfg_value;
+                    buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.vap[i].vap_cfg_value;
+                    buf->atf_info[buf->info_cnt].info_mark =0;
+                    buf->info_cnt++;
+                }
+            }
+        }
+        OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].grpname),"Others   ",strlen(OTHER_SSID));
+        buf->atf_info[buf->info_cnt].value = leftperuint;
+        buf->atf_info[buf->info_cnt].cfg_value = 0;
+        buf->atf_info[buf->info_cnt].info_mark =0;
+        buf->info_cnt++;
+
+        for (j = 0; j < ATF_ACTIVED_MAX_CLIENTS; j++)
+        {
+            ni = ieee80211_find_node(&ic->ic_sta, ic->atfcfg_set.peer_id[j].sta_mac);
+
+            if(ni == NULL)
+                continue;
+
+            if((ni != NULL) && ((ni == ni->ni_bss_node) ||
+                        (ni->ni_vap->iv_opmode == IEEE80211_M_STA)))
+            {
+                ieee80211_free_node(ni);
+                continue;
+            } else if( ic->atfcfg_set.peer_id[j].index_group == 0xFF) {
+                sta_mac = &(ic->atfcfg_set.peer_id[j].sta_mac[0]);
+                buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.peer_id[j].sta_cal_value;
+                buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.peer_id[j].sta_cfg_value;
+                buf->atf_info[buf->info_cnt].assoc_status = ic->atfcfg_set.peer_id[j].sta_assoc_status;
+                OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].sta_mac),(char *)sta_mac,IEEE80211_ADDR_LEN);
+                OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid), ni->ni_vap->iv_bss->ni_essid, strlen(ni->ni_vap->iv_bss->ni_essid));
+                buf->atf_info[buf->info_cnt].info_mark =1;
+                buf->info_cnt++;
+            }
+            ieee80211_free_node(ni);
+            buf->busy = ic->ic_atf_chbusy;
+        }
+    }
+    return EOK;
 }
 
 /**
  * @brief function to show the contents present in the atf table
  *
  */
-
 static int ieee80211_ioctl_showatftable(struct net_device *dev, struct iwreq *iwr)
 {
+#define OTHER_SSID "Others   \0"
     osif_dev  *osifp = ath_netdev_priv(dev);
     wlan_if_t vap = osifp->os_if;
     struct ieee80211com *ic = vap->iv_ic;
-    int error = 0;
     struct atftable  *buf;
+    int error = 0;
     u_int8_t  *sta_mac;
     u_int8_t  i, j, init_flag, k;
-    u_int8_t  vap_index[CFG_NUM_VDEV];
+    u_int8_t  vap_index[ATF_CFG_NUM_VDEV];
     u_int32_t  leftperuint = (ic->atfcfg_set.percentage_unit == 0)?1000:ic->atfcfg_set.percentage_unit;
+    struct     ieee80211_node *ni = NULL;
 
-    buf = (struct atftable *)(iwr->u.data.pointer);
-    memset(vap_index, 0, CFG_NUM_VDEV);
-
-    for (i = 0, buf->info_cnt = 0, k = 0; i < ic->atfcfg_set.vap_num_cfg; i++)
+    buf = (struct atftable *)OS_MALLOC(osifp->os_handle, sizeof(struct atftable), GFP_KERNEL);
+    if (!buf)
     {
-        for (j = 0, init_flag = 0; j < ACTIVED_MAX_CLIENTS; j++)
+        printk("%s: memory alloc failed\n",__func__);
+        return 0;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct atftable)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return 0;
+    }
+
+    memset(vap_index, 0, ATF_CFG_NUM_VDEV);
+
+    /* Update the atf status from ic struct */
+    if(!ic->ic_is_mode_offload(ic)) {
+        buf->atf_status = ic->atf_commit;
+    } else {
+        /* Dynamic enable/disable is not supported in offload arch */
+        buf->atf_status = -1;
+    }
+
+    if(ic->atfcfg_set.grp_num_cfg)
+    {
+        ieee80211_atf_grouptable(ic, buf);
+    } else {
+        for (i = 0, buf->info_cnt = 0, k = 0; i < ic->atfcfg_set.vap_num_cfg; i++)
         {
-            if (ic->atfcfg_set.peer_id[j].index_vap == (i+1))
+            for (j = 0, init_flag = 0; j < ATF_ACTIVED_MAX_CLIENTS; j++)
             {
-                if(init_flag == 0)
+                ni = ieee80211_find_node(&ic->ic_sta, ic->atfcfg_set.peer_id[j].sta_mac);
+                if((ni != NULL) && ((ni == ni->ni_bss_node) ||
+                            (ni->ni_vap->iv_opmode == IEEE80211_M_STA)))
+                {
+                    ieee80211_free_node(ni);
+                    continue;
+                } else if (ic->atfcfg_set.peer_id[j].index_vap == (i+1)){
+                    if(init_flag == 0)
+                    {
+                        OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ic->atfcfg_set.vap[i].essid),strlen(ic->atfcfg_set.vap[i].essid));
+                        buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.vap[i].vap_cfg_value;
+                        buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.vap[i].vap_cfg_value;
+                        buf->atf_info[buf->info_cnt].info_mark =0;
+                        buf->info_cnt++;
+                        init_flag++;
+                        vap_index[i] = i+1;
+                        k += 1;
+                    }
+                    sta_mac = &(ic->atfcfg_set.peer_id[j].sta_mac[0]);
+                    buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.peer_id[j].sta_cal_value;
+                    OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ic->atfcfg_set.vap[i].essid),strlen(ic->atfcfg_set.vap[i].essid));
+                    buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.peer_id[j].sta_cfg_value;
+                    buf->atf_info[buf->info_cnt].assoc_status = ic->atfcfg_set.peer_id[j].sta_assoc_status;
+                    OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].sta_mac),(char *)sta_mac,IEEE80211_ADDR_LEN);
+                    buf->atf_info[buf->info_cnt].info_mark =1;
+                    buf->info_cnt++;
+                }
+                ieee80211_free_node(ni);
+            }
+            leftperuint -= ic->atfcfg_set.vap[i].vap_cfg_value;
+        }
+        if(ic->atfcfg_set.vap_num_cfg != k)
+        {
+            for (i = 0; i < ic->atfcfg_set.vap_num_cfg; i++)
+            {
+                if((ic->atfcfg_set.vap[i].cfg_flag == 1)&&(vap_index[i] == 0))
                 {
                     OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ic->atfcfg_set.vap[i].essid),strlen(ic->atfcfg_set.vap[i].essid));
                     buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.vap[i].vap_cfg_value;
                     buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.vap[i].vap_cfg_value;
                     buf->atf_info[buf->info_cnt].info_mark =0;
                     buf->info_cnt++;
-                    init_flag++;
-                    vap_index[i] = i+1;
-                     k += 1;
                 }
+            }
+        }
+        OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),"Others   ",strlen(OTHER_SSID));
+        buf->atf_info[buf->info_cnt].value = leftperuint;
+        buf->atf_info[buf->info_cnt].cfg_value = 0;
+        buf->atf_info[buf->info_cnt].info_mark =0;
+        buf->info_cnt++;
+
+        for (j = 0; j < ATF_ACTIVED_MAX_CLIENTS; j++)
+        {
+            ni = ieee80211_find_node(&ic->ic_sta, ic->atfcfg_set.peer_id[j].sta_mac);
+            if((ni != NULL) && ((ni == ni->ni_bss_node) ||
+                        (ni->ni_vap->iv_opmode == IEEE80211_M_STA)))
+            {
+                ieee80211_free_node(ni);
+                continue;
+            } else if( ic->atfcfg_set.peer_id[j].index_vap == 0xff) {
                 sta_mac = &(ic->atfcfg_set.peer_id[j].sta_mac[0]);
                 buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.peer_id[j].sta_cal_value;
-                OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ic->atfcfg_set.vap[i].essid),strlen(ic->atfcfg_set.vap[i].essid));
                 buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.peer_id[j].sta_cfg_value;
                 buf->atf_info[buf->info_cnt].assoc_status = ic->atfcfg_set.peer_id[j].sta_assoc_status;
                 OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].sta_mac),(char *)sta_mac,IEEE80211_ADDR_LEN);
+                OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),"Others   ",strlen(OTHER_SSID));
                 buf->atf_info[buf->info_cnt].info_mark =1;
                 buf->info_cnt++;
             }
+            ieee80211_free_node(ni);
+            buf->busy = ic->ic_atf_chbusy;
         }
-        leftperuint -= ic->atfcfg_set.vap[i].vap_cfg_value;
     }
-    if(ic->atfcfg_set.vap_num_cfg != k)
+    if (copy_to_user(iwr->u.data.pointer, buf, sizeof(struct atftable)))
     {
-        for (i = 0; i < ic->atfcfg_set.vap_num_cfg; i++)
-        {
-            if((ic->atfcfg_set.vap[i].cfg_flag == 1)&&(vap_index[i] == 0))
-            {
-                OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),(char *)(ic->atfcfg_set.vap[i].essid),strlen(ic->atfcfg_set.vap[i].essid));
-                buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.vap[i].vap_cfg_value;
-                buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.vap[i].vap_cfg_value;
-                buf->atf_info[buf->info_cnt].info_mark =0;
-                buf->info_cnt++;
-            }
-        }
+        printk("%s: copy_to_user failed\n",__func__);
+        error =  -EFAULT;
     }
-    OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),"Others   ",9);
-    buf->atf_info[buf->info_cnt].value = leftperuint;
-    buf->atf_info[buf->info_cnt].cfg_value = 0;
-    buf->atf_info[buf->info_cnt].info_mark =0;
-    buf->info_cnt++;
-
-    for (j = 0; j < ACTIVED_MAX_CLIENTS; j++)
-    {
-        if( ic->atfcfg_set.peer_id[j].index_vap == 0xff)
-        {
-            sta_mac = &(ic->atfcfg_set.peer_id[j].sta_mac[0]);
-            buf->atf_info[buf->info_cnt].value = ic->atfcfg_set.peer_id[j].sta_cal_value;
-            buf->atf_info[buf->info_cnt].cfg_value = ic->atfcfg_set.peer_id[j].sta_cfg_value;
-            buf->atf_info[buf->info_cnt].assoc_status = ic->atfcfg_set.peer_id[j].sta_assoc_status;
-            OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].sta_mac),(char *)sta_mac,IEEE80211_ADDR_LEN);
-            OS_MEMCPY((char *)(buf->atf_info[buf->info_cnt].ssid),"Others   ",9);
-            buf->atf_info[buf->info_cnt].info_mark =1;
-            buf->info_cnt++;
-        }
-    }
+    kfree(buf);
+#undef OTHER_SSID
     return (error ? -EFAULT : 0);
 }
 
@@ -15161,13 +15583,25 @@ static int ieee80211_ioctl_showairtime(struct net_device *dev, struct iwreq *iwr
     osif_dev  *osifp = ath_netdev_priv(dev);
     wlan_if_t vap = osifp->os_if;
     struct ieee80211com *ic = vap->iv_ic;
-    int error = 0;
     struct atftable  *buf;
+    int error = 0;
     u_int8_t  *sta_mac;
     u_int8_t  i;
 
-    buf = (struct atftable *)(iwr->u.data.pointer);
-    for (i = 0, buf->info_cnt = 0; i < ACTIVED_MAX_CLIENTS; i++)
+    buf = (struct atftable *)OS_MALLOC(osifp->os_handle, sizeof(struct atftable), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return 0;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct atftable)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return 0;
+    }
+
+    for (i = 0, buf->info_cnt = 0; i < ATF_ACTIVED_MAX_CLIENTS; i++)
     {
         if (ic->atfcfg_set.peer_id[i].index_vap !=0)
         {
@@ -15180,8 +15614,360 @@ static int ieee80211_ioctl_showairtime(struct net_device *dev, struct iwreq *iwr
             buf->info_cnt++;
         }
     }
+    if(copy_to_user(iwr->u.data.pointer, buf, sizeof(struct atftable)))
+    {
+        printk("%s: copy_to_user failed\n",__func__);
+        error =  -EFAULT;
+    }
+    kfree(buf);
     return (error ? -EFAULT : 0);
 }
+static int ieee80211_ioctl_flushtable(struct net_device *dev, struct iwreq *iwr)
+{
+    osif_dev  *osifp = ath_netdev_priv(dev);
+    wlan_if_t vap = osifp->os_if;
+    struct ieee80211com *ic = vap->iv_ic;
+    wlan_if_t tmpvap;
+    int error = 0;
+    int retv = 0;
+
+    memset(&(ic->atfcfg_set),0,sizeof(ic->atfcfg_set));
+    TAILQ_FOREACH(tmpvap, &ic->ic_vaps, iv_next) {
+        struct net_device *tmpdev = ((osif_dev *)tmpvap->iv_ifp)->netdev;
+        if( IS_UP(tmpdev) )
+         retv = osif_vap_init(tmpdev, RESCAN);
+        if (retv != 0)
+            error = -1;
+    }
+    return (error ? -EFAULT : 0);
+}
+
+/**
+ * @brief Add a new ATF group
+ * If the group is a new one, create a new group & add ssid to the group
+ * If the group already exists, add ssid to the group
+ */
+static int
+ieee80211_ioctl_addatfgroup(struct net_device *dev, struct iwreq *iwr)
+{
+    osif_dev  *osifp = ath_netdev_priv(dev);
+    wlan_if_t vap = osifp->os_if;
+    struct ieee80211com *ic = vap->iv_ic;
+    struct atf_group  *buf;
+    int32_t error = 0;
+    u_int32_t groupindex = 0, groupssidindex = 0, i = 0, k = 0;
+    u_int8_t addssid = 1, addgroup = 1;
+    struct group_list *group = NULL;
+
+    if ((ic->ic_atf_sched & IEEE80211_ATF_SCHED_STRICT) && (!(ic->ic_atf_sched & IEEE80211_ATF_GROUP_SCHED_POLICY)))
+   {
+       printk("Strict queue within group is enabled and fair queue across groups is enabled.Invalid combination. Cannot Addatfgroup \n");
+       return -EFAULT;
+   }
+
+    buf = (struct atf_group *)OS_MALLOC(osifp->os_handle, sizeof(struct atf_group), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return -ENOMEM;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct atf_group)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return -EFAULT;
+    }
+
+    for (i = 0; i < ic->atfcfg_set.grp_num_cfg; i++)
+    {
+        /* Check if group already exists */
+        if( (strlen(ic->atfcfg_set.atfgroup[i].grpname) == strlen(buf->name)) &&
+            !(strncmp( (char *)(ic->atfcfg_set.atfgroup[i].grpname), (char *)(buf->name), strlen(buf->name))) ) {
+            addgroup = 0;
+            groupindex = i;
+            /* check if ssid is already part of the group */
+            for(k = 0; k < ic->atfcfg_set.atfgroup[i].grp_num_ssid ;k++)
+            {
+                if ( (strlen(ic->atfcfg_set.atfgroup[i].grp_ssid[k]) == strlen(buf->ssid)) &&
+                     !(strncmp( (char *)(ic->atfcfg_set.atfgroup[i].grp_ssid[k]), (char *)(buf->ssid), strlen(buf->ssid))) )
+                {
+                    printk("SSID (%s) already part of the group, %s \n\r", buf->ssid, buf->name);
+                    addssid = 0;
+                    error = 1;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    /* Check if this SSID is already a part of some other group.
+       The same SSID cannot be part of multiple groups.
+     */
+    if(addgroup || addssid)
+    {
+        /* Loop through each group */
+        for(i=0; i < ic->atfcfg_set.grp_num_cfg; i++)
+        {
+            /* Loop through each ssid in the group */
+            for(k=0; k < ic->atfcfg_set.atfgroup[i].grp_num_ssid; k++)
+            {
+                if( (strlen(ic->atfcfg_set.atfgroup[i].grp_ssid[k]) == strlen(buf->ssid)) &&
+                    !(strncmp( (char *)(ic->atfcfg_set.atfgroup[i].grp_ssid[k]), (char *)(buf->ssid), strlen(buf->ssid))) )
+                {
+                    printk("%s already part of %s group - Same ssid cannot be part of Multiple groups\n\r",
+                            buf->ssid, ic->atfcfg_set.atfgroup[i].grpname);
+                    addgroup = 0;
+                    addssid = 0;
+                    error = 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* Create New Group & Increment number of groups*/
+    if(addgroup)
+    {
+        if(ic->atfcfg_set.grp_num_cfg >= ATF_ACTIVED_MAX_ATFGROUPS)
+        {
+            printk("Error!Cannot configure more than %d groups\n\r", ATF_ACTIVED_MAX_ATFGROUPS);
+            kfree(buf);
+            return -EINVAL;
+        }
+        groupindex = ic->atfcfg_set.grp_num_cfg;
+        strncpy(ic->atfcfg_set.atfgroup[groupindex].grpname, (char *)(buf->name), strlen(buf->name));
+        ic->atfcfg_set.grp_num_cfg++;
+
+        if(!ic->ic_is_mode_offload(ic))
+        {
+            /* Create a new entry in the group list */
+            group = (struct group_list *)OS_MALLOC(ic->ic_osdev, sizeof(struct group_list), GFP_KERNEL);
+            strncpy(group->group_name, (char *)(buf->name), strlen(buf->name));
+            group->atf_num_clients_borrow = 0;
+            group->atf_num_clients = 0;
+            group->atf_contributabletokens = 0;
+            group->shadow_atf_contributabletokens = 0;
+            group->group_del = 0;
+            TAILQ_INSERT_TAIL(&ic->ic_atfgroups, group, group_next);
+
+            /* Add reference to group list entry is config group struct */
+            ic->atfcfg_set.atfgroup[groupindex].grplist_entry = group;
+        }
+
+    }
+
+    /* add new ssid to the group & increment number of ssids in the group */
+    if(addssid)
+    {
+        if(ic->atfcfg_set.atfgroup[groupindex].grp_num_ssid >= ATF_CFG_NUM_VDEV)
+        {
+            printk("Error!Cannot configure more than %d SSIDs in the group\n\r", ATF_CFG_NUM_VDEV);
+            kfree(buf);
+            return -EINVAL;
+        }
+        groupssidindex = ic->atfcfg_set.atfgroup[groupindex].grp_num_ssid;
+        strncpy(ic->atfcfg_set.atfgroup[groupindex].grp_ssid[groupssidindex], (char *)(buf->ssid) ,strlen(buf->ssid));
+        ic->atfcfg_set.atfgroup[groupindex].grp_num_ssid++;
+    }
+
+    kfree(buf);
+    return (error ? -EFAULT : 0);
+}
+
+/**
+ * @brief Config Airtime for an ATF group
+ * If group exisits, configure Airtime
+ * Return error if group doesn't exist.
+ */
+static int
+ieee80211_ioctl_configatfgroup(struct net_device *dev, struct iwreq *iwr)
+{
+    osif_dev  *osifp = ath_netdev_priv(dev);
+    wlan_if_t vap = osifp->os_if;
+    struct ieee80211com *ic = vap->iv_ic;
+    struct atf_group  *buf;
+    int32_t error = 0;
+    u_int32_t i = 0, airtime_group = 0;
+    u_int32_t  availableairtime = (ic->atfcfg_set.percentage_unit == 0)? 1000: ic->atfcfg_set.percentage_unit;
+    struct group_list *group = NULL;
+
+   /* Find the Total Airtime configured (for all groups) */
+    for(i=0; i < ic->atfcfg_set.grp_num_cfg; i++)
+        airtime_group += ic->atfcfg_set.atfgroup[i].grp_cfg_value;
+
+    buf = (struct atf_group *)OS_MALLOC(osifp->os_handle, sizeof(struct atf_group), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return -ENOMEM;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct atf_group)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return -EFAULT;
+    }
+
+    for (i = 0; i < ic->atfcfg_set.grp_num_cfg; i++)
+    {
+        /* Check if group exists */
+        if( (strlen(ic->atfcfg_set.atfgroup[i].grpname) == strlen(buf->name)) &&
+            !(strncmp( (char *)(ic->atfcfg_set.atfgroup[i].grpname), (char *)(buf->name), strlen(buf->name))) ) {
+            if( (airtime_group -  ic->atfcfg_set.atfgroup[i].grp_cfg_value + buf->value) <= availableairtime )
+            {
+                ic->atfcfg_set.atfgroup[i].grp_cfg_value = buf->value;
+                if(!ic->ic_is_mode_offload(ic))
+                {
+                    /* Add group airtime in the group list */
+                    group = ic->atfcfg_set.atfgroup[i].grplist_entry;
+                    if(group != NULL) {
+                        group->group_airtime = buf->value;
+                    }
+                }
+            } else {
+                printk("Error!! Total Airtime configured for groups cannot be greater than %d \n\r", availableairtime/10);
+                error = 1;
+            }
+            break;
+        }
+    }
+
+    if( i == ic->atfcfg_set.grp_num_cfg )
+    {
+        printk("Error!! Invalid group name\n\r");
+        error = 1;
+    }
+
+    return (error ? -EFAULT : 0);
+}
+
+/**
+ * @brief Delete ATF group
+ * If group exisits, delete the group
+ * Return error if group doesn't exist.
+ */
+static int
+ieee80211_ioctl_delatfgroup(struct net_device *dev, struct iwreq *iwr)
+{
+    osif_dev  *osifp = ath_netdev_priv(dev);
+    wlan_if_t vap = osifp->os_if;
+    struct ieee80211com *ic = vap->iv_ic;
+    struct atf_group  *buf;
+    int error = 0;
+    u_int32_t i = 0, delgroup = 0;
+    struct group_list *tmpgroup = NULL;
+
+
+    buf = (struct atf_group *)OS_MALLOC(osifp->os_handle, sizeof(struct atf_group), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return -ENOMEM;
+    }
+    if (copy_from_user(buf, iwr->u.data.pointer, sizeof(struct atf_group)))
+    {
+        printk("%s: copy_from_user error\n",__func__);
+        kfree(buf);
+        return -EFAULT;
+    }
+    for (i = 0; i < ic->atfcfg_set.grp_num_cfg; i++)
+    {
+        /* Check if group exists */
+        if( (strlen(ic->atfcfg_set.atfgroup[i].grpname) == strlen(buf->name)) &&
+            !(strncmp( (char *)(ic->atfcfg_set.atfgroup[i].grpname), (char *)(buf->name), strlen(buf->name))) ) {
+            delgroup = 1;
+
+            /* Clear Elements at this index */
+            memset(&(ic->atfcfg_set.atfgroup[i]), 0, sizeof(ic->atfcfg_set.atfgroup[0]));
+
+            /* Copy the 'i+1' the element to 'i'th position & clear the last element*/
+            if(i != (ic->atfcfg_set.grp_num_cfg - 1))
+            {
+                memcpy(&ic->atfcfg_set.atfgroup[i], &ic->atfcfg_set.atfgroup[i+1],
+                        (sizeof(ic->atfcfg_set.atfgroup[0]) * (ic->atfcfg_set.grp_num_cfg - i - 1)) );
+            }
+
+            /* Clear Last Element */
+            memset(&(ic->atfcfg_set.atfgroup[ic->atfcfg_set.grp_num_cfg - 1]), 0, sizeof(ic->atfcfg_set.atfgroup[0]));
+            ic->atfcfg_set.grp_num_cfg--;
+
+            if(!ic->ic_is_mode_offload(ic))
+            {
+                /* Parse the group list and mark for deletion
+                   The group entry will be removed from the list in cal_atf_alloc_tbl routine*/
+                TAILQ_FOREACH(tmpgroup, &ic->ic_atfgroups, group_next) {
+                    if ((strlen(tmpgroup->group_name) == strlen(buf->name)) &&
+                        !(strncmp ( tmpgroup->group_name, (char *)(buf->name), strlen(buf->name))) ) {
+                        tmpgroup->group_del = 1;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    if( !delgroup )
+    {
+        printk("Error!! Invalid group name. \n\r");
+        error = 1;
+    }
+
+    kfree(buf);
+    return (error ? -EFAULT : 0);
+}
+
+/**
+ * @brief Shows ATF groups configured
+ * Configured groups and corresponding SSID's will be listed
+ *
+ */
+static int
+ieee80211_ioctl_showatfgroup(struct net_device *dev, struct iwreq *iwr)
+{
+    osif_dev  *osifp = ath_netdev_priv(dev);
+    wlan_if_t vap = osifp->os_if;
+    struct ieee80211com *ic = vap->iv_ic;
+    struct atfgrouptable  *buf;
+    int error = 0;
+    u_int32_t i = 0, k = 0;
+
+
+    if(!ic->atfcfg_set.grp_num_cfg)
+    {
+        printk("No groups configured \n\r");
+        return -EINVAL;
+    }
+
+    buf = (struct atfgrouptable *)OS_MALLOC(osifp->os_handle, sizeof(struct atfgrouptable), GFP_KERNEL);
+    if (!buf)
+    {
+        printk("%s: memory alloc failed\n",__func__);
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < ic->atfcfg_set.grp_num_cfg; i++)
+    {
+        OS_MEMCPY((char *)(buf->atf_groups[buf->info_cnt].grpname),(char *)ic->atfcfg_set.atfgroup[i].grpname,  IEEE80211_NWID_LEN);
+        buf->atf_groups[buf->info_cnt].grp_num_ssid = ic->atfcfg_set.atfgroup[i].grp_num_ssid;
+        buf->atf_groups[buf->info_cnt].grp_cfg_value = ic->atfcfg_set.atfgroup[i].grp_cfg_value;
+        for (k = 0; k < ic->atfcfg_set.atfgroup[i].grp_num_ssid; k++)
+        {
+            OS_MEMCPY((char *)(buf->atf_groups[buf->info_cnt].grp_ssid[k]), (char *)(ic->atfcfg_set.atfgroup[i].grp_ssid[k]), IEEE80211_NWID_LEN);
+        }
+        buf->info_cnt++;
+    }
+
+    if(copy_to_user(iwr->u.data.pointer, buf, sizeof(struct atfgrouptable)))
+    {
+        printk("%s: copy_to_user failed\n",__func__);
+        error =  -EFAULT;
+    }
+
+    kfree(buf);
+    return (error ? -EFAULT : 0);
+}
+
 #endif
 
 static int 
@@ -16169,6 +16955,26 @@ ieee80211_ioctl_mcast_group(struct net_device *dev,
         IW_PRIV_TYPE_BYTE | sizeof(struct ieee80211req_set_filter)
 #define IW_PRIV_TYPE_ACLMACLIST  (IW_PRIV_TYPE_ADDR | 256)
 
+#if ATOPT_IOCTL
+static int
+ieee80211_ioctl_han_priv(struct net_device *dev, struct iwreq *iwr)
+{
+	struct han_ioctl_priv_args a;
+	int error = 0;
+	
+	memset(&a, 0x00, sizeof(a));
+	if (copy_from_user(&a, iwr->u.data.pointer, sizeof(a)))
+		return -EFAULT;
+	switch (a.type) {
+
+		default:
+			return -EFAULT;
+	}
+	return error;
+
+}
+#endif
+
 static const struct iw_priv_args ieee80211_priv_args[] = {
     /* NB: setoptie & getoptie are !IW_PRIV_SIZE_FIXED */
     { IEEE80211_IOCTL_SETOPTIE,
@@ -16816,6 +17622,8 @@ static const struct iw_priv_args ieee80211_priv_args[] = {
       IW_PRIV_TYPE_DBGREQ | IW_PRIV_SIZE_FIXED, 0, "dbgreq" },
     { IEEE80211_PARAM_SETADDBAOPER,
       IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "setaddbaoper" },
+    { IEEE80211_PARAM_GETADDBAOPER,
+    0,IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "getaddbaoper" },
     { IEEE80211_PARAM_11N_RATE,
     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "set11NRates" },
     { IEEE80211_PARAM_11N_RATE,
@@ -17034,11 +17842,23 @@ static const struct iw_priv_args ieee80211_priv_args[] = {
       IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_aow_assoc"},
 
 #endif  /* ATH_SUPPORT_AOW */
+#if ATH_SUPPORT_HS20
+    { IEEE80211_PARAM_OSEN,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "osen" },
+    { IEEE80211_PARAM_OSEN, 0,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_osen" },
+#endif /* ATH_SUPPORT_HS20 */
 #if UMAC_SUPPORT_BSSLOAD
     { IEEE80211_PARAM_QBSS_LOAD,
       IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "qbssload" },
     { IEEE80211_PARAM_QBSS_LOAD, 0,
       IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_qbssload" },
+#if ATH_SUPPORT_HS20
+    { IEEE80211_PARAM_HC_BSSLOAD,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "hcbssload" },
+    { IEEE80211_PARAM_HC_BSSLOAD, 0,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_hcbssload" },
+#endif /* ATH_SUPPORT_HS20 */
 #endif /* UMAC_SUPPORT_BSSLOAD */
 #if UMAC_SUPPORT_CHANUTIL_MEASUREMENT
     { IEEE80211_PARAM_CHAN_UTIL_ENAB,
@@ -17660,26 +18480,39 @@ static const struct iw_priv_args ieee80211_priv_args[] = {
     { IEEE80211_PARAM_RX_SIGNAL_DBM, 0,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_signal_dbm" },
 #if QCA_AIRTIME_FAIRNESS
+    { IEEE80211_PARAM_ATF_TXBUF_SHARE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atf_shr_buf" },
+    { IEEE80211_PARAM_ATF_TXBUF_SHARE,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "g_atf_shr_buf" },
+    { IEEE80211_PARAM_ATF_TXBUF_MAX,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atf_max_buf" },
+    { IEEE80211_PARAM_ATF_TXBUF_MAX,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "g_atf_max_buf" },
+    { IEEE80211_PARAM_ATF_TXBUF_MIN,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atf_min_buf" },
+    { IEEE80211_PARAM_ATF_TXBUF_MIN,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "g_atf_min_buf" },
     { IEEE80211_PARAM_ATF_OPT,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "commitatf" },
     { IEEE80211_PARAM_ATF_OPT,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_commitatf" },
+    { IEEE80211_PARAM_ATF_MAX_CLIENT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfmaxclient" },
+    { IEEE80211_PARAM_ATF_MAX_CLIENT,
+        0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "g_atfmaxclient" },
     { IEEE80211_PARAM_ATF_PER_UNIT,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "perunit" },
     { IEEE80211_PARAM_ATF_PER_UNIT,
         0, IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_perunit" },
 #endif
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-    { IEEE80211_PARAM_MONITOR,
-      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "monitor" },
-    { IEEE80211_PARAM_MONITOR, 0,
-      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_monitor" },
+    { IEEE80211_PARAM_BSS_CHAN_INFO,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "bss_chan_info" },
+    { IEEE80211_PARAM_TXRX_VAP_STATS,
+      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "txrx_vap_stats" },
+    { IEEE80211_PARAM_SCAN_STATUS, 0,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "g_scan_state" }, /* set command is not implemented because scan
+                                                                        state cannot be set from the upper layer */
 
-    { IEEE80211_PARAM_SCANCHAN_INDEX,
-      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "ScanChannel" },
-    { IEEE80211_PARAM_SCANCHAN_INDEX, 0,
-      IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_ScanChannel" },
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
 };
 
 
@@ -17875,80 +18708,8 @@ static struct ioctl_name_tbl ioctl_names[] =
     {IEEE80211_IOCTL_GETMAC, "IEEE80211_IOCTL_GETMAC"},
     {IEEE80211_IOCTL_P2P_BIG_PARAM, "IEEE80211_IOCTL_P2P_BIG_PARAM"},
     {IEEE80211_IOCTL_GET_SCAN_SPACE, "IEEE80211_IOCTL_GET_SCAN_SPACE"},
-    {IEEE80211_IOCTL_CHANNEL_UTILITY, "IEEE80211_IOCTL_GET_CHANNEL_UTILITY"},  /* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
     {0, NULL}
 };
-/*AUTELAN-Begin:zhaoenjuan add for packet_trace*/
-#if ATOPT_PACKET_TRACE
-extern unsigned char pt_mac_addr[];
-static int
-ieee80211_ioctl_autelan_packet_trace(struct net_device *dev, struct iwreq *iwr)
-{
-	struct ieee80211_autelan_packet_trace ik;
-	
-	memset(&ik, 0x00, sizeof(ik));
-
-	if (copy_from_user(&ik, iwr->u.data.pointer, sizeof(ik))) {
-		
-		return -EFAULT;
-	}
-
-	switch (ik.type) {
-
-		case SET_MAC:
-			OS_MEMCPY(pt_mac_addr,ik.macaddr,6);
-			break;
-
-		case GET_MAC:
-			OS_MEMCPY(ik.macaddr,pt_mac_addr,6);
-			copy_to_user(iwr->u.data.pointer,&ik,sizeof(ik));
-			break;
-
-		default :
-			return -EFAULT;
-	}
-	return 0;
-}
-#endif
-/*AUTELAN-End:zhaoenjuan add for packet_trace*/
-
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-static int ieee80211_ioctl_scan_neighbor_ap(struct net_device *dev, struct iwreq *iw)
-{
-
-    int i, length;
-    char *p;
-    struct scan_neighbor_ap *info;
-
-    if(iw->u.data.pointer == NULL || iw->u.data.length < 0)
-        return -1;
-
-    length = iw->u.data.length;
-    p = iw->u.data.pointer;
-
-
-    for(i = 0; i < (length / sizeof(struct scan_neighbor_ap)); i++)
-    {
-        info = (struct scan_neighbor_ap *)p;
-
-        printk("%02x:%02x:%02x:%02x:%02x:%02x\t",
-            info->dev_mac[0],
-            info->dev_mac[1],
-            info->dev_mac[2],
-            info->dev_mac[3],
-            info->dev_mac[4],
-            info->dev_mac[5]);
-
-        printk("%d\t",info->rssi);
-        printk("%d\n",info->channel);
-        create_scan_list(info);
-
-        p += sizeof(struct scan_neighbor_ap);
-    }
-
-    return 0;
-}
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
 
 static char *find_std_ioctl_name(int param)
 {
@@ -18091,6 +18852,16 @@ ieee80211_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
                 return ieee80211_ioctl_showatftable(dev, (struct iwreq *) ifr);
             case IEEE80211_IOCTL_ATF_SHOWAIRTIME:
                 return ieee80211_ioctl_showairtime(dev, (struct iwreq *) ifr);
+            case IEEE80211_IOCTL_ATF_FLUSHTABLE:
+                return ieee80211_ioctl_flushtable(dev, (struct iwreq *) ifr);
+            case IEEE80211_IOCTL_ATF_ADDGROUP:
+                return ieee80211_ioctl_addatfgroup(dev, (struct iwreq *) ifr);
+            case IEEE80211_IOCTL_ATF_CONFIGGROUP:
+                return ieee80211_ioctl_configatfgroup(dev, (struct iwreq *) ifr);
+            case IEEE80211_IOCTL_ATF_DELGROUP:
+                return ieee80211_ioctl_delatfgroup(dev, (struct iwreq *) ifr);
+            case IEEE80211_IOCTL_ATF_SHOWGROUP:
+                return ieee80211_ioctl_showatfgroup(dev, (struct iwreq *) ifr);
             default:
                 break;
         }
@@ -18115,42 +18886,10 @@ ieee80211_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
     case LINUX_PVT_GET_VENDORPARAM:
         return ieee80211_get_vap_vendor_param(dev, ifr->ifr_data);
 #endif
-#if ATOPT_TRAFFIC_LIMIT
-    case IEEE80211_IOCTL_TRAFFIC_LIMIT:
-    {
-        int ret = 0;
-        ret = ieee80211_ioctl_autelan_traffic_limit(dev, (struct iwreq *)ifr);
-        return ret;
-    }
+#if ATOPT_IOCTL
+	case IEEE80211_IOCTL_HAN_PRIV:
+		return ieee80211_ioctl_han_priv(dev, (struct iwreq *)ifr);
 #endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-//#if ATOPT_SYNC_INFO
-//    case IEEE80211_IOCTL_SYNC_INFO:
-//       return ieee80211_ioctl_autelan_sync_info(dev, (struct iwreq *)ifr);
-//#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    case IEEE80211_IOCTL_CHANNEL_UTILITY:
-		return ieee80211_ioctl_get_channel_utility(dev, (struct iwreq *)ifr);
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    case IEEE80211_IOCTL_MGMT_DEBUG:
-        return ieee80211_ioctl_autelan_mgmt_debug(dev, (struct iwreq *)ifr);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-#if ATOPT_PACKET_TRACE
-	case IEEE80211_IOCTL_PACKET_TRACE:	//AUTELAN-zhaoenjuan add for packet_trace
-		return ieee80211_ioctl_autelan_packet_trace(dev, (struct iwreq *)ifr);
-#endif
-
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-	case IEEE80211_IOCTL_SCAN_INFO:
-		return ieee80211_ioctl_scan_neighbor_ap(dev, (struct iwreq *)ifr);
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
-
     }
     return -EOPNOTSUPP;
 }

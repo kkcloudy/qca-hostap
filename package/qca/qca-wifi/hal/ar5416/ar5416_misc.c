@@ -1486,6 +1486,173 @@ ar5416Get11nExtBusy(struct ath_hal *ah)
 #undef OVERFLOW_LIMIT
 }
 
+u_int32_t
+ar5416GetChBusyPct(struct ath_hal *ah)
+{
+    /*
+     * Overflow condition to check before multiplying to get %
+     * (x * 100 > 0xFFFFFFFF ) => (x > 0x28F5C28)
+     */
+#define OVERFLOW_LIMIT  0x28F5C28
+#define ERROR_CODE      -1    
+
+    struct ath_hal_5416 *ahp = AH5416(ah);
+    u_int32_t busy = 0, extbusy = 0, rf = 0, tf = 0; /* percentage */
+    int8_t busyper = 0, extbusyper = 0, rfper = 0, tfper = 0;
+    u_int32_t cycle_count, ctl_busy, ext_busy, ctl_rf, ctl_tf;
+
+    /* cycle_count will always be the first to wrap; therefore, read it last
+     * This sequence of reads is not atomic, and MIB counter wrap
+     * could happen during it ?
+     */
+    ctl_busy = OS_REG_READ(ah, AR_RCCNT);
+    ext_busy = OS_REG_READ(ah, AR_EXTRCCNT);
+    ctl_rf = OS_REG_READ(ah, AR_RFCNT);
+    ctl_tf = OS_REG_READ(ah, AR_TFCNT);
+    cycle_count = OS_REG_READ(ah, AR_CCCNT);
+
+    if ((ahp->ah_cycleCount == 0) || (ahp->ah_cycleCount > cycle_count) ||
+        (ahp->ah_ctlBusy > ctl_busy) || (ahp->ah_extBusy > ext_busy) ||
+        (ahp->ah_Rf > ctl_rf) || (ahp->ah_Tf > ctl_tf))
+        {
+            /*
+             * Cycle counter wrap (or initial call); it's not possible
+             * to accurately calculate a value because the registers
+             * right shift rather than wrap--so punt and return 0.
+             */
+            busyper = ERROR_CODE;
+            HDPRINTF(ah, HAL_DBG_CHANNEL,
+                     "%s: cycle counter wrap. ExtBusy = 0\n", __func__);
+        } else {
+        u_int32_t cycle_delta = cycle_count - ahp->ah_cycleCount;
+        u_int32_t ctl_busy_delta = ctl_busy - ahp->ah_ctlBusy;
+        u_int32_t ext_busy_delta = ext_busy - ahp->ah_extBusy;
+        u_int32_t ctl_rf_delta = ctl_rf - ahp->ah_Rf;
+        u_int32_t ctl_tf_delta = ctl_tf - ahp->ah_Tf;
+
+        /* ext_busy_delta can't be more than cycle_delta */
+        if ((cycle_delta) && (ext_busy_delta <= cycle_delta )) {
+            /*
+             * Compute extension channel busy percentage
+             * Overflow condition: 0xFFFFFFFF < ext_busy_delta * 100
+             * Underflow condition/Divide-by-zero: check that cycle_delta >> 7 != 0
+             * Will never happen, since (ext_busy_delta < cycle_delta) always,
+             * and shift necessitated by large ext_busy_delta.
+             * Due to timing difference to read the registers and counter overflow,
+             * it may still happen that cycle_delta >> 7 = 0.
+             *
+             */
+            if (ext_busy_delta > OVERFLOW_LIMIT) {
+                if (cycle_delta >> 7) {
+                    extbusy = ((ext_busy_delta >> 7) * 100) / (cycle_delta  >> 7);
+                } else {
+                    extbusyper = ERROR_CODE;
+                }
+            } else {
+                extbusy = (ext_busy_delta * 100) / cycle_delta;
+            }
+        } else {
+            extbusyper = ERROR_CODE;
+        }
+
+        if (extbusy > 100) {
+            extbusy = 100;
+        }
+        if ( extbusyper != ERROR_CODE ) {
+            extbusyper = extbusy;
+        }
+
+
+        /* ctl_busy_delta can't be more than cycle_delta */
+        if ((cycle_delta) && (ctl_busy_delta <= cycle_delta )) {
+            /*
+             * Compute control channel busy percentage
+             * Overflow condition: 0xFFFFFFFF < ctl_busy_delta * 100
+             * Underflow condition/Divide-by-zero: check that cycle_delta >> 7 != 0
+             * Will never happen, since (ctl_busy_delta < cycle_delta) always,
+             * and shift necessitated by large ctl_busy_delta.
+             * Due to timing difference to read the registers and counter overflow,
+             * it may still happen that cycle_delta >> 7 = 0.
+             *
+             */
+            if (ctl_busy_delta > OVERFLOW_LIMIT) {
+                if (cycle_delta >> 7) {
+                    busy = ((ctl_busy_delta >> 7) * 100) / (cycle_delta  >> 7);
+                } else {
+                    busyper = ERROR_CODE;
+                }
+            } else {
+                busy = (ctl_busy_delta * 100) / cycle_delta;
+            }
+        } else {
+            busyper = ERROR_CODE;
+        }
+
+        if (busy > 100) {
+            busy = 100;
+        }
+        if ( busyper != ERROR_CODE ) {
+            busyper = busy;
+        }
+
+
+        if ((cycle_delta) && (ctl_rf_delta <= cycle_delta )) {
+            if (ctl_rf_delta > OVERFLOW_LIMIT) {
+                if (cycle_delta >> 7) {
+                    rf = ((ctl_rf_delta >> 7) * 100) / (cycle_delta  >> 7);
+                } else {
+                    rfper = ERROR_CODE;
+                }
+            } else {
+                rf = (ctl_rf_delta * 100) / cycle_delta;
+            }
+        } else {
+            rfper = ERROR_CODE;
+        }
+
+        if (rf > 100) {
+            rf = 100;
+        }
+        if ( rfper != ERROR_CODE ) {
+            rfper = rf;
+        }
+
+
+        if ((cycle_delta) && (ctl_tf_delta <= cycle_delta )) {
+            if (ctl_tf_delta > OVERFLOW_LIMIT) {
+                if (cycle_delta >> 7) {
+                    tf = ((ctl_tf_delta >> 7) * 100) / (cycle_delta  >> 7);
+                } else {
+                    tfper = ERROR_CODE;
+                }
+            } else {
+                tf = (ctl_tf_delta * 100) / cycle_delta;
+            }
+        } else {
+            tfper = ERROR_CODE;
+        }
+
+        if (tf > 100) {
+            tf = 100;
+        }
+        if ( tfper != ERROR_CODE ) {
+            tfper = tf;
+        }
+
+    }
+
+    ahp->ah_cycleCount = cycle_count;
+    ahp->ah_ctlBusy = ctl_busy;
+    ahp->ah_extBusy = ext_busy;
+    ahp->ah_Rf = ctl_rf;
+    ahp->ah_Tf = ctl_tf;
+
+    return (((tfper & 0xff) << 24) | ((rfper & 0xff ) << 16) |
+            ((extbusyper & 0xff) << 8) | ((busyper & 0xff) << 0));
+#undef OVERFLOW_LIMIT
+#undef ERROR_CODE    
+}
+
 /*
  * Configure 20/40 operation
  *

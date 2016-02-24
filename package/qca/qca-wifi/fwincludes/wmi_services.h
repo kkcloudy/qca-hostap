@@ -44,6 +44,10 @@ typedef  enum  {
     WMI_SERVICE_FORCE_FW_HANG,        /* Service to test the firmware recovery mechanism */
     WMI_SERVICE_SMART_ANTENNA_HW_SUPPORT, /* Smart Antenna HW support */
     WMI_SERVICE_ATF,                        /* Air Time Fairness support */
+    WMI_SERVICE_COEX_GPIO,            /* BTCOEX GPIO support */ 
+    WMI_SERVICE_AUX_SPECTRAL_INTF,    /* Aux Radio enhancement support for ignoring spectral scan intf from main radios*/
+    WMI_SERVICE_AUX_CHAN_LOAD_INTF,   /* Aux Radio enhancement support for ignoring chan load intf from main radios*/
+    WMI_SERVICE_BSS_CHANNEL_INFO_64,  /* BSS channel info info event support */
     WMI_MAX_SERVICE=64                /* max service */
 } WMI_SERVICE;
 

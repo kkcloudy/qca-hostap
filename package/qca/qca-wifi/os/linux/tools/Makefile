@@ -21,14 +21,14 @@ COPTS:=$(filter-out -isystem${KERNELPATH}%, ${COPTS})
 
 ifeq ($(ATH_SUPPORT_CFG_8K), 1)
 ALL=  cgiMain 80211stats athstats athstatsclr apstats athkey athchans athctrl athdebug wlanconfig \
-      athcwm athampdutrc atrc pktlogconf pktlogdump autelan
+      athcwm athampdutrc atrc pktlogconf pktlogdump
 
-ATH_TOOLS= cgiMain 80211stats athstats athstatsclr apstats pktlogconf pktlogdump wifitool wlanconfig autelan
+ATH_TOOLS= cgiMain 80211stats athstats athstatsclr apstats pktlogconf pktlogdump wifitool wlanconfig
 else
 ALL=  80211stats athstats athstatsclr apstats athkey athchans athctrl athdebug wlanconfig \
-      athcwm athampdutrc atrc pktlogconf pktlogdump autelan
+      athcwm athampdutrc atrc pktlogconf pktlogdump wlanset
 
-ATH_TOOLS= 80211stats athstats athstatsclr apstats pktlogconf pktlogdump wifitool wlanconfig autelan
+ATH_TOOLS= 80211stats athstats athstatsclr apstats pktlogconf pktlogdump wifitool wlanconfig wlanset
 
 ifeq ($(UMAC_SUPPORT_WNM), 1)
 ATH_TOOLS += wnm-app
@@ -165,7 +165,6 @@ ifneq ($(BOARD_TYPE),ap91-2MB)
 	cp pktlogdump $(INSTALL_ROOT)/sbin;\
 	cp wifitool $(INSTALL_ROOT)/sbin;
 	cp wlanconfig $(INSTALL_ROOT)/sbin;
-	cp autelan $(INSTALL_ROOT)/sbin;
 ifeq ($(ATH_SUPPORT_CFG_8K), 1)
 	cp cgiMain $(INSTALL_ROOT)/sbin;
 	cp scripts/wlan/rc.* $(INSTALL_ROOT)/sbin;
@@ -203,6 +202,8 @@ endif
 ifeq ($(UMAC_SUPPORT_WNM), 1)
 	cp wnm-app $(INSTALL_ROOT)/sbin;
 endif
+
+
 #- athampdutrc athcwm atrc pktlogconf pktlogdump radartool
 
 dumpregs: hal_diag/dumpregs.o hal_diag/dumpregs_5212.o hal_diag/dumpregs_5416.o hal_diag/dumpregs_9300.o
@@ -231,9 +232,6 @@ athampdutrc: athampdutrc.c
 	${CC} -o 80211stats ${CFLAGS} ${LDFLAGS} 80211stats.c
 athkey: athkey.c
 	${CC} -o athkey ${CFLAGS} ${LDFLAGS} athkey.c
-autelan: autelan.c
-	${CC} -o autelan ${CFLAGS} -I../ath ${LDFLAGS} autelan.c
-	cp autelan $(INSTALL_ROOT)/sbin
 
 ifeq ($(ATH_SINGLE_CFG),1)
 
@@ -299,6 +297,8 @@ ifeq ($(ATH_SUPPORT_TX99),1)
 tx99tool: tx99tool.c
 	${CC} -o tx99tool ${CFLAGS} ${LDFLAGS} tx99tool.c
 endif
+wlanset: wlanset.c
+	${CC} -o wlanset ${CFLAGS} ${LDFLAGS} wlanset.c
 install: ${ALL}
 	cp athstats ${DESTDIR}${BINDIR}
 	cp 80211stats ${DESTDIR}${BINDIR}
@@ -320,7 +320,6 @@ install: ${ALL}
 	cp tfs-app ${DESTDIR}${BINDIR}
 	cp radartool ${DESTDIR}${BINDIR}/radartool
 	cp spectraltool ${DESTDIR}${BINDIR}/spectraltool
-	cp autelan ${DESTDIR}${BINDIR}
 ifeq ($(ATH_SUPPORT_CFG_8K), 1)
 	cp cgiMain ${DESTDIR}${BINDIR}/cgiMain
 	cp scripts/network ${DESTDIR}${BINDIR}

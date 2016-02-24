@@ -39,6 +39,11 @@
 
 #define VAP_ID_AUTO (-1)
 
+#define ACFG_ATF_ADDSSID     0xFF01
+#define ACFG_ATF_DELSSID     0xFF02
+#define ACFG_ATF_ADDSTA      0xFF03
+#define ACFG_ATF_DELSTA      0xFF04
+
 /** 
  * Command request
  */

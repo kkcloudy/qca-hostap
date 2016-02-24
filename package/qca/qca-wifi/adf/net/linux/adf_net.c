@@ -953,99 +953,7 @@ int
 __adf_net_ifc_name2unit(const char *name, int *unit)
 {
     const char *cp;
-#if ATOPT_THINAP
-    *unit = 0;
-    if(memcmp(name, "athscanwifi", 11) == 0)  // 4 scan vap
-    {
-        cp = name + 11;
-        for(;*cp != '\0'; cp++)
-        {
-            if ('0' <= *cp && *cp <= '9')
-                *unit = (*unit * 10) + (*cp - '0');
-        }
-        if (*unit > 3)
-        {
-            printk("%s %d\n",__func__,__LINE__);
-            return -1;
-        }
-        *unit += 1024;
-        printk("%s 1 unit = %d \n",__func__,*unit);
-    }
-    else if(memcmp(name, "athlocatewifi", 13) == 0)
-    {
-        cp = name + 13;
-        for(;*cp != '\0'; cp++)
-        {
-            if ('0' <= *cp && *cp <= '9')
-                *unit = (*unit * 10) + (*cp - '0');
-        }
-        if (*unit > 3) 
-            return -1;
-        *unit += 1024;
-    }
-    else if(memcmp(name, "ath", 3) == 0 &&	('0' <= *(name+3) && *(name+3) <= '3') && *(name+4) == '\0')  // 4 wds vap
-    {
-        cp = name + 3;
-        for(;*cp != '\0'; cp++)
-        {
-            if ('0' <= *cp && *cp <= '9')
-                *unit = (*unit * 10) + (*cp - '0');
-        }
-        if (*unit > 3)
-        {
-            printk("%s %d\n",__func__,__LINE__);
-            return -1;
-        }
-        *unit += 1028;
-        printk("%s 2 unit = %d \n",__func__,*unit);
-    }
-    else
-    {
-        for (cp = name; *cp != '\0' && !('0' <= *cp && *cp <= '9'); cp++)
-        	;
-        if (*cp != '\0')
-        {
-            int temp = 0;
-            temp = *cp - '0';
-            cp++;
-            if (*cp == '-') 
-            {
-                cp++;
-                for (; *cp != '\0'; cp++)
-                {
-                    if ('0' <= *cp && *cp <= '9')
-                    *unit = (*unit * 10) + (*cp - '0');
-                }
-                if (*unit < 1 || *unit > 256)
-                {
-                    printk("%s %d\n",__func__,__LINE__);
-                    return -1;
-                }
-                *unit += (temp * 256 -1);	// 0-255
-            }
-            else
-            {
-                *unit = temp;
-                for(;*cp != '\0'; cp++)
-                {
-                    if ('0' <= *cp && *cp <= '9')
-                        *unit = (*unit * 10) + (*cp - '0');
-                }
-                if (*unit < 0 || *unit > 255)
-                {
-                    printk("%s %d\n",__func__,__LINE__);
-                    return -1;
-                }
-            }
-            printk("%s 3 unit = %d \n",__func__,*unit);
-        }
-        else
-        {
-            printk("%s %d\n",__func__,__LINE__);
-            *unit = -1; /*referenced to 0xffffffff chenming note*/
-        }
-    }
-#else
+
     for (cp = name; *cp != '\0' && !('0' <= *cp && *cp <= '9'); cp++)
         ;
     if (*cp != '\0')
@@ -1060,7 +968,6 @@ __adf_net_ifc_name2unit(const char *name, int *unit)
     }
     else
         *unit = -1;
-#endif
     return 0;
 }
 EXPORT_SYMBOL(__adf_net_ifc_name2unit);

@@ -59,70 +59,6 @@ enum mlme_req {
 };
 
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-/* Verify if the addresses match */
-#define IEEE80211_VERIFY_ADDR(_ni) do {                     \
-    if (!IEEE80211_ADDR_EQ(wh->i_addr1, vap->iv_myaddr) ||  \
-        !IEEE80211_ADDR_EQ(wh->i_addr3, (_ni)->ni_bssid)) { \
-        IEEE80211_DISCARD(vap, IEEE80211_MSG_INPUT,         \
-        wh, ieee80211_mgt_subtype_name[subtype >>           \
-        IEEE80211_FC0_SUBTYPE_SHIFT],                       \
-        "%s", "frame not for me");                          \
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2,     \
-            " <FAIL> [Step ** - VERIFY ADDR] %s: this frame is not for me\n", __func__);    \
-        return -EINVAL;                                     \
-    }                                                       \
-} while (0)
-
-/* Verify the existence and length of __elem or get out. */
-#define IEEE80211_VERIFY_ELEMENT(__elem, __maxlen) do {     \
-    if ((__elem) == NULL) {                                 \
-        IEEE80211_DISCARD(vap, IEEE80211_MSG_ELEMID,        \
-        wh, ieee80211_mgt_subtype_name[subtype >>           \
-        IEEE80211_FC0_SUBTYPE_SHIFT],                       \
-        "%s", "no " #__elem);                               \
-        vap->iv_stats.is_rx_elem_missing++;                 \
-        return -EINVAL;                                     \
-    }                                                       \
-    if ((__elem)[1] > (__maxlen)) {                         \
-        IEEE80211_DISCARD(vap, IEEE80211_MSG_ELEMID,        \
-        wh, ieee80211_mgt_subtype_name[subtype >>           \
-        IEEE80211_FC0_SUBTYPE_SHIFT],                       \
-        "bad " #__elem " len %d", (__elem)[1]);             \
-        vap->iv_stats.is_rx_elem_toobig++;                  \
-        return -EINVAL;                                     \
-    }                                                       \
-} while (0)
-
-#define IEEE80211_VERIFY_LENGTH(_len, _minlen) do {         \
-    if ((_len) < (_minlen)) {                               \
-        IEEE80211_DISCARD(vap, IEEE80211_MSG_ELEMID,        \
-        wh, ieee80211_mgt_subtype_name[subtype >>           \
-        IEEE80211_FC0_SUBTYPE_SHIFT],                       \
-        "%s", "ie too short\n");                            \
-        vap->iv_stats.is_rx_mgtdiscard++;                   \
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap,    wh->i_addr2,    \
-            " <FAIL> [Step ** - VERIFY IE LENGTH] %s: ie too short\n", __func__);   \
-        return -EINVAL;                                     \
-    }                                                       \
-} while (0)
-
-#define IEEE80211_VERIFY_FRAMELEN(_pFrm, _pEfrm) do {       \
-    if ((_pFrm) > (_pEfrm)) {                               \
-        IEEE80211_DISCARD(vap, IEEE80211_MSG_ELEMID,        \
-        wh, ieee80211_mgt_subtype_name[subtype >>           \
-        IEEE80211_FC0_SUBTYPE_SHIFT],                       \
-        "%s", "frame too short");                           \
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2,   \
-            " <FAIL> [Step ** - VERIFY FRAME LENGTH] %s: frame too short\n", __func__); \
-        return -EINVAL;                                     \
-    }                                                       \
-} while (0)
-
-
-
-#else
 /* Verify if the addresses match */
 #define IEEE80211_VERIFY_ADDR(_ni) do {                     \
     if (!IEEE80211_ADDR_EQ(wh->i_addr1, vap->iv_myaddr) ||  \
@@ -175,9 +111,6 @@ enum mlme_req {
         return -EINVAL;                                     \
     }                                                       \
 } while (0)
-
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
 #define IEEE80211_VERIFY_SSID(_ni, _ssid) do {              \
     if ((_ssid)[1] != 0 &&                                  \
@@ -416,6 +349,13 @@ struct ieee80211_mlme_priv {
     osdev_t                         im_osdev;
 
     os_timer_t                      im_timeout_timer;
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    os_timer_t                      im_stacac_timeout_timer;
+    u_int8_t                        im_is_stacac_cac_valid;
+    u_int8_t                        im_is_stacac_running;
+#endif
+
     u_int32_t                       im_timeout;
     enum mlme_req                   im_request_type;    /* type of mlme request in progress */
     u_int8_t                        im_connection_up;   /* connection state (IBSS/AP) */

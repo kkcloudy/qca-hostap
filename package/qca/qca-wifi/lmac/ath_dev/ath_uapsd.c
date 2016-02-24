@@ -223,6 +223,14 @@ ath_tx_uapsd_draintxq(struct ath_softc *sc)
                     ATH_UAPSD_UNLOCK_IRQ(sc);
                     ATH_TXBUF_LOCK(sc);
 		    sc->sc_txbuf_free++;
+            /**
+             * Debug print added in case of NULL descriptor assignment
+             */
+            if( !(bf->bf_desc) ) {
+                printk("\nxxx NULL desciptor detected in %s for buffer %p xxx\n",
+                        __func__,bf);
+            }
+
 
 #if ATH_TX_BUF_FLOW_CNTL
                     txq->axq_num_buf_used--;

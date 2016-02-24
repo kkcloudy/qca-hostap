@@ -516,12 +516,10 @@ ar9300_adjust_reg_txpower_cdd(struct ath_hal *ah,
 
     case OSPREY_1_CHAINMASK:
         cdd_power = ahp->upper_limit[0];
-        ahp->cdd_gain_comp[0] = 0;
         break;
   
     case OSPREY_2LOHI_CHAINMASK:
     case OSPREY_2LOMID_CHAINMASK:
-        ahp->cdd_gain_comp[1] = ahp->upper_limit[1];
         twice_array_gain =
            (ahp->twice_antenna_gain >= ahp->twice_antenna_reduction)?
            -(AR9300_TXBF_2TX_ARRAY_GAIN) :
@@ -529,7 +527,6 @@ ar9300_adjust_reg_txpower_cdd(struct ath_hal *ah,
            (ahp->twice_antenna_gain + AR9300_TXBF_2TX_ARRAY_GAIN)), 0));
         cdd_power = ahp->upper_limit[1] + twice_array_gain;
         cdd_power = AH_MAX(0, cdd_power);
-        ahp->cdd_gain_comp[1] -= cdd_power;
         /* Adjust OFDM legacy rates as well */
         for (i = ALL_TARGET_LEGACY_6_24; i <= ALL_TARGET_LEGACY_54; i++) {
             if (power_per_rate[i] > cdd_power) {
@@ -553,7 +550,6 @@ ar9300_adjust_reg_txpower_cdd(struct ath_hal *ah,
         break;
         
     case OSPREY_3_CHAINMASK:
-        ahp->cdd_gain_comp[2] = ahp->upper_limit[2];
         twice_array_gain =
             (ahp->twice_antenna_gain >= ahp->twice_antenna_reduction)?
             -(AR9300_TXBF_3TX_ARRAY_GAIN) :
@@ -561,7 +557,6 @@ ar9300_adjust_reg_txpower_cdd(struct ath_hal *ah,
             (ahp->twice_antenna_gain + AR9300_TXBF_3TX_ARRAY_GAIN)), 0));
         cdd_power = ahp->upper_limit[2] + twice_array_gain;
         cdd_power = AH_MAX(0, cdd_power);
-        ahp->cdd_gain_comp[2] -= cdd_power;
         /* Adjust OFDM legacy rates as well */
         for (i = ALL_TARGET_LEGACY_6_24; i <= ALL_TARGET_LEGACY_54; i++) {
             if (power_per_rate[i] > cdd_power) {

@@ -390,27 +390,33 @@ ar5416_ContTxMode(struct ath_hal *ah, void *ds, int mode)
 {
         static int qnum =0;
         int i;
-        unsigned int qbits, val, val1, val2;
+        unsigned int qbits;
+#if AH_DEBUG
         struct ar5416_desc *ads = AR5416DESC(ds);
-
+        unsigned int val, val1, val2;
+#endif
         if(mode == 10) return;
 
     if (mode==7) {                      // print status from the cont tx desc
+#if AH_DEBUG
                 if (ads) {
                         val1 = ads->ds_txstatus0;
                         val2 = ads->ds_txstatus1;
                         HDPRINTF(ah, HAL_DBG_TXDESC, "s0(%x) s1(%x)\n",
                                                    (unsigned)val1, (unsigned)val2);
                 }
+#endif
                 HDPRINTF(ah, HAL_DBG_TXDESC, "txe(%x) txd(%x)\n",
                                            OS_REG_READ(ah, AR_Q_TXE),
                                            OS_REG_READ(ah, AR_Q_TXD)
                         );
+#if AH_DEBUG
                 for(i=0;i<HAL_NUM_TX_QUEUES; i++) {
                         val = OS_REG_READ(ah, AR_QTXDP(i));
                         val2 = OS_REG_READ(ah, AR_QSTS(i)) & AR_Q_STS_PEND_FR_CNT;
                         HDPRINTF(ah, HAL_DBG_TXDESC, "[%d] %x %d\n", i, val, val2);
                 }
+#endif
                 return;
     }
     if (mode==8) {                      // set TXE for qnum

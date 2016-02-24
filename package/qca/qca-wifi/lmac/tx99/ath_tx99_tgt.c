@@ -754,8 +754,9 @@ ath_tgt_tx99(struct ath_softc *sc, int chtype)
     }
 
     ah_tx99_start(sc->sc_ah, (a_uint8_t *)txq->axq_qnum);
-
-    ath_hal_puttxbuf(sc->sc_ah, txq->axq_qnum, (a_uint32_t)first->bf_daddr);
+    if(first) {
+        ath_hal_puttxbuf(sc->sc_ah, txq->axq_qnum, (a_uint32_t)first->bf_daddr);
+    }
     /* trigger tx dma start */
     if (!ath_hal_txstart(sc->sc_ah, txq->axq_qnum)) {
         adf_os_print("ath_tgt_tx99: txstart failed, disabled by dfs?\n");

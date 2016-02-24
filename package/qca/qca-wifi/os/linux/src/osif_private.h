@@ -81,6 +81,10 @@
 #define OSIF_STOP_VAP_TIMEOUT         ((CONVERT_SEC_TO_SYSTEM_TIME(1)/8) + 1) /* 125 msec */
 /* make sure the above constant does not return 0 */
 
+#if UMAC_SUPPORT_PROXY_ARP
+int do_proxy_arp(wlan_if_t vap, adf_nbuf_t netbuf);
+#endif	
+
 int osif_ioctl_create_vap(struct net_device *dev, struct ifreq *ifr, 
 							 struct ieee80211_clone_params cp,
 							 osdev_t os_handle);

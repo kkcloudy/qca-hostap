@@ -110,10 +110,17 @@ int ev_fill_info(struct sk_buff * skb, struct net_device *dev, \
     r->ifi_flags = dev_get_flags(dev);
     r->ifi_change = 0;
 
+#if ATOPT_ORI_ATHEROS_BUG
     nla_put_string(skb, IFLA_IFNAME, dev->name);
+	
+	/* Add the event in the netlink packet */
+    nla_put(skb, IFLA_WIRELESS, sizeof(acfg_os_event_t) , event);
+#else
+    NLA_PUT_STRING(skb, IFLA_IFNAME, dev->name);
 
     /* Add the event in the netlink packet */
-    nla_put(skb, IFLA_WIRELESS, sizeof(acfg_os_event_t) , event);
+    NLA_PUT(skb, IFLA_WIRELESS, sizeof(acfg_os_event_t) , event);
+#endif
     return nlmsg_end(skb, nlh);
 
 nla_put_failure:
@@ -254,7 +261,11 @@ acfg_net_indicate_event(struct net_device *dev, acfg_os_event_t    *event,
     }
 
     NETLINK_CB(skb).dst_group = RTNLGRP_LINK;
+#if ATOPT_ORI_ATHEROS_BUG
     NETLINK_CB(skb).portid = 0;  /* from kernel */
+#else
+    NETLINK_CB(skb).pid = 0;  /* from kernel */
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)    
     NETLINK_CB(skb).dst_pid = 0;  /* multicast */
 #endif

@@ -251,6 +251,14 @@ ath_form_swretry_frm(struct ath_softc *sc, struct ath_txq *txq, ath_bufhead *bf_
     ASSERT(tbf != NULL); /* this can't be NULL */
     TAILQ_REMOVE(&sc->sc_txbuf, tbf, bf_list);
     sc->sc_txbuf_free--;
+    /**
+     * Debug print added in case of NULL descriptor assignment
+     */
+     if( !(tbf->bf_desc) ) {
+         printk("\nxxx NULL desciptor detected in %s for buffer %p xxx\n",
+                 __func__,tbf);
+     }
+
 #if ATH_TX_BUF_FLOW_CNTL
     txq->axq_num_buf_used++;
 #endif

@@ -154,6 +154,10 @@ enum {
     IEEE80211_SUBELEMID_LCI_VENDOR = 221,
 };
 enum {
+    IEEE80211_SUBELEMID_NEIGHBORREPORT_RESERVED = 0,
+    IEEE80211_SUBELEMID_NEIGHBORREPORT_PREFERENCE = 3,
+};
+enum {
     IEEE80211_RRM_LCI_ID=0,
     IEEE80211_RRM_LCI_LEN=1,
     IEEE80211_RRM_LCI_LAT_RES = 2,
@@ -177,15 +181,6 @@ struct u_nhist_resp
     u_int8_t anpi;
     u_int8_t antid;
 
-};
-
-struct ieee80211_nrresp_info 
-{
-    u_int8_t channum;
-    u_int8_t phytype;
-    u_int8_t regclass;
-    u_int32_t capinfo;
-    u_int8_t bssid[6];
 };
 
 /* Measurement request information element */
@@ -328,6 +323,11 @@ struct ieee80211_nr_ie {
     u_int8_t    subelm[1];     /* varialbe len optional sub element */
 } __packed;
 
+struct ieee80211_nr_preference_subie {
+    u_int8_t id; /* IEEE80211_SUBELEMID_NEIGHBORREPORT_PREFERENCE */
+    u_int8_t len; /* Fixed length: 1 */
+    u_int8_t preference;
+} __packed;
 
 /*  RRM capability information element */
 struct ieee80211_rrm_cap_ie {
@@ -590,9 +590,6 @@ struct ieee80211_measrsp_ie {
     u_int8_t    rsptype;
     u_int8_t    rsp[1];     /* varialbe len measurement requet */
 }__packed;
-#define BIT_LATE        0x01
-#define BIT_INCAPABLE   0x02
-#define BIT_REFUSED     0x04
 
 #define BIT_PARALLEL    0x01
 #define BIT_ENABLE      0x02
@@ -605,10 +602,6 @@ u_int8_t *ieee80211_add_measreq_beacon_ie(u_int8_t *frm, struct ieee80211_node *
 
 u_int8_t *ieee80211_add_measreq_tsm_ie(u_int8_t *frm, 
                        ieee80211_rrm_tsmreq_info_t *tsm_info, struct ieee80211_node *ni);
-
-u_int8_t *ieee80211_add_nr_ie(u_int8_t *frm, 
-                       struct ieee80211_nrresp_info* nr_info);
-
 
 int ieee80211_recv_neighbor_req(wlan_if_t vap, wlan_node_t ni, 
                                 struct ieee80211_action_nr_req *nr_req, int frm_len);

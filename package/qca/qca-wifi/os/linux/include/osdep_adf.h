@@ -647,6 +647,8 @@ spinlock_t                  lock;
 spinlock_t                  ev_handler_lock;
 #ifdef USE_SOFTINTR
 void                        *_task;
+#elif defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+adf_os_work_t               _timer_defered;    /* work queue for scan_timer defered */
 #else
 os_timer_t                  _timer;
 #endif
@@ -1043,6 +1045,8 @@ queue->is_synchronous=1;
 }
 #ifdef USE_SOFTINTR
 queue->_task = softintr_establish(IPL_SOFTNET,os_mesgq_handler,(void *)queue);
+#elif defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+adf_os_create_work(devhandle, &queue->_timer_defered, os_mesgq_handler, queue);
 #else
 OS_INIT_TIMER(devhandle,&queue->_timer, os_mesgq_handler, queue);
 #endif
@@ -1085,6 +1089,8 @@ if (queue->num_queued == 1) {
     /* schedule a task (timer) to handle the messages */
 #ifdef USE_SOFTINTR
     softintr_schedule(queue->_task);
+#elif defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+    adf_os_sched_work(NULL, &queue->_timer_defered);
 #else
     OS_SET_TIMER(&queue->_timer,0);
 #endif
@@ -1120,7 +1126,9 @@ void *msg;
 
 spin_lock(&(queue->lock));
 #ifndef USE_SOFTINTR
+#ifndef USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
 OS_CANCEL_TIMER(&queue->_timer);
+#endif
 #endif
 mesg = STAILQ_FIRST(&queue->mesg_head);
 while(mesg) {
@@ -1154,14 +1162,18 @@ spin_lock(&(queue->lock));
 #ifdef USE_SOFTINTR
 softintr_disestablish(queue->_task);
 #else
+#ifndef USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
 OS_CANCEL_TIMER(&queue->_timer);
+#endif
 #endif
 queue->num_queued = 0;
 STAILQ_INIT(&queue->mesg_head);
 STAILQ_INIT(&queue->mesg_free_head);
 OS_FREE(queue->mesg_queue_buf);
 #ifndef USE_SOFTINTR
+#ifndef USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
 OS_FREE_TIMER(&queue->_timer);
+#endif
 #endif
 spin_unlock(&(queue->lock));
 spin_lock_destroy(&(queue->lock));

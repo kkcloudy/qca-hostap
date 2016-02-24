@@ -142,7 +142,11 @@ htt_tx_mgmt_desc_pool_alloc(struct htt_pdev_t *pdev, u_int32_t num_elems)
 
     msg_pool = (struct htt_tx_mgmt_desc_buf *)adf_os_mem_alloc(pdev->osdev,
                                     (num_elems *
-                                    sizeof(struct htt_tx_mgmt_desc_buf)));
+                                     sizeof(struct htt_tx_mgmt_desc_buf)));
+    if (msg_pool == NULL)
+    {
+        return;
+    }
     adf_os_mem_zero(msg_pool, (num_elems *
                                     sizeof(struct htt_tx_mgmt_desc_buf)));
     pdev->tx_mgmt_desc_ctxt.freelist = msg_pool;
@@ -182,10 +186,6 @@ adf_nbuf_t
 htt_tx_mgmt_desc_alloc(struct htt_pdev_t *pdev, u_int32_t *desc_id,
                        adf_nbuf_t mgmt_frm)
 {
-    ol_txrx_mgmt_tx_cb  cb = NULL;
-    u_int16_t mgmt_type = (OL_TXRX_MGMT_NUM_TYPES-1);
-    void *ctxt = pdev->txrx_pdev->tx_mgmt.callbacks[mgmt_type].ctxt;
-    cb = pdev->txrx_pdev->tx_mgmt.callbacks[mgmt_type].cb;
     adf_nbuf_t msg_buf;
 
     /* acquire the lock */

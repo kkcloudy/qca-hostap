@@ -33,6 +33,9 @@ static void ieee80211_vap_resmgr_notification_handler (ieee80211_resmgr_t resmgr
                                                        ieee80211_resmgr_notification *notification, void *arg)
 {
     struct ieee80211vap *vap = (struct ieee80211vap *) arg;
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    struct ieee80211com *ic = vap->iv_ic;
+#endif
 
 
     /* Handle notification only if meant for this VAP */
@@ -41,8 +44,35 @@ static void ieee80211_vap_resmgr_notification_handler (ieee80211_resmgr_t resmgr
         case IEEE80211_RESMGR_VAP_START_COMPLETE:
             switch(vap->iv_opmode) {
             case IEEE80211_M_STA:
-                ieee80211_mlme_join_infra_continue(vap, 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+                if(notification->status == IEEE80211_RESMGR_STATUS_SUCCESS) {
+                    if((ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) &&
+                       (IEEE80211_IS_CHAN_DFS(ic->ic_curchan))) {
+                        ic->ic_enable_sta_radar(ic,1);
+                    }
+
+                    if((DFS_ETSI_DOMAIN == ic->ic_get_dfsdomain(ic)) &&
+                       (ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) &&
+                       (IEEE80211_IS_CHAN_DFS(ic->ic_curchan)) &&
+                       (IEEE80211_IS_CHAN_HISTORY_RADAR(ic->ic_curchan)) &&
+                       (!mlme_is_stacac_valid(vap))) {
+
+                        printk("STACAC_start chan %d timeout %d sec, curr time: %d sec\n",
+                            ic->ic_curchan->ic_freq,
+                            ieee80211_get_cac_timeout(ic, ic->ic_curchan),
+                            (adf_os_ticks_to_msecs(adf_os_ticks()) / 1000));
+                        mlme_set_stacac_running(vap,1);
+                        mlme_set_stacac_timer(vap,1000*ieee80211_get_cac_timeout(ic, ic->ic_curchan));
+                    } else {
+                        ieee80211_mlme_join_infra_continue(vap,EOK);
+                    }
+                } else {
+                    ieee80211_mlme_join_infra_continue(vap,EINVAL);
+                }
+#else
+                ieee80211_mlme_join_infra_continue(vap,
                   notification->status ==  IEEE80211_RESMGR_STATUS_SUCCESS ? EOK : EINVAL);
+#endif
                 break;
             case IEEE80211_M_BTAMP:
             case IEEE80211_M_HOSTAP:

@@ -245,7 +245,6 @@ wpi_sms4_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen, struct ieee8021
 		IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_CRYPTO, 
                         wh->i_addr1, "%s", "WAPI IV replay attack");
 		mac_stats->ims_rx_wpireplay++;
-		IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_wpireplay); //zhaoyang1 transplants statistics 2015-01-27
 		return 0;
 	} else {
 	    if(vap->iv_opmode == IEEE80211_M_HOSTAP) {
@@ -262,7 +261,6 @@ wpi_sms4_decap(struct ieee80211_key *k, wbuf_t wbuf, int hdrlen, struct ieee8021
                     IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_CRYPTO, 
                                     wh->i_addr1, "%s", "STA WAPI IV replay attack");
 			mac_stats->ims_rx_wpireplay++;
-					IEEE80211_NODE_STAT_ADDRBASED(vap, wh->i_addr2, rx_wpireplay); //zhaoyang1 transplants statistics 2015-01-27
                     return 0;
                 }
             } else {

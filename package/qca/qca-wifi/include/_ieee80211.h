@@ -228,6 +228,9 @@ struct ieee80211_channel_list {
 /* flagext */
 #define	IEEE80211_CHAN_RADAR_FOUND    0x01
 #define IEEE80211_CHAN_DFS              0x0002  /* DFS required on channel */
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+#define IEEE80211_CHAN_HISTORY_RADAR    0x0004  /* DFS radar history for slave device(STA mode) */
+#endif
 #define IEEE80211_CHAN_DFS_CLEAR        0x0008  /* if channel has been checked for DFS */
 #define IEEE80211_CHAN_11D_EXCLUDED     0x0010  /* excluded in 11D */
 #define IEEE80211_CHAN_CSA_RECEIVED     0x0020  /* Channel Switch Announcement received on this channel */
@@ -307,9 +310,6 @@ struct ieee80211_channel_list {
     (((_c)->ic_flags & IEEE80211_CHAN_GFSK) != 0)
 #define IEEE80211_IS_CHAN_TURBO(_c) \
     (((_c)->ic_flags & IEEE80211_CHAN_TURBO) != 0)
-#define IEEE80211_IS_CHAN_WEATHER_RADAR(_c) \
-    ((((_c)->ic_freq >= 5600) && ((_c)->ic_freq <= 5650)) \
-     || (((_c)->ic_flags & IEEE80211_CHAN_HT40PLUS) && (5580 == (_c)->ic_freq)))
 #define IEEE80211_IS_CHAN_STURBO(_c) \
     (((_c)->ic_flags & IEEE80211_CHAN_STURBO) != 0)
 #define IEEE80211_IS_CHAN_DTURBO(_c) \
@@ -434,6 +434,15 @@ struct ieee80211_channel_list {
 #define IEEE80211_CHAN_EXCLUDE_11D(_c)  \
     ((_c)->ic_flagext |= IEEE80211_CHAN_11D_EXCLUDED)
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+#define IEEE80211_IS_CHAN_HISTORY_RADAR(_c)    \
+    (((_c)->ic_flagext & IEEE80211_CHAN_HISTORY_RADAR) == IEEE80211_CHAN_HISTORY_RADAR)
+#define IEEE80211_CHAN_SET_HISTORY_RADAR(_c)    \
+    ((_c)->ic_flagext |= IEEE80211_CHAN_HISTORY_RADAR)
+#define IEEE80211_CHAN_CLR_HISTORY_RADAR(_c)    \
+    ((_c)->ic_flagext &= ~IEEE80211_CHAN_HISTORY_RADAR)
+#endif
+
 /* channel encoding for FH phy */
 #define IEEE80211_FH_CHANMOD            80
 #define IEEE80211_FH_CHAN(set,pat)      (((set)-1)*IEEE80211_FH_CHANMOD+(pat))
@@ -555,4 +564,33 @@ struct ieee80211_chanutil_info {
     u_int8_t     beacon_intervals;
 };
 
+static __inline int
+ieee80211_check_weather_radar_channel(struct ieee80211_channel *chan)
+{
+    int32_t mode_mask = (IEEE80211_CHAN_11NA_HT20 |
+                         IEEE80211_CHAN_11NA_HT40PLUS |
+                         IEEE80211_CHAN_11NA_HT40MINUS |
+                         IEEE80211_CHAN_11AC_VHT20 |
+                         IEEE80211_CHAN_11AC_VHT40PLUS |
+                         IEEE80211_CHAN_11AC_VHT40MINUS |
+                         IEEE80211_CHAN_11AC_VHT80);
+
+    switch ((chan->ic_flags) & mode_mask)
+    {
+        case IEEE80211_CHAN_11NA_HT40PLUS:
+        case IEEE80211_CHAN_11AC_VHT40PLUS:
+        case IEEE80211_CHAN_11NA_HT40MINUS:
+        case IEEE80211_CHAN_11AC_VHT40MINUS:
+        case IEEE80211_CHAN_11AC_VHT80:
+            return ((chan->ic_freq >= 5580) && (chan->ic_freq <= 5650));
+
+        case IEEE80211_CHAN_11NA_HT20:
+        case IEEE80211_CHAN_11AC_VHT20:
+        default: /* neither HT40+ nor HT40-, finish this call */
+            return ((chan->ic_freq >= 5600) && (chan->ic_freq <= 5650));
+    }
+
+    return 0;
+
+}
 #endif /* __NET80211__IEEE80211_H_ */

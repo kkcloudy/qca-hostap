@@ -82,12 +82,4 @@ ol_tx_stats_inc_map_error(ol_txrx_vdev_handle vdev,
 
 #endif /* QCA_OL_11AC_FAST_PATH && QCA_OL_TX_CACHEDHDR*/
 
-#if ATOPT_TRAFFIC_LIMIT
-extern void
-ol_rx_deliver(
-    struct ol_txrx_vdev_t *vdev,
-    struct ol_txrx_peer_t *peer,
-    unsigned tid,
-    adf_nbuf_t head_msdu);
-#endif
 #endif /* _OL_TXRX_API__H_ */

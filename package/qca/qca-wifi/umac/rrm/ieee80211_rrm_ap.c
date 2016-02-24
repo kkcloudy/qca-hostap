@@ -10,6 +10,9 @@
  */
 #include <ieee80211_var.h>
 #include "ieee80211_rrm_priv.h"
+#ifdef ATH_BAND_STEERING
+#include <ieee80211_band_steering.h>
+#endif
 
 #if UMAC_SUPPORT_RRM
 
@@ -51,6 +54,8 @@ int ieee80211_send_neighbor_resp(wlan_if_t vap, wlan_node_t ni,
     cb_info.frm = (u_int8_t *)(&nr_resp->resp_ies[0]);
     cb_info.ssid = nrreq_info->ssid;
     cb_info.ssid_len = nrreq_info->ssid_len;
+    /* No preference included with neighbor report */
+    cb_info.preference = 0;
     /* Iterate the scan table to build Neighbor report */
     wlan_scan_table_iterate(vap, ieee80211_fill_nrinfo, &cb_info);
     wbuf_set_pktlen(wbuf, (cb_info.frm - (u_int8_t*)wbuf_header(wbuf)));
@@ -135,7 +140,13 @@ static int ieee80211_rrm_handle_report(wlan_if_t vap, u_int8_t *frm, u_int32_t f
 
     RRM_FUNCTION_ENTER;
     if((rsp->id !=IEEE80211_ELEMID_MEASREP)
-            ||(rsp->rspmode & (BIT_INCAPABLE | BIT_LATE | BIT_REFUSED))
+#ifndef ATH_BAND_STEERING
+            /* When band steering is compiled in, we will continue processing
+               and generate an error event. */
+            ||(rsp->rspmode & (IEEE80211_RRM_MEASRPT_MODE_BIT_INCAPABLE |
+                               IEEE80211_RRM_MEASRPT_MODE_BIT_LATE |
+                               IEEE80211_RRM_MEASRPT_MODE_BIT_REFUSED))
+#endif
             ||(rsp->len > frm_len))
         return -EINVAL;
     switch(rsp->rsptype)
@@ -153,6 +164,16 @@ static int ieee80211_rrm_handle_report(wlan_if_t vap, u_int8_t *frm, u_int32_t f
             ieee80211_rrm_nhist_report(vap,frm,frm_len);
             break;
         case IEEE80211_MEASRSP_BEACON_REPORT:
+#ifdef ATH_BAND_STEERING
+            if (rsp->rspmode & (IEEE80211_RRM_MEASRPT_MODE_BIT_INCAPABLE |
+                                IEEE80211_RRM_MEASRPT_MODE_BIT_LATE |
+                                IEEE80211_RRM_MEASRPT_MODE_BIT_REFUSED)) {
+                ieee80211_bsteering_send_rrm_bcnrpt_error_event(
+                        vap, IEEE80211_ACTION_RM_TOKEN,
+                        vap->rrm->ni->ni_macaddr, rsp->rspmode);
+                break;
+            }
+#endif /* ATH_BAND_STEERING */
             ieee80211_rrm_beacon_measurement_report(vap,frm,frm_len);
             break;
         case IEEE80211_MEASRSP_FRAME_REPORT:
@@ -956,10 +977,8 @@ void add_beacon_entry(wlan_if_t vap ,struct ieee80211_beacon_report *bcnrpt)
 int ieee80211_rrm_is_valid_beacon_measurement_report(wlan_if_t vap,
         u_int8_t *sfrm,u_int32_t frm_len)
 {
-    struct ieee80211_beacon_report  *bcnrpt ;
     struct ieee80211_measrsp_ie *mie ;
     u_int8_t *efrm = sfrm + frm_len;
-    u_int8_t zero_bssid[IEEE80211_ADDR_LEN] = {0, 0, 0, 0, 0, 0};
     struct ieee80211_node *ni = vap->rrm->ni;
 
     RRM_FUNCTION_ENTER;
@@ -981,15 +1000,14 @@ int ieee80211_rrm_is_valid_beacon_measurement_report(wlan_if_t vap,
         {
             case IEEE80211_ELEMID_MEASREP:
                 {
+                    /* A measurement report with an empty beacon report is still
+                     * valid as per the 802.11k standard.
+                     */
                     u_int8_t min_ie_len = (sizeof(struct ieee80211_measrsp_ie) -
-                            sizeof(struct ieee80211_ie_header) - 1) +
-                        (sizeof (struct ieee80211_beacon_report) - 1);
+                            sizeof(struct ieee80211_ie_header) - 1);
                     if (mie->len >= min_ie_len &&
                             mie->token <= ni->br_measure_token) {
-                        bcnrpt = (struct ieee80211_beacon_report *)(sfrm +
-                                sizeof(struct ieee80211_measrsp_ie) - 1);
-                        if(!IEEE80211_ADDR_EQ(zero_bssid, bcnrpt->bssid) && bcnrpt->ch_num != 0)
-                            return 1;
+                        return 1;
                     }
                     sfrm += mie->len + sizeof(struct ieee80211_ie_header);
                     break;
@@ -1011,6 +1029,69 @@ int ieee80211_rrm_is_valid_beacon_measurement_report(wlan_if_t vap,
 }
 
 /**
+ * @brief Check a measurement response ie and store the 
+ *        information.  If compiled with ATH_BAND_STEERING, also
+ *        store in the beacon report structure.
+ *  
+ * @param [in] vap VAP this packet was received on 
+ * @param [in] mie pointer to the measurement response ie
+ * @param [in] sfrm pointer to the current position in the 
+ *                  packet
+ * @param [in] token current measurement response token
+ * @param [out] report  beacon report to fill in 
+ *                      (ATH_BAND_STEERING only)
+ */
+static void ieee80211_rrm_handle_measurement_response_ie(
+    wlan_if_t vap,
+    struct ieee80211_measrsp_ie *mie,
+    u_int8_t *sfrm,
+#ifdef ATH_BAND_STEERING
+    u_int8_t token,
+    ieee80211_bcnrpt_t *report) {
+#else
+    u_int8_t token) {
+#endif
+    u_int8_t zero_bssid[IEEE80211_ADDR_LEN] = {0, 0, 0, 0, 0, 0};
+    u_int8_t min_ie_len = (sizeof(struct ieee80211_measrsp_ie) -
+                           sizeof(struct ieee80211_ie_header) - 1) +
+        (sizeof(struct ieee80211_beacon_report) - 1);
+
+    if (mie->token <= token) {
+        if (mie->len >= min_ie_len) {
+            /* There is a beacon report present */
+            struct ieee80211_beacon_report *bcnrpt = 
+                (struct ieee80211_beacon_report *)(sfrm +
+                                                   sizeof(struct ieee80211_measrsp_ie) - 1);
+            if (!IEEE80211_ADDR_EQ(&bcnrpt->bssid, &zero_bssid) &&
+                bcnrpt->ch_num) {
+                /* search for this bssid in all available list */
+                add_beacon_entry(vap, bcnrpt);
+            }
+#ifdef ATH_BAND_STEERING
+            if (report) {
+                /* Still send notification even for an invalid BSSID / channel so
+                 * that band steering can identify that an error occurred
+                 */
+                IEEE80211_ADDR_COPY(report->bssid, bcnrpt->bssid);
+                report->rsni = bcnrpt->rsni;
+                report->rcpi = bcnrpt->rcpi;
+                report->chnum = bcnrpt->ch_num;
+            }
+
+        } else {
+            /* 
+             * There is no beacon report present.
+             * Still fill in the report to be NULL and report up
+             */
+            if (report) {
+                memset(report, 0, sizeof(ieee80211_bcnrpt_t));
+            }
+#endif /* ATH_BAND_STEERING */
+        }
+    }
+}
+
+/**
  * @brief Parse beacon measurement report
  *
  * @param vap
@@ -1024,14 +1105,22 @@ int ieee80211_rrm_is_valid_beacon_measurement_report(wlan_if_t vap,
 int ieee80211_rrm_beacon_measurement_report(wlan_if_t vap,
         u_int8_t *sfrm,u_int32_t frm_len)
 {
-    struct ieee80211_beacon_report  *bcnrpt ;
     struct ieee80211_measrsp_ie *mie ;
+#ifdef ATH_BAND_STEERING
+    ieee80211_bcnrpt_t *reports = NULL;
+    u_int8_t num_bcnrpt_requested = 0;
+    u_int8_t bcnrpt_count = 0;
+#endif
     u_int8_t *efrm = sfrm + frm_len;
     struct ieee80211_node *ni = vap->rrm->ni;
     RRM_FUNCTION_ENTER;
 
     if(!ieee80211_rrm_is_valid_beacon_measurement_report(vap, sfrm, frm_len))
                 return EOK;
+
+#ifdef ATH_BAND_STEERING
+    num_bcnrpt_requested = ieee80211_bsteering_alloc_rrm_bcnrpt(vap, &reports);
+#endif
 
     while (sfrm < efrm )
     {
@@ -1050,17 +1139,29 @@ int ieee80211_rrm_beacon_measurement_report(wlan_if_t vap,
         {
             case IEEE80211_ELEMID_MEASREP:
                 {
-                    u_int8_t min_ie_len = (sizeof(struct ieee80211_measrsp_ie) -
-                            sizeof(struct ieee80211_ie_header) - 1) +
-                        (sizeof (struct ieee80211_beacon_report) - 1);
+#ifdef ATH_BAND_STEERING
+                    ieee80211_rrm_handle_measurement_response_ie(
+                        vap, mie, sfrm, ni->br_measure_token,
+                        num_bcnrpt_requested ? &reports[bcnrpt_count] : NULL);
+                    if (num_bcnrpt_requested) {
+                        if (bcnrpt_count) {
+                            reports[(bcnrpt_count - 1)].more = 1;
+                        }
+                        ++bcnrpt_count;
 
-                    if (mie->len >= min_ie_len &&
-                            mie->token <= ni->br_measure_token) {
-                        bcnrpt = (struct ieee80211_beacon_report *)(sfrm +
-                                sizeof(struct ieee80211_measrsp_ie) - 1);
-                        /* search for this bssid in all available list */
-                        add_beacon_entry(vap, bcnrpt);
+                        if (bcnrpt_count == num_bcnrpt_requested) {
+                            /* Reach memory limit, but there are more reports to send */
+                            ieee80211_bsteering_send_rrm_bcnrpt_event(
+                                vap, IEEE80211_ACTION_RM_TOKEN,
+                                vap->rrm->ni->ni_macaddr, reports,
+                                bcnrpt_count);
+                            bcnrpt_count = 0;
+                        }
                     }
+#else
+                    ieee80211_rrm_handle_measurement_response_ie(
+                        vap, mie, sfrm, ni->br_measure_token);
+#endif
                     sfrm += mie->len + sizeof(struct ieee80211_ie_header);
                     break;
                 }
@@ -1075,6 +1176,14 @@ int ieee80211_rrm_beacon_measurement_report(wlan_if_t vap,
                 break;
         }
     }
+#ifdef ATH_BAND_STEERING
+    if (bcnrpt_count) {
+        ieee80211_bsteering_send_rrm_bcnrpt_event(
+            vap, IEEE80211_ACTION_RM_TOKEN, vap->rrm->ni->ni_macaddr,
+            reports, bcnrpt_count);
+    }
+    ieee80211_bsteering_dealloc_rrm_bcnrpt(&reports);
+#endif
     RRM_FUNCTION_EXIT;
 
     return EOK;

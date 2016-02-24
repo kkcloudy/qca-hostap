@@ -37,14 +37,6 @@ append_if_notnull=QCAWLAN_MAKEOPTS+=$(if $(call qstrip,$(1)),$(2),$(3))
 
 QCAWLAN_MODULE_LIST:=
 
-#zhouke add,if enbable support AFC,else support AC
-ifeq ($(AT_CONTROLLER),AFC)
-QCAWLAN_MAKEOPTS+=AT_CONTROLLER=AFC
-endif
-ifeq ($(AT_CONTROLLER),AC)
-QCAWLAN_MAKEOPTS+=AT_CONTROLLER=AC
-endif
-
 ifneq ($(BUILD_VARIANT),)
 QCAWLAN_MAKEOPTS:=$(shell cat $(LOCAL_SRC)/os/linux/configs/config.wlan.$(subst -,.,$(BUILD_VARIANT)))
 endif
@@ -205,7 +197,7 @@ endef
 ################# BUILD/INSTALL RULES ###################
 #########################################################
 
-QCAWLAN_TOOL_LIST:= 80211stats athstats athstatsclr apstats pktlogconf pktlogdump wifitool wlanconfig autelan
+QCAWLAN_TOOL_LIST:= 80211stats athstats athstatsclr apstats pktlogconf pktlogdump wifitool wlanconfig wlanset
 QCAWLAN_TOOL_LIST+= $(call if_opt_set, ATH_SUPPORT_DFS, radartool)
 QCAWLAN_TOOL_LIST+= $(call if_opt_set, ATH_SUPPORT_SPECTRAL, spectraltool)
 QCAWLAN_TOOL_LIST+= $(call if_opt_set, ATH_SUPPORT_IBSS_PRIVATE_SECURITY, athadhoc)

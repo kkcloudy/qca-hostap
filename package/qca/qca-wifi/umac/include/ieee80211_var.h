@@ -88,18 +88,6 @@
 
 #include <sys/queue.h>
 
-#if ATOPT_PROC_COMMAND
-#include <at_proc_command.h>
-#endif
-#if ATOPT_TRAFFIC_LIMIT
-#include <ieee80211_traffic_limit.h>
-#endif
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-#include <at_user_mgmt.h> 
-#include <at_connect_ctl.h> 
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 #define IEEE80211_TXPOWER_MAX        100   /* .5 dbM (XXX units?) */
 #define IEEE80211_TXPOWER_MIN        0     /* kill radio */
 
@@ -248,48 +236,6 @@
 
 #define IEEE80211_RATE_MAX 256
 
-#if ATOPT_PROC_COMMAND
-#if ATOPT_THINAP
-extern u_int32_t thinap;
-#endif
-/* Autelan-Begin: zhaoyang1 adds sysctl  2015-01-08 */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
-#define  CTL_NAME_AUTO  .ctl_name = CTL_AUTO,
-#else
-#define  CTL_NAME_AUTO   
-#endif
-/* Autelan-End: zhaoyang1 adds sysctl  2015-01-08 */
-
-#if ATOPT_5G_PRIORITY
-extern u_int32_t join5g_enable;
-extern u_int32_t scantime_thr;
-extern u_int32_t agingtime_thr;
-extern u_int32_t discard_count;
-extern u_int32_t join5g_debug;
-extern u_int32_t stacount_thr;
-extern u_int32_t sta_signal_strength_thr; 
-#endif
-#if ATOPT_POWERSAVE_PERF
-extern u_int32_t ps_drop;
-extern u_int32_t ps_ac_reorder;
-extern u_int32_t ps_fifo_depth;
-#endif
-#if ATOPT_DRV_MONITOR
-extern u_int32_t autelan_drv_monitor_enable;
-extern u_int32_t autelan_drv_monitor_reboot;
-extern u_int32_t autelan_drv_hang_reboot;
-extern u_int32_t autelan_drv_monitor_period;
-extern u_int32_t bstuck_enable;
-extern u_int32_t bmiss_check;
-extern u_int32_t aute_bb_hang_check;
-extern u_int32_t aute_mac_hang_check;
-extern u_int32_t ps_bufcnt;
-extern u_int32_t ps_acqcnt;
-extern u_int32_t data_txq ;	
-extern u_int32_t tid_period_sec;
-extern u_int32_t tid_period_us;
-#endif
-#endif
 struct ieee80211_chanhist{
     uint8_t    chanid;
     uint32_t   chanjiffies;
@@ -435,15 +381,17 @@ typedef rwlock_t ieee80211_vap_list_lock_t;
 #define  ATH_SCANENTRY_TIMEOUT 60
 
 #if QCA_AIRTIME_FAIRNESS
-#define ACTIVED_MAX_CLIENTS   32
-#define CFG_NUM_VDEV          16
 #define PER_UNIT_1000         1000
 #define PER_UNIT_100          100
 
+struct atf_subtype{
+    u_int16_t  id_type;
+};
 struct ssid_val{
     u_int16_t  id_type;
     u_int8_t   ssid[IEEE80211_NWID_LEN+1];
     u_int32_t  value;
+    u_int8_t   ssid_exist;
 };
 
 struct sta_val{
@@ -451,20 +399,14 @@ struct sta_val{
     u_int8_t     sta_mac[IEEE80211_ADDR_LEN];
     u_int32_t    value;
 };
-struct atfcntbl{
+
+struct atf_group{
+    uint16_t    id_type;
+    u_int8_t    name[32];
     uint8_t     ssid[IEEE80211_NWID_LEN+1];
-    uint8_t     sta_mac[IEEE80211_ADDR_LEN];
     uint32_t    value;
-    uint8_t     info_mark;   /*0--vap, 1-sta*/
-    uint8_t     assoc_status;     /*1--Yes, 0 --No*/
-    uint32_t    cfg_value;
 };
 
-struct atftable{
-    uint16_t         id_type;
-    struct atfcntbl  atf_info[ACTIVED_MAX_CLIENTS+CFG_NUM_VDEV];
-    uint16_t         info_cnt;
-};
 struct wmi_macaddr{
     /** upper 4 bytes of  MAC address */
     u_int32_t mac_addr31to0;
@@ -478,9 +420,24 @@ struct wmi_pdev_atf_req{
     struct{
         struct wmi_macaddr   peer_macaddr;
         u_int32_t     percentage_peer;
-    }atf_peer_info[ACTIVED_MAX_CLIENTS];
+    }atf_peer_info[ATF_ACTIVED_MAX_CLIENTS];
+};
+struct wmi_pdev_atf_peer_ext_request{
+    u_int32_t    num_peers;
+    struct{
+        struct wmi_macaddr   peer_macaddr;
+        u_int32_t     group_index;
+        u_int32_t     atf_units_reserved; /* Peer congestion threshold for future use*/
+    }atf_peer_ext_info[ATF_ACTIVED_MAX_CLIENTS];
 };
 
+struct wmi_pdev_atf_ssid_group_req{
+    u_int32_t    num_groups;
+    struct{
+        u_int32_t     percentage_group;
+        u_int32_t     atf_group_units_reserved; /* Group congestion threshold for future use*/
+    }atf_group_info[ATF_ACTIVED_MAX_ATFGROUPS];
+};
 struct atf_config {
     struct {
         u_int8_t     cfg_flag;          /* peer config */
@@ -490,15 +447,24 @@ struct atf_config {
         u_int8_t     sta_mac[IEEE80211_ADDR_LEN];
         u_int32_t    sta_cal_value;     /* result of calulate (sta_cfg_value*vap_cfg_value)/100 */
         u_int8_t     sta_assoc_status;  /* sta association status, 1: associated, 0:No-assoc if sta is configed*/
-    } peer_id[ACTIVED_MAX_CLIENTS];
+        u_int8_t    index_group;      /* Index of the group to which the peer is linked. '0XFF' if the peer is not part of any atfgroup */
+    } peer_id[ATF_ACTIVED_MAX_CLIENTS];
     struct {
         u_int32_t    vap_cfg_value;    /* user config % for ssid */
         u_int8_t     essid[IEEE80211_NWID_LEN+1];
         u_int8_t     cfg_flag;         /* VAP config*/
-    } vap[CFG_NUM_VDEV];               /* Total VAPs*/
+    } vap[ATF_CFG_NUM_VDEV];               /* Total VAPs*/
+    struct {
+        u_int8_t    grpname[IEEE80211_NWID_LEN + 1]; //group name
+        u_int32_t   grp_num_ssid; //Number of ssids added in this group
+        u_int32_t   grp_cfg_value; // Airtime for this group
+        u_int8_t    grp_ssid[ATF_CFG_NUM_VDEV][IEEE80211_NWID_LEN+1]; // List of SSIDs in the group
+        struct group_list *grplist_entry;
+    } atfgroup[ATF_ACTIVED_MAX_ATFGROUPS];
+    u_int8_t   grp_num_cfg;           /* Total number of groups configured */
     u_int8_t   peer_num_cfg;           /* User config how many stas*/
     u_int8_t   peer_num_cal;           /* Total stas need to be pass down fm*/
-    u_int16_t  peer_cal_bitmap;        /* Bitmap for those stas of average val*/
+    u_int64_t  peer_cal_bitmap;        /* Bitmap for those stas of average val*/
     u_int8_t   vap_num_cfg;            /* User config how many vap*/
     u_int32_t  percentage_unit;        /* default 1000, rang 100 or 1000*/
 };
@@ -542,12 +508,12 @@ typedef struct ieee80211com {
                                   ic_override_proberesp_ie:1, /* overwrite probe response IE with beacon IE */
                                   ic_wnm                  :1, /* WNM support flag */
                                   ic_2g_csa               :1,
-								  ic_dropstaquery         :1,
-								  ic_blkreportflood       :1,
+				  ic_dropstaquery         :1,
+				  ic_blkreportflood       :1,
                                   ic_ind_rpt              :1, /* independent repeater  */
                                   ic_enh_ind_rpt          :1, /* enhanced independent repeater  */
-                                  ic_extap                :1; /* extender AP */
-
+                                  ic_extap                :1, /* extender AP */
+				  ic_sta_vap_amsdu_disable:1; /* Disable Tx AMSDU for station vap */
 
 
     u_int32_t                     ic_caps;        /* capabilities */
@@ -636,6 +602,7 @@ typedef struct ieee80211com {
 #endif //IEEE80211_DEBUG_REFCNT
     /* Returns type of driver : Direct attach / Offload */
     bool    (*ic_is_mode_offload)(struct ieee80211com *ic);
+    void    (*ic_if_mgmt_drain) (struct ieee80211_node *ni);
     void    (*ic_ieee80211_unref_node)(struct ieee80211_node *ni);
     bool    (*ic_is_macreq_enabled)(struct ieee80211com *ic);
     u_int32_t (*ic_get_mac_prealloc_idmask)(struct ieee80211com *ic);
@@ -958,6 +925,11 @@ typedef struct ieee80211com {
     void                    (*ic_led_scan_end)(struct ieee80211com *);
     int                     (*ic_set_channel)(struct ieee80211com *);
     void                    (*ic_enable_radar)(struct ieee80211com *, int no_cac);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    void                    (*ic_enable_sta_radar)(struct ieee80211com *, int no_cac);
+#endif
+
 #if ATH_SUPPORT_WIFIPOS
     int                     (*ic_lean_set_channel)(struct ieee80211com *);
     void                    (*ic_pause_node)(struct ieee80211com *, struct ieee80211_node *, bool pause );
@@ -1110,10 +1082,14 @@ typedef struct ieee80211com {
 #endif
     u_int32_t               (*ic_get_wpsPushButton)(struct ieee80211com *ic);
 #if QCA_AIRTIME_FAIRNESS
-    void            (*ic_atf_update_node_txtoken)( struct ieee80211com *ic, struct ieee80211_node *ni);
+    void            (*ic_atf_update_node_txtoken)( struct ieee80211com *ic, struct ieee80211_node *ni, struct atf_stats *stats);
     void            (*ic_atf_set_enable)( struct ieee80211com *ic, u_int8_t);
     void            (*ic_atf_set_disable)( struct ieee80211com *ic, u_int8_t);
     void            (*ic_atf_get_unused_txtoken)( struct ieee80211com *ic, struct ieee80211_node *ni, int *unused_tokens);
+    void            (*ic_atf_node_resume)(struct ieee80211com *ic, struct ieee80211_node *ni);
+    u_int32_t       (*ic_node_buf_held)(struct ieee80211_node *ni);
+    void            (*ic_atf_tokens_unassigned)( struct ieee80211com *ic, u_int32_t tokens_unassigned);
+    void            (*ic_atf_capable_node)( struct ieee80211com *ic, struct ieee80211_node *ni, u_int8_t val);
 #endif
     void            (*ic_green_ap_set_enable)( struct ieee80211com *ic, int val );
     int             (*ic_green_ap_get_enable)( struct ieee80211com *ic);
@@ -1126,8 +1102,13 @@ typedef struct ieee80211com {
     int16_t         (*ic_get_cur_chan_nf)(struct ieee80211com *ic);
     void            (*ic_get_cur_chan_stats)(struct ieee80211com *ic, struct ieee80211_chan_stats *chan_stats);
     int32_t         (*ic_ath_send_rssi)(struct ieee80211com *ic, u_int8_t *macaddr, struct ieee80211vap *vap);
+#ifdef ATH_BAND_STEERING
+    int32_t         (*ic_ath_measure_rssi_spoof_bssid)(struct ieee80211com *ic, u_int8_t *target_macaddr,
+                                                       u_int8_t *spoofed_bssid, struct ieee80211vap *vap);
+#endif
     int32_t         (*ic_ath_request_stats)(struct ieee80211com *ic,  void *cmd);
     int32_t         (*ic_ath_enable_ap_stats)(struct ieee80211com *ic, u_int8_t val);
+    int32_t         (*ic_ath_bss_chan_info_stats)(struct ieee80211com *ic, int param);
     /* update PHY counters */
     void                    (*ic_update_phystats)(struct ieee80211com *ic, enum ieee80211_phymode mode);
     void                    (*ic_clear_phystats)(struct ieee80211com *ic);
@@ -1263,6 +1244,11 @@ typedef struct ieee80211com {
 
     u_int8_t                (*ic_get_ctl_by_country)(struct ieee80211com *ic, u_int8_t *country, bool is2G);
     u_int16_t              (*ic_dfs_usenol)(struct ieee80211com *ic);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    void                   (*ic_dfs_print_nolhistory)(struct ieee80211com *ic);
+#endif
+
     u_int16_t              (*ic_dfs_isdfsregdomain)(struct ieee80211com *ic);
 
 #if  ATH_SUPPORT_AOW
@@ -1444,6 +1430,9 @@ u_int32_t   (*ic_get_txbuf_free) (struct ieee80211com *ic);
     int                               (*ic_dfs_attached)(struct ieee80211com *ic);
 #ifdef ATH_SUPPORT_DFS
     void          *ic_dfs;
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    void          *ic_dfs_flags;
+#endif
     struct ieee80211_dfs_state ic_dfs_state;
     int                               (*ic_dfs_attach)(struct ieee80211com *ic, void *pCap, void *radar_info);
     int                               (*ic_dfs_detach)(struct ieee80211com *ic);
@@ -1640,33 +1629,62 @@ u_int32_t   (*ic_get_txbuf_free) (struct ieee80211com *ic);
     struct partner_com_param            partner_com_params;
 #endif
     void                                (*ic_node_pspoll)(struct ieee80211_node *ni, bool value);
+    int                                 (*ic_tr69_request_process)(struct ieee80211vap *vap, int cmdid, void * arg1, void *arg2);
 #if QCA_AIRTIME_FAIRNESS
     u_int8_t                            atf_commit;                   /* 1-- airtime enable, 0-- airtime disable*/
     u_int32_t                           atf_fmcap;
     u_int8_t                            atf_mode;
+    u_int8_t                            atf_txbuf_share;
+    u_int16_t                           atf_txbuf_max;
+    u_int16_t                           atf_txbuf_min;
     struct  atf_config                  atfcfg_set;
     struct  wmi_pdev_atf_req            wmi_atfreq;
+    struct  wmi_pdev_atf_peer_ext_request wmi_atf_peer_req;
+    struct  wmi_pdev_atf_ssid_group_req  wmi_atf_group_req;
     os_timer_t                          atfcfg_timer;
     u_int8_t                            atf_tasksched;
     struct  ieee80211vap                *atf_vap_handler;
     spinlock_t                          atf_lock;
-    os_timer_t                          atf_tokenalloc_timer; /* Timer that periodically updates node txtokens */
-    
-    u_int32_t                           atf_num_clients_borrow;     /* number of clients looking to borrow tokens */
-    u_int32_t                           atf_contributabletokens;    /* Tokens available for contribution */
-    u_int32_t                           ic_atf_strictsched;         /* Enable/Disable strict scheduling */
+    os_timer_t                          atf_tokenalloc_timer;       /* Timer that periodically updates node txtokens */
+    u_int32_t                           ic_alloted_tx_tokens;       /* Sum of txtoken's distributed in a cycle */
+    u_int32_t                           ic_shadow_alloted_tx_tokens;/* Sum of txtoken's distributed in a cycle */
+    u_int32_t                           ic_atf_sched;           /* Enable/Disable strict and OBSS scheduling */
+    u_int32_t                           ic_atf_chbusy;          /* channel busy stats collected every atf timer interval */
+    u_int32_t                           atf_avail_tokens;       /* Actual available tokens based on OBSS interference */
+    u_int32_t                           ic_txtokens_common;     /* Common tokens given for clients > 32 */
+    u_int8_t                            ic_atf_maxclient;       /* enable/Disable max client support */
+    u_int32_t                           atf_obss_scale;         /* scaling % to add to avail tokens*/
+    u_int32_t                           atf_groups_borrow;      /* Flag to indicate if there are groups looking to borrow tokens */
+    u_int32_t                           atf_tokens_unassigned;  /* Unassigned tx tokens */
+    u_int32_t                           atf_total_num_clients_borrow; /* total clients looking to borrow, across all groups */
+    u_int32_t                           atf_total_contributable_tokens; /* sum of contributable tokens of all groups */
+    TAILQ_HEAD(, group_list)            ic_atfgroups;           /* list of ATF group instances */
+    u_int32_t                           atf_msdu_desc;
+    u_int32_t                           atf_peers;
+    u_int32_t                           atf_max_vdevs;
 #endif
     struct ieee80211_nl_handle          *ic_nl_handle;
     adf_os_work_t                       ic_obss_scan_work;
+    adf_os_work_t                       ic_per_scan_wque;
     u_int32_t                            ic_num_clients;
-
-/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	u_int32_t (*ic_get_channel_utility_once)(struct ieee80211com *ic, u_int32_t *rxc_pcnt, u_int32_t *rxf_pcnt, u_int32_t *txf_pcnt);	
-
+    int8_t                              do_wme_init;
 } IEEE80211COM, *PIEEE80211COM;
 typedef  int  (* ieee80211_vap_input_mgmt_filter ) (struct ieee80211_node *ni, wbuf_t wbuf,
                                                      int subtype, struct ieee80211_rx_status *rs);
 typedef  int  (* ieee80211_vap_output_mgmt_filter ) (wbuf_t wbuf);
+
+#if QCA_AIRTIME_FAIRNESS
+struct group_list {
+    TAILQ_ENTRY(group_list)       group_next;    /* list of ATF group instances */
+    u_int8_t    group_name[IEEE80211_NWID_LEN + 1]; //group name
+    u_int32_t   atf_num_clients_borrow;         /* number of clients looking to borrow tokens */
+    u_int32_t   atf_num_clients;                /* number of clients in the group */
+    u_int32_t   atf_contributabletokens;        /* Tokens available for contribution */
+    u_int32_t   shadow_atf_contributabletokens; /* Tokens available for contribution */
+    u_int8_t    group_del;                      /* indicates whether this group is to be deleted */
+    u_int32_t   group_airtime;                  /* user configured airtime for the group */
+};
+#endif
 
 #if ATH_WOW
 struct ieee80211_wowpattern {
@@ -1752,9 +1770,6 @@ struct ieee80211_tim_set {
 };
 
 typedef struct ieee80211vap {
-    #if ATOPT_THINAP
-    u_int32_t vap_splitmac;
-    #endif
     TAILQ_ENTRY(ieee80211vap)         iv_next;    /* list of vap instances */
 
 #if WAR_DELETE_VAP
@@ -1835,7 +1850,12 @@ typedef struct ieee80211vap {
                                       iv_ldpc:2,       /* LDPC Enable Rx:1 TX: 2 ; Disable:0 */
                                       iv_ratemask_default:1, /* flag to indicate using default ratemask */
                                       iv_key_flag:1,    /*For wakeup AP VAP when wds-sta connect to the AP only use when export UMAC_REPEATER_DELAYED_BRINGUP=1*/
-                                      iv_list_scanning:1; /* if performe the iwlist scanning */
+                                      iv_list_scanning:1, /* if performe the iwlist scanning */
+                                      iv_vap_is_down:1, /*Set when VAP down*/
+                                      iv_needs_up_on_acs:1, /* if vap may require acs when another vap is brought down */
+#if QCA_AIRTIME_FAIRNESS
+                                      iv_block_tx_traffic:1; /* Block data traffic tx for this vap */
+#endif
     u_int32_t                         iv_256qam:1;     /* 256 QAM support in 2.4GHz mode Enable:1 Disable:0 */
     u_int8_t                          iv_11ng_vht_interop:1;     /* 2.4NG 256 QAM Interop mode Enable:1 Disable:0 */
 
@@ -1843,6 +1863,7 @@ typedef struct ieee80211vap {
                                                           entity at VAP init time */
     u_int8_t                          iv_send_additional_ies;    /* Enable sending of Extra IEs to host */
 
+    atomic_t                          iv_down_progress; /* interface down progress flag */
 
     enum ieee80211_state    iv_state;    /* state machine state */
 
@@ -2194,6 +2215,10 @@ typedef struct ieee80211vap {
     u_int8_t                    iv_hessid[IEEE80211_ADDR_LEN];
     u_int8_t                    iv_access_network_type;
     u_int32_t                   iv_hotspot_xcaps;
+    u_int32_t                   iv_hotspot_xcaps2;
+    u_int32_t                   iv_hc_bssload;
+    struct ieee80211_qos_map    iv_qos_map;
+    u_int8_t                    iv_osen;
 #endif
     u_int8_t iv_wep_keycache; /* static wep keys are allocated in first four slots in keycahe */
 #if ATH_SUPPORT_WPA_SUPPLICANT_CHECK_TIME
@@ -2208,6 +2233,7 @@ typedef struct ieee80211vap {
     struct ieee80211_tim_set iv_tim_infor;
 #if UMAC_SUPPORT_WNM
     u_int16_t           iv_wnmsleep_intval;
+    u_int8_t            iv_wnmsleep_force;
 #endif
 #if ATH_SUPPORT_WRAP
     u_int8_t            iv_no_event_handler;
@@ -2216,6 +2242,10 @@ typedef struct ieee80211vap {
 #endif
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
     u_int8_t            iv_nopbn;  /* no push button notification */
+#endif
+#ifdef ATH_BAND_STEERING
+    /* set if band steering is enabled on this VAP */
+    atomic_t iv_bs_enabled;
 #endif
 #if UMAC_PER_PACKET_DEBUG
 #define PROC_FNAME_SIZE 20
@@ -2260,13 +2290,6 @@ typedef struct ieee80211vap {
     char                       iv_basic_rates[IEEE80211_RATE_MAX]; /*basic rates set by the user*/
     u_int16_t                  iv_vht_sgimask;          /* VHT SGI MASK */
     u_int32_t                  iv_vht80_ratemask;       /* VHT80 Auto Rate MASK */
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    int iv_mgmt_debug_switch;
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
 /*
  To support per vap dscp to tid mapping.
  If vap specific dscp to tid mapping is not enabled,
@@ -2287,26 +2310,11 @@ typedef struct ieee80211vap {
     u_int32_t                  node_create_cnt;
     u_int32_t                  node_del_cnt;
     u_int32_t                  kickout_cnt;
-#if ATOPT_PROC_COMMAND
-    struct ctl_table_header *iv_sysctl_header;
-    struct ctl_table        *iv_sysctls;
+    u_int8_t                   channel_switch_state; /* flag to decide if vap undergoes channel swit
+                                                        ch*/
+#if QCA_AIRTIME_FAIRNESS
+    u_int8_t                   tx_blk_cnt;/*number of ni under this vap blocked to transmit*/
 #endif
-#if ATOPT_TRAFFIC_LIMIT
-    u_int32_t vap_tl_ev_enable;
-    u_int32_t vap_tl_vap_enable;
-    struct ieee80211_tl_srtcm vap_tl_up_srtcm_ev;
-    struct ieee80211_tl_srtcm vap_tl_down_srtcm_ev;    
-    struct ieee80211_tl_srtcm vap_tl_up_srtcm_vap;
-    struct ieee80211_tl_srtcm vap_tl_down_srtcm_vap;
-    struct ieee80211_tl_cache_queue_rx vap_tl_up_cacheq;
-    struct ieee80211_tl_cache_queue_tx vap_tl_down_cacheq;
-#endif
-
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-	u_int8_t iv_monitor;
-	u_int8_t iv_scan_channel;
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
-
 } IEEE80211VAP, *PIEEE80211VAP;
 
 #ifndef __ubicom32__
@@ -2436,6 +2444,15 @@ typedef struct ieee80211vap {
 #define IEEE80211_CEXT_PERF_PWR_OFLD    0x00000008  /* CAPABILITY: the device supports perf and power offload */
 #define IEEE80211_CEXT_11AC             0x00000010  /* CAPABILITY: the device supports 11ac */
 #define IEEE80211_ACS_CHANNEL_HOPPING   0x00000020  /* CAPABILITY: the device support acs channel hopping */
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+#define IEEE80211_CEXT_STADFS           0x00000040  /* CAPABILITY: the device support STA DFS */
+#endif
+
+/* ATF Schedular Flags */
+#define IEEE80211_ATF_SCHED_STRICT      0x00000001      /* 1 - Strict, 0 - Fair */
+#define IEEE80211_ATF_SCHED_OBSS        0x00000002
+#define IEEE80211_ATF_GROUP_SCHED_POLICY    0x00000004
 
 /* Accessor APIs */
 
@@ -2584,8 +2601,8 @@ typedef spinlock_t ieee80211_resmgr_oc_sched_lock_t;
 #define IEEE80211_RESMGR_OCSCHE_LOCK_DESTROY(_ocslock)  spin_lock_destroy(&((_ocslock)->scheduler_lock))
 #define IEEE80211_RESMGR_OCSCHE_LOCK(_ocslock)          spin_lock(&((_ocslock)->scheduler_lock))
 #define IEEE80211_RESMGR_OCSCHE_UNLOCK(_ocslock)        spin_unlock(&((_ocslock)->scheduler_lock))
-#define IEEE80211_VAP_LOCK(_vap)                   spin_lock(&_vap->iv_lock);
-#define IEEE80211_VAP_UNLOCK(_vap)                 spin_unlock(&_vap->iv_lock);
+#define IEEE80211_VAP_LOCK(_vap)                   spin_lock_dpc(&_vap->iv_lock);
+#define IEEE80211_VAP_UNLOCK(_vap)                 spin_unlock_dpc(&_vap->iv_lock);
 #endif
 
 #ifndef  ATH_BEACON_DEFERRED_PROC
@@ -2906,6 +2923,7 @@ void ieee80211_vap_detach(struct ieee80211vap *vap);
 void ieee80211_vap_free(struct ieee80211vap *vap);
 
 void ieee80211_vap_deliver_stop(struct ieee80211vap *vap);
+void ieee80211_vap_deliver_stop_error(struct ieee80211vap *vap);
 
 int ieee80211_vap_update_superag_cap(struct ieee80211vap *vap, int en_superag);
 int ieee80211_vap_match_ssid(struct ieee80211vap *vap, const u_int8_t *ssid, u_int8_t ssidlen);
@@ -2945,11 +2963,7 @@ ieee80211_get_vap_opmode_count(struct ieee80211com *ic,
                                struct ieee80211_vap_opmode_count *vap_opmode_count);
 
 int ieee80211_regdmn_reset(struct ieee80211com *ic);
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-void ieee80211_get_channel_utility(struct ieee80211com *ic);
-int wlan_get_channel_utility(wlan_if_t vaphandle, char *p, u_int32_t * ch_utility_ptr, u_int32_t timeval);
-int ath_net80211_get_ch_utility_all(struct ieee80211com *ic, char *p, u_int32_t * ch_utility_ptr, int sec5);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
+
 int
 ieee80211_has_weptkipaggr(struct ieee80211_node *ni);
 
@@ -3843,41 +3857,6 @@ ieee80211_note(_vap, _fmt, ##__VA_ARGS__);                  \
         ieee80211_discard_ie(_vap, _type, _fmt, __VA_ARGS__);           \
     } while (0)
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-#define IEEE80211_DPRINTF_MGMT_DEBUG(_vap, _fmt, ...) do {                     \
-        if ((_vap)->iv_mgmt_debug_switch == 1)                                    \
-            ieee80211_note(_vap, _fmt, __VA_ARGS__);                    \
-    } while (0)
-#define IEEE80211_NOTE_MGMT_DEBUG(_vap, _ni, _fmt, ...) do {                   \
-        if ((_vap)->iv_mgmt_debug_switch == 1)                                    \
-            ieee80211_note_mac(_vap, (_ni)->ni_macaddr, _fmt, __VA_ARGS__);\
-    } while (0)
-#define IEEE80211_NOTE_MAC_MGMT_DEBUG(_vap, _mac, _fmt, ...) do {              \
-        if ((_vap)->iv_mgmt_debug_switch == 1)                                    \
-            ieee80211_note_mac(_vap, _mac, _fmt, __VA_ARGS__);          \
-    } while (0)
-#define IEEE80211_NOTE_WBUF_MGMT_DEBUG(_vap, _wbuf, _fmt, ...) do {             \
-        if ((_vap)->iv_mgmt_debug_switch == 1) {                                   \
-	      struct ieee80211_frame *_wh = (struct ieee80211_frame *) wbuf_header(_wbuf); \
-            ieee80211_note_mac(_vap, _wh->i_addr2, _fmt, __VA_ARGS__);         \
-        	} \
-    } while (0)
-#define IEEE80211_DISCARD_MGMT_DEBUG(_vap, _wh, _type, _fmt, ...) do {         \
-    if ((_vap)->iv_mgmt_debug_switch == 1)                                        \
-        ieee80211_discard_frame(_vap, _wh, _type, _fmt, __VA_ARGS__);   \
-    } while (0)
-#define IEEE80211_DISCARD_MAC_MGMT_DEBUG(_vap, _mac, _type, _fmt, ...) do {    \
-    if ((_vap)->iv_mgmt_debug_switch == 1)                                        \
-        ieee80211_discard_mac(_vap, _mac, _type, _fmt, __VA_ARGS__);    \
-    } while (0)
-#define IEEE80211_DISCARD_IE_MGMT_DEBUG(_vap, _type, _fmt, ...) do {           \
-    if ((_vap)->iv_mgmt_debug_switch == 1)                                        \
-        ieee80211_discard_ie(_vap, _type, _fmt, __VA_ARGS__);           \
-    } while (0)
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
 #ifdef ATH_CWMIN_WORKAROUND
 
 #ifdef ATH_SUPPORT_HTC
@@ -3896,28 +3875,22 @@ ieee80211_note(_vap, _fmt, ##__VA_ARGS__);                  \
 #define VAP_NEED_CWMIN_WORKAROUND(_v) (0)
 #endif /* #ifdef ATH_CWMIN_WORKAROUND */
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+#define IEEE80211_IC_DFS_DFSMASTER    0x01 /* DFS Master */
+#define IEEE80211_IC_DFS_RADARCAPABLE 0x02 /* Radar Capable */
+#define IEEE80211_IC_DFS_CACREQUIRED  0x04 /* CAC (Channel Availability Check) Required */
 
-/*AUTELAN-Begin:zhaoenjuan add for packet_trace*/
-#if ATOPT_PACKET_TRACE
-#define IEEE802_11_FRAME_MODE  1
-#define IEEE802_3_FRAME_MODE   0
-#define PRINT_DEBUG_LVL0       0
-#define PRINT_DEBUG_LVL1       1
+#define IEEE80211_IC_DFS_DFSMASTER_SET(_ic)         ((_ic)->ic_dfs_flags |=  IEEE80211_IC_DFS_DFSMASTER)
+#define IEEE80211_IC_DFS_DFSMASTER_CLR(_ic)         ((_ic)->ic_dfs_flags &= ~IEEE80211_IC_DFS_DFSMASTER)
+#define IEEE80211_IC_DFS_DFSMASTER_IS_SET(_ic)      ((_ic)->ic_dfs_flags &   IEEE80211_IC_DFS_DFSMASTER)
 
-extern int (*packet_trace_hook)(int is_80211,struct sk_buff* skb,unsigned char * func,int line,int lvl);
-#define PACKET_TRACE(_is_80211,_skb,_func,_line,_lvl) do {	\
- if(packet_trace_hook != NULL && _skb != NULL){								\
-		packet_trace_hook(_is_80211,_skb,_func,_line,_lvl); \
-		}													\
-}while(0)
+#define IEEE80211_IC_DFS_RADARCAPABLE_SET(_ic)      ((_ic)->ic_dfs_flags |=  IEEE80211_IC_DFS_RADARCAPABLE)
+#define IEEE80211_IC_DFS_RADARCAPABLE_CLR(_ic)      ((_ic)->ic_dfs_flags &= ~IEEE80211_IC_DFS_RADARCAPABLE)
+#define IEEE80211_IC_DFS_RADARCAPABLE_IS_SET(_ic)   ((_ic)->ic_dfs_flags &   IEEE80211_IC_DFS_RADARCAPABLE)
 
-/* Autelan-Begin: zhaoyang1 modifies for y assistant access debug 2015-04-17*/
-extern void (*y_assistant_access_debug_hook)
-	(struct sk_buff* skb, int is_80211, int direction);
-
-extern void y_assistant_netlink_access_debug_send
-	(unsigned char *client, unsigned char *ap, int id, unsigned char *essid);
-/* Autelan-End: zhaoyang1 modifies for y assistant access debug 2015-04-17*/
+#define IEEE80211_IC_DFS_CACREQUIRED_SET(_ic)       ((_ic)->ic_dfs_flags |=  IEEE80211_IC_DFS_CACREQUIRED)
+#define IEEE80211_IC_DFS_CACREQUIRED_CLR(_ic)       ((_ic)->ic_dfs_flags &= ~IEEE80211_IC_DFS_CACREQUIRED)
+#define IEEE80211_IC_DFS_CACREQUIRED_IS_SET(_ic)    ((_ic)->ic_dfs_flags &   IEEE80211_IC_DFS_CACREQUIRED)
 #endif
-/*AUTELAN-End:zhaoenjuan add for packet_trace*/
+
 #endif /* end of _ATH_STA_IEEE80211_VAR_H */

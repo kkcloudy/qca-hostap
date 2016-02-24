@@ -49,9 +49,7 @@ static inline uint32_t ath_smart_ant_txfeedback( struct ath_softc *sc, struct at
 
 
 #if ATH_SUPPORT_EDMA
-#if ATOPT_DRV_MONITOR
-extern u_int32_t beacon_complete;//AUTELAN-zhaoenjuan for drv monitor beacon stuck check
-#endif
+
 int
 ath_tx_edma_process(ath_dev_t dev)
 {
@@ -102,9 +100,6 @@ ath_tx_edma_process(ath_dev_t dev)
 
         /* Skip beacon completions */
         if (ts.queue_id == sc->sc_bhalq) {
-#if ATOPT_DRV_MONITOR
-            beacon_complete++;//AUTELAN-zhaoenjuan for drv monitor beacon stuck check
-#endif
             /* Do the Beacon completion callback (if enabled) */
             if (atomic_read(&sc->sc_has_tx_bcn_notify)) {
                 /* Notify that a beacon has completed */
@@ -457,7 +452,6 @@ ath_tx_edma_process(ath_dev_t dev)
             wbuf_t wbuf;
             u_int8_t mac_addr[ETH_ALEN], status;
             wbuf = bf->bf_mpdu;
-            status = 0;
             status = (ts.ts_status == 0)? 1 : 0;
             memcpy(&mac_addr, ((struct ieee80211_frame *)wbuf_header(wbuf))->i_addr1, ETH_ALEN);
             if(sc->sc_ieee_ops->bsteering_rssi_update)

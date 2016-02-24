@@ -17,9 +17,6 @@
 #include <ieee80211_aow.h>
 #include <if_smart_ant.h>
 
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
 int
 ieee80211_vap_setup(struct ieee80211com *ic, struct ieee80211vap *vap,
                     int opmode, int scan_priority_base, int flags,
@@ -223,6 +220,13 @@ ieee80211_vap_setup(struct ieee80211com *ic, struct ieee80211vap *vap,
     vap->iv_sgi = 0;
     vap->iv_data_sgi = 0;
 
+    vap->iv_needs_up_on_acs = 1;
+
+#if QCA_AIRTIME_FAIRNESS
+    vap->iv_block_tx_traffic = 0;
+    vap->tx_blk_cnt = 0;
+#endif 
+
     /* Default VHT SGI mask is enabled for high stream MCS 7, 8, 9 */
     vap->iv_vht_sgimask = 0x380;
 
@@ -269,6 +273,7 @@ ieee80211_vap_setup(struct ieee80211com *ic, struct ieee80211vap *vap,
     vap->iv_vht_ratemaskhigher32 = 0;
     vap->min_dwell_time_passive = 200;
     vap->max_dwell_time_passive = 300;
+    atomic_set(&vap->iv_down_progress,false);
     vap->scan_repeat_probe_time =
                 vap->scan_rest_time =
                 vap->scan_idle_time =
@@ -537,6 +542,22 @@ void ieee80211_vap_deliver_stop(struct ieee80211vap *vap)
     }
 }
 
+/*
+ * deliver the error event to osif layer.
+ */
+void ieee80211_vap_deliver_stop_error(struct ieee80211vap *vap)
+{
+    struct ieee80211com *ic;
+    os_if_t             osif;
+
+    if (vap) {
+        ic = vap->iv_ic;
+        osif = vap->iv_ifp;
+
+        IEEE80211COM_DELIVER_VAP_EVENT(ic, osif, IEEE80211_VAP_STOP_ERROR);
+    }
+}
+
 /**
  * @register a vap event handler.
  * ARGS :
@@ -608,6 +629,31 @@ void ieee80211_vap_deliver_event(struct ieee80211vap *vap, ieee80211_vap_event *
         }
     }
     IEEE80211_VAP_UNLOCK(vap);
+}
+
+/* Return true if any VAP is in RUNNING state */
+int
+ieee80211_vap_is_any_running(struct ieee80211com *ic)
+{
+
+    struct ieee80211vap *vap;
+    int running = 0;
+    IEEE80211_COMM_LOCK(ic);
+    TAILQ_FOREACH(vap, &ic->ic_vaps, iv_next) {
+        if (vap->iv_opmode != IEEE80211_M_HOSTAP && vap->iv_opmode != IEEE80211_M_IBSS) {
+            continue;
+        }
+        if (vap->channel_switch_state) {
+            continue;
+        }
+
+        if (vap->iv_state_info.iv_state == IEEE80211_S_RUN) {
+            running++;
+            break;
+        }
+    }
+    IEEE80211_COMM_UNLOCK(ic);
+    return running;
 }
 
 /**
@@ -720,9 +766,6 @@ wlan_vap_create(wlan_dev_t            devhandle,
     vap->iv_flowmac = ic->ic_get_flowmac_enabled_State(ic);
 #endif
 
-#if ATOPT_TRAFFIC_LIMIT
-    ieee80211_tl_vap_init(vap); 
-#endif
 #if UNIFIED_SMARTANTENNA
     ic->sta_not_connected_cfg = TRUE;
     ieee80211_smart_ant_init(ic, vap, SMART_ANT_STA_NOT_CONNECTED | SMART_ANT_NEW_CONFIGURATION);

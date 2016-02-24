@@ -306,6 +306,18 @@ ar5416Reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
     }
 #endif
 
+    /* reset the counters */
+    AH5416(ah)->ah_cycleCount = 0;
+    AH5416(ah)->ah_ctlBusy = 0;
+    AH5416(ah)->ah_extBusy = 0;
+    AH5416(ah)->ah_Rf = 0;
+    AH5416(ah)->ah_Tf = 0;
+    OS_REG_WRITE(ah, AR_RCCNT, 0);
+    OS_REG_WRITE(ah, AR_EXTRCCNT, 0);
+    OS_REG_WRITE(ah, AR_CCCNT, 0);
+    OS_REG_WRITE(ah, AR_RFCNT, 0);
+    OS_REG_WRITE(ah, AR_TFCNT, 0);
+
     /*
      * Fast channel change (Change synthesizer based on channel freq
      * without resetting chip)

@@ -433,9 +433,10 @@ init_ath_wmac(u_int16_t devid, u_int16_t wlanNum)
     /*
      * Don't leave arp type as ARPHRD_ETHER as this is no eth device
      */
-	#if !ATOPT_THINAP
+#if !ATOPT_ORI_ATHEROS_BUG
     dev->type = ARPHRD_IEEE80211;
-	#endif
+#endif
+
     sc->aps_osdev.bdev = NULL;
 
 #ifdef AH_CAL_IN_FLASH_AHB

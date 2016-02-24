@@ -365,14 +365,6 @@ ath_calcrxfilter(struct ath_softc *sc)
        rfilt |= HAL_RX_FILTER_ALL_MCAST_BCAST;
     }
 
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-	if(sc->sc_allow_promisc){
-		rfilt |= HAL_RX_FILTER_PROM;
-	}else if(sc->sc_opmode != HAL_M_MONITOR){
-		rfilt &= ~HAL_RX_FILTER_PROM;
-	}
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
-
     return rfilt;
 #undef RX_FILTER_PRESERVE
 }
@@ -1099,9 +1091,6 @@ ath_rx_process(struct ath_softc *sc, struct ath_buf *bf, struct ath_rx_status *r
     } else {
         rx_status->rpttstamp = 0;
     }
-#endif
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE, wbuf,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace
 #endif
 
     /*

@@ -703,12 +703,7 @@ ath_rx_intr(ath_dev_t dev, HAL_RX_QUEUE qtype)
     do {
         wbuf = rxedma->rxfifo[rxedma->rxfifoheadindex];
         if (wbuf == NULL)
-        {
- #if ATOPT_DRV_MONITOR
-            sc->rx_null_cnt++;//AUTELAN-zhaoenjuan transplant for drv monitor stats
- #endif
             break;
-        }
         bf = ATH_GET_RX_CONTEXT_BUF(wbuf);
 
         /*
@@ -753,9 +748,6 @@ ath_rx_intr(ath_dev_t dev, HAL_RX_QUEUE qtype)
 #endif
         /* XXX Check for done bit in RxS */
         if (HAL_EINPROGRESS == retval) {
-#if ATOPT_DRV_MONITOR
-            sc->rx_incomplete_cnt++;//AUTELAN-zhaoenjuan transplant for drv monitor stats
-#endif
             break;
         }
 
@@ -1199,24 +1191,7 @@ ath_rx_handler(ath_dev_t dev, int flush, HAL_RX_QUEUE qtype)
 
     rxedma = &sc->sc_rxedma[qtype];
     athbuf_req.rxedma = rxedma;
-#if ATOPT_DRV_MONITOR
-	/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor stats*/
-	if(sc->rx_hp_cnt > 100000)
-	   sc->rx_hp_cnt = 0;
-	if(sc->rx_lp_cnt > 100000)
-	   sc->rx_lp_cnt = 0;
-	ATH_RXQ_LOCK(rxedma);
-	TAILQ_FOREACH(bf, &rxedma->rxqueue, bf_list)
-	{
-		if(qtype == HAL_RX_QUEUE_HP)
-			sc->rx_hp_cnt++;
-		else
-			sc->rx_lp_cnt++;	
-	}
-	bf = NULL;
-	ATH_RXQ_UNLOCK(rxedma);
-  /*AUTELAN-End:zhaoenjuan transplant for drv monitor stats*/
-#endif
+    
     DPRINTF(sc, ATH_DEBUG_RX_PROC, "%s\n", __func__);
     do {
         /* If handling rx interrupt and flush is in progress => exit */
@@ -1989,11 +1964,7 @@ ath_rx_edma_tasklet(ath_dev_t dev, int flush)
     struct ath_softc *sc = ATH_DEV_TO_SC(dev);
 
     sc->sc_edmarxdpc = 1;
-#if ATOPT_DRV_MONITOR
-    /*AUTELAN-Begin:zhaoenjuan for drv monitor rx stuck */
-    sc->sc_stats.ast_rx++;
-     /*AUTELAN-End:zhaoenjuan  for drv monitor rx stuck */
-#endif
+
     ath_rx_handler(dev, flush, HAL_RX_QUEUE_HP);
 
     ath_rx_handler(dev, flush, HAL_RX_QUEUE_LP);

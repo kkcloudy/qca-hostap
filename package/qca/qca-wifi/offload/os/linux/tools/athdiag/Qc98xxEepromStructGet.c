@@ -3238,7 +3238,7 @@ A_INT32 Qc98xxCtlIndexGet(int *value, int ix, int iy, int iz, int *num, int iBan
 	int val;
 
     iMaxCtl = (iBand==band_BG) ? WHAL_NUM_CTLS_2G : WHAL_NUM_CTLS_5G;
-	if (ix<0 || ix>iMaxCtl)
+	if (ix<0 || ix>=iMaxCtl)
     {
 		for (i=0; i<iMaxCtl; i++) 
         {

@@ -506,8 +506,12 @@ _ieee80211_crypto_setkey(struct ieee80211vap *vap, struct ieee80211_key *key,
 
     if (IEEE80211_IS_KEY_PERSTA_SW(key)) {
         ret = 1;
+        key->wk_valid = 1;
     } else {
         ret = dev_key_set(vap, key, bssid, ni);
+        if (ret) {
+            key->wk_valid = 1;
+        }
         if (ret && vap->iv_key_map) {
             vap->iv_key_map( vap, key, bssid, ni);
         }
@@ -515,7 +519,6 @@ _ieee80211_crypto_setkey(struct ieee80211vap *vap, struct ieee80211_key *key,
 
     if (ret) {
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_CRYPTO,"%s", "key is valid\n");
-        key->wk_valid = 1;
     }
 
     return ret;
@@ -665,7 +668,6 @@ ieee80211_crypto_decap(struct ieee80211_node *ni, wbuf_t wbuf, int hdrlen, struc
             vap->iv_multicast_stats.ims_rx_discard++;
         else
             vap->iv_unicast_stats.ims_rx_discard++;
-		IEEE80211_NODE_STAT(ni, rx_discard); //zhaoyang1 transplants statistics 2015-01-27
         return NULL;
     }
 
@@ -697,7 +699,6 @@ ieee80211_crypto_decap(struct ieee80211_node *ni, wbuf_t wbuf, int hdrlen, struc
         IEEE80211_NOTE(vap, IEEE80211_MSG_CRYPTO, ni,
                        "%s: WEP data frame no valid key, len %u mcast %d ",
                        __func__, wbuf_get_pktlen(wbuf), ismcast);
-		IEEE80211_NODE_STAT(ni, rx_badkeyid); //zhaoyang1 transplants statistics 2015-01-27
         return NULL;
     }
 
@@ -841,11 +842,12 @@ ieee80211_print_keyerror(struct ieee80211com *ic, char *node_mac, char *msg)
     struct ieee80211vap *vap = NULL;
 
     ni = ieee80211_find_node(&ic->ic_sta, node_mac);
-    if(!ni) {
+    if(ni) {
         vap = ni->ni_vap;
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_CRYPTO,
                 "%s: %s  %s\n",
                 __func__,msg,ether_sprintf(node_mac));
+        ieee80211_free_node(ni);
     }
 
     return;

@@ -25,9 +25,9 @@ static void ath_node_pwrsaveq_complete_athwbuf(struct ath_node *an, ath_wbuf_t a
 
     ts.flags = ATH_TX_ERROR;
     ts.retries = 0;
-    sc->sc_ieee_ops->tx_complete(athwbuf->wbuf, &ts, 0);
 
     if (athwbuf) {
+        sc->sc_ieee_ops->tx_complete(athwbuf->wbuf, &ts, 0);
         OS_FREE_PS(athwbuf);
     }
 }

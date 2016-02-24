@@ -1248,21 +1248,6 @@ wlan_set_channel(wlan_if_t vaphandle, int chan)
     return 0;
 }
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-int wlan_get_channel_utility(wlan_if_t vaphandle, char *p, u_int32_t * ch_utility_ptr, u_int32_t timeval)
-{
-	int sec5 = 1;
-    struct ieee80211vap *vap = vaphandle;
-    struct ieee80211com *ic = vap->iv_ic;
-	 if (ic->ic_is_mode_offload(ic))	// 11ac is not support here
-	 	return -2;
-	if(timeval > 5)
-		sec5 = 0;
-	return ath_net80211_get_ch_utility_all(ic, p, ch_utility_ptr, sec5);
-}
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
-
 #if ATH_SUPPORT_WIFIPOS
 /*
  * Function:        wlan_pause_node
@@ -1727,3 +1712,20 @@ ieee80211_get_extchan_info(struct ieee80211com *ic,
     return;
 }
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void
+ieee80211_print_nolhistory(struct ieee80211com *ic)
+{
+    struct ieee80211_channel *c;
+    int i,j=0;
+
+    for (i = 0; i < ic->ic_nchans; i++) {
+        c = &ic->ic_channels[i];
+        if(IEEE80211_IS_CHAN_HISTORY_RADAR(c)) {
+            printk("nolhistory:%d channel=%d MHz Flags=%X \n",j,c->ic_freq,c->ic_flags);
+            j++;
+        }
+    }
+    return;
+}
+#endif

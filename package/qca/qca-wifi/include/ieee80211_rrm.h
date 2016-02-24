@@ -281,4 +281,37 @@ typedef struct ieee80211req_rrmstats_s {
     void *data_addr;
 }ieee80211req_rrmstats_t;
 
+#define IEEE80211_RRM_MEASRPT_MODE_SUCCESS         0x00
+#define IEEE80211_RRM_MEASRPT_MODE_BIT_LATE        0x01
+#define IEEE80211_RRM_MEASRPT_MODE_BIT_INCAPABLE   0x02
+#define IEEE80211_RRM_MEASRPT_MODE_BIT_REFUSED     0x04
+
+/* Enumeration for 802.11k beacon report request measurement mode,
+ * as defined in Table 7-29e in IEEE Std 802.11k-2008 */
+typedef enum {
+    IEEE80211_RRM_BCNRPT_MEASMODE_PASSIVE = 0,
+    IEEE80211_RRM_BCNRPT_MEASMODE_ACTIVE = 1,
+    IEEE80211_RRM_BCNRPT_MEASMODE_BCNTABLE = 2,
+
+    IEEE80211_RRM_BCNRPT_MEASMODE_RESERVED
+} IEEE80211_RRM_BCNRPT_MEASMODE;
+
+/**
+ * Enumeration for 802.11 regulatory class as defined in Annex E of
+ * 802.11-Revmb/D12, November 2011
+ *
+ * It currently includes a subset of global operating classes as defined in Table E-4.
+ */
+typedef enum {
+    IEEE80211_RRM_REGCLASS_81 = 81,
+    IEEE80211_RRM_REGCLASS_82 = 82,
+    IEEE80211_RRM_REGCLASS_112 = 112,
+    IEEE80211_RRM_REGCLASS_115 = 115,
+    IEEE80211_RRM_REGCLASS_118 = 118,
+    IEEE80211_RRM_REGCLASS_121 = 121,
+    IEEE80211_RRM_REGCLASS_124 = 124,
+
+    IEEE80211_RRM_REGCLASS_RESERVED
+} IEEE80211_RRM_REGCLASS;
+
 #endif /* _IEEE80211_RRM_PROTO_H_ */

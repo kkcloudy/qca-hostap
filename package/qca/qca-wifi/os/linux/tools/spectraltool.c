@@ -80,6 +80,7 @@ struct spectralhandler {
 #define NETLINK_ATHEROS 17
 #endif
 #define MAX_RAW_SPECT_DATA_SZ (150)
+#define SAMPRECVBUF_SZ        (2048)
 
 static int spectralGetRawData(struct spectralhandler *spectral)
 {
@@ -88,7 +89,7 @@ static int spectralGetRawData(struct spectralhandler *spectral)
     struct nlmsghdr *nlh = NULL;
     int sock_fd, read_bytes;
     struct msghdr msg;
-    char buf[256];
+    u_int8_t *samprecvbuf = NULL;
     u_int16_t num_buf_written = 0;
     FILE *fp;
     u_int8_t *bufSave, *buf_ptr;
@@ -123,6 +124,13 @@ static int spectralGetRawData(struct spectralhandler *spectral)
         return read_bytes;
     }
 
+    samprecvbuf = (u_int8_t *)malloc(SAMPRECVBUF_SZ * sizeof(u_int8_t));
+    if (samprecvbuf == NULL) {
+        printf("Could not allocate buffers to receive samp data\n");
+        return -1;
+    }
+    memset(samprecvbuf, 0, SAMPRECVBUF_SZ * sizeof(u_int8_t));
+
     bufSave = (u_int8_t *)malloc(NUM_RAW_DATA_TO_CAP * MAX_RAW_SPECT_DATA_SZ);
     if (bufSave == NULL) {
         close(sock_fd);
@@ -147,8 +155,9 @@ static int spectralGetRawData(struct spectralhandler *spectral)
 
     while (num_buf_written < NUM_RAW_DATA_TO_CAP) {
         fromlen = sizeof(src_addr);
-        read_bytes = recvfrom(sock_fd, buf, sizeof(buf), MSG_WAITALL,
-                            (struct sockaddr *) &src_addr, &fromlen);
+        read_bytes = recvfrom(sock_fd, samprecvbuf,
+                              SAMPRECVBUF_SZ * sizeof(u_int8_t), MSG_WAITALL,
+                              (struct sockaddr *) &src_addr, &fromlen);
     
         if (read_bytes < 0) {
             perror("recvfrom(netlink)\n");
@@ -161,7 +170,7 @@ static int spectralGetRawData(struct spectralhandler *spectral)
         } else {
             SPECTRAL_SAMP_MSG *msg;
             
-            nlh = (struct nlmsghdr *) buf;
+            nlh = (struct nlmsghdr *) samprecvbuf;
             msg = (SPECTRAL_SAMP_MSG *) NLMSG_DATA(nlh);
             
             buf_ptr[0] =  (u_int8_t)(num_buf_written & 0xff);
@@ -209,6 +218,7 @@ static int spectralGetRawData(struct spectralhandler *spectral)
     close(sock_fd);
     free(bufSave);
     free(timeStp);
+    free(samprecvbuf);
     
     return 0;    
 }

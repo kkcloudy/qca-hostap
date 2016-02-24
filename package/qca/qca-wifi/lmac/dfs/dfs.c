@@ -66,7 +66,13 @@ dfs_channel_mark_radar(struct ath_dfs *dfs, struct ieee80211_channel *chan)
      */
     if ((dfs->dfs_rinfo.rn_use_nol == 1) &&
       (dfs->ic->ic_opmode == IEEE80211_M_HOSTAP ||
-      dfs->ic->ic_opmode == IEEE80211_M_IBSS)) {
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+       dfs->ic->ic_opmode == IEEE80211_M_IBSS ||
+       ((dfs->ic->ic_opmode == IEEE80211_M_STA) &&
+        (ieee80211com_has_cap_ext(dfs->ic,IEEE80211_CEXT_STADFS))))) {
+#else
+        dfs->ic->ic_opmode == IEEE80211_M_IBSS)) {
+#endif
         chan_info.cl_nchans= 0;
         dfs->ic->ic_get_ext_chan_info (dfs->ic, &chan_info);
         
@@ -500,8 +506,12 @@ int dfs_radar_enable(struct ieee80211com *ic,
 	 * so initialize the DFS Radar filters
 	 */
 	dfs_init_radar_filters(ic, radar_info);
-
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+	if ((ic->ic_opmode == IEEE80211_M_HOSTAP || ic->ic_opmode == IEEE80211_M_IBSS ||
+                (ic->ic_opmode == IEEE80211_M_STA && ieee80211com_has_cap_ext(dfs->ic,IEEE80211_CEXT_STADFS)))) {
+#else
 	if ((ic->ic_opmode == IEEE80211_M_HOSTAP || ic->ic_opmode == IEEE80211_M_IBSS)) {
+#endif
             	if (IEEE80211_IS_CHAN_DFS(chan)) {
 			struct dfs_state *rs_pri=NULL, *rs_ext=NULL;
 			u_int8_t index_pri, index_ext;
@@ -832,6 +842,11 @@ dfs_control(struct ieee80211com *ic, u_int id,
     case DFS_SHOW_NOL:
         dfs_print_nol(dfs);
         break;
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    case DFS_SHOW_NOLHISTORY:
+        dfs_print_nolhistory(ic,dfs);
+        break;
+#endif
     case DFS_BANGRADAR:
  #if 0 //MERGE_TBD       
         if(sc->sc_nostabeacons)

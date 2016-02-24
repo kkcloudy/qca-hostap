@@ -32,15 +32,6 @@ void ieee80211_mlme_recv_assoc_request(struct ieee80211_node *ni,
 
     /* AP  must be up and running */
     if (!mlme_priv->im_connection_up || ieee80211_vap_ready_is_clear(vap)) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    	IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-    			" <FAIL> [Step %s - RECV %s REQ] %s: ap isn't up or run\n", 
-    			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         return;
     }
     IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s\n", __func__);
@@ -117,39 +108,18 @@ void ieee80211_mlme_recv_assoc_request(struct ieee80211_node *ni,
     if (reassoc) {
         IEEE80211_DELIVER_EVENT_MLME_REASSOC_INDICATION(vap, ni->ni_macaddr,
                                                       assocstatus, wbuf, resp_wbuf);
-		vap->iv_stats.is_reassocs++; //zhaoyang1 transplants statistics 2015-01-27
     }
     if (!reassoc) {
         IEEE80211_DELIVER_EVENT_MLME_ASSOC_INDICATION(vap, ni->ni_macaddr,
                                                     assocstatus, wbuf, resp_wbuf);
-		vap->iv_stats.is_assocs++; //zhaoyang1 transplants statistics 2015-01-27
     }
 #endif
     /* Memory allocation failure, no point continuing */
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    if (!resp_wbuf){
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <FAIL> [Step %s - RECV %s REQ] %s: resp_wbuf alloc failed\n", 
-            reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__);
-        return;
-    }
-#else
     if (!resp_wbuf)
         return;
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
     /* Association rejection from above */
     if (ni->ni_assocstatus != IEEE80211_STATUS_SUCCESS) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <SEND> [Step %s - SEND %s RESP] %s: Association rejection, ni_assocstatus = %d\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, ni->ni_assocstatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
 
         /* Update already formed association response and send it out */
         ieee80211_setup_assocresp(ni, resp_wbuf, reassoc, ni->ni_assocstatus, NULL);
@@ -202,28 +172,6 @@ void ieee80211_mlme_recv_assoc_request(struct ieee80211_node *ni,
         );
 
         vap->assoc_req_cnt++;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-	    IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <INFO> [Step %s - SEND %s RESP] %s: station %s at aid %d: %s preamble, %s slot time %s%s%s%s cap 0x%x wk_keyix = %d ni = %p\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC",
-			__func__,
-	            newassoc ? "associated" : "reassociated",
-	            IEEE80211_NODE_AID(ni),
-	            ic->ic_flags & IEEE80211_F_SHPREAMBLE ? "short" : "long",
-	            ic->ic_flags & IEEE80211_F_SHSLOT ? "short" : "long",
-	             ic->ic_flags & IEEE80211_F_USEPROT ? ", protection" : "",
-	             ni->ni_flags & IEEE80211_NODE_QOS ? ", QoS" : "",
-	            ni->ni_flags & IEEE80211_NODE_HT ? ", HT" : "",
-	            ni->ni_flags & IEEE80211_NODE_HT  ? (ni->ni_htcap & IEEE80211_HTCAP_C_CHWIDTH40 ? "40" : "20") : "",
-	            ni->ni_capinfo,
-	            ni->ni_ucastkey.wk_keyix,
-	            ni
-        );
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         /* give driver a chance to setup state like ni_txrate */
         if (ic->ic_newassoc != NULL)
             ic->ic_newassoc(ni, newassoc);
@@ -247,16 +195,7 @@ void ieee80211_mlme_recv_assoc_request(struct ieee80211_node *ni,
         if(flag) {
             ieee80211_send_mgmt(vap,ni,resp_wbuf,false);
         }
-		// zhaoyang1 modifies for y assistant access debug 2015-04-17
-		y_assistant_netlink_access_debug_send(ni->ni_macaddr, 
-			vap->iv_myaddr, 3, vap->iv_des_ssid[0].ssid);
-		/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-		if (reassoc) {
-		    vap->iv_stats.is_rx_reassoc_success++;
-		} else {
-		    vap->iv_stats.is_rx_assoc_success++;
-		}
-		/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
+
         /*
          * Authorize the node when configured in open mode.
          * Node authorizations for other modes are initiated by hostapd.
@@ -268,34 +207,7 @@ void ieee80211_mlme_recv_assoc_request(struct ieee80211_node *ni,
             RSN_AUTH_IS_8021X(&ni->ni_rsn) || RSN_AUTH_IS_WAI(&ni->ni_rsn))) &&
            (!RSN_AUTH_IS_SHARED_KEY(&vap->iv_rsn) || (ni->ni_authmode != IEEE80211_AUTH_SHARED)))
         {
-			vap->iv_stats.is_client_access_successfully_cnt++; // zhaoyang1 modifies for client access statistics 2015-03-27
-			// zhaoyang1 modifies for y assistant access debug 2015-04-17
-			y_assistant_netlink_access_debug_send(ni->ni_macaddr, 
-				vap->iv_myaddr, 12, vap->iv_des_ssid[0].ssid);
-            #if ATOPT_THINAP
-            if (!thinap)
-            {
-                if (ni->ni_authmode != IEEE80211_AUTH_8021X)
-                {
-                    ieee80211_node_authorize(ni);
-                }
-            }
-            else
-            {
-                #if 0
-                if(vap->vap_wds)
-                {
-                    ieee80211_node_authorize(ni);
-                }
-                else
-                #endif
-                {
-                    ieee80211_node_unauthorize(ni);
-                }
-            }
-            #else
             ieee80211_node_authorize(ni);
-            #endif
         }
 	else
         {
@@ -524,7 +436,7 @@ mlme_create_infra_bss(struct ieee80211vap *vap)
         /* vap join is called here to wake up the chip if it is in sleep state */
         ieee80211_vap_join(vap);
 
-        if (numvaps == 0) {
+        if (numvaps == 0 || ic->do_wme_init == 0) {
             if (error == EOK ) {
                 IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s: Setting channel number %d\n", __func__, chan->ic_ieee);
                 ieee80211_set_channel(ic, chan);
@@ -535,8 +447,13 @@ mlme_create_infra_bss(struct ieee80211vap *vap)
             /* XXX reset erp state */
             ieee80211_reset_erp(ic, ic->ic_curmode, vap->iv_opmode);
             ieee80211_wme_initparams(vap);
+            if(!vap->iv_rescan) {
+                ic->do_wme_init = 1;
+            }
+            printk("%s:%d numvaps = %d do_wme_init is set\n", __func__, __LINE__,ieee80211_vaps_active(ic));
         } else {
            vap->iv_bsschan = ic->ic_curchan;    /* get the current channel */
+           printk("%s:%d vap active %d numvaps %d\n", __func__, __LINE__, ieee80211_vap_active_is_set(vap), numvaps);
         }
         ieee80211_mlme_create_infra_continue(vap);
     }
@@ -579,15 +496,6 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_AUTH,
                            ni->ni_macaddr, "shared key auth",
                            "%s", " PRIVACY is disabled");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: shared key auth PRIVACY is disabled, estatus = ALG(%d)\n", 
-                __func__, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         estatus = IEEE80211_STATUS_ALG;
     }
 
@@ -599,29 +507,11 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
                 IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_AUTH,
                                    ni->ni_macaddr, "%s\n", "shared key auth no challenge");
                 vap->iv_stats.is_rx_bad_auth++;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    		   IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-    		   		" <INFO> [Step 02 - RECV AUTH] %s: shared key auth no challenge, estatus = CHALLENGE(%d)\n", 
-    		   		__func__, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 estatus = IEEE80211_STATUS_CHALLENGE;
             } else if (challenge_len != IEEE80211_CHALLENGE_LEN) {
                 IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_AUTH, ni->ni_macaddr,
                                    "shared key auth bad challenge len %d", challenge_len);
                 vap->iv_stats.is_rx_bad_auth++;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    		   IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-    		   		" <INFO> [Step 02 - RECV AUTH] %s: shared key auth bad challenge len(%d), estatus = CHALLENGE(%d)\n", 
-    		   		__func__, challenge_len, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 estatus = IEEE80211_STATUS_CHALLENGE;
             }
         default:
@@ -643,15 +533,6 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
                                "%s", "shared key challenge alloc failed");
                 /* XXX statistic */
                 estatus = IEEE80211_STATUS_UNSPECIFIED;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <INFO> [Step 02 - RECV AUTH] %s: shared key auth challenge alloc failed, estatus = UNSPECIFIED(%d)\n", 
-                    __func__, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
             } else {
                 /*
                  * get random bytes for challenge text.
@@ -665,15 +546,6 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
                 IEEE80211_NOTE(vap,
                                IEEE80211_MSG_AUTH, ni,
                                "%s", "shared key auth request \n");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <SEND> [Step 02 - SEND AUTH] %s: send shared key auth request frame\n", 
-                    __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 ieee80211_send_auth(ni,(seq + 1),0,(u_int8_t *)ni->ni_challenge,IEEE80211_CHALLENGE_LEN,NULL);
             }
             break;
@@ -684,15 +556,6 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
                                    "%s", "no challenge recorded");
                 vap->iv_stats.is_rx_bad_auth++;
                 estatus = IEEE80211_STATUS_CHALLENGE;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <INFO> [Step 02 - SEND AUTH] %s: shared key response no challenge recorded, estatus = CHALLENGE(%d)\n", 
-                    __func__, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
             } else if (memcmp(ni->ni_challenge, challenge,
                               challenge_len) != 0) {
                 IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_AUTH,
@@ -700,53 +563,12 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
                                    "%s", "challenge mismatch");
                 vap->iv_stats.is_rx_auth_fail++;
                 estatus = IEEE80211_STATUS_CHALLENGE;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <INFO> [Step 02 - SEND AUTH] %s: shared key response challenge mismatch, estatus = CHALLENGE(%d)\n", 
-                    __func__, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
             } else {
                 IEEE80211_NOTE(vap, IEEE80211_MSG_DEBUG, ni,
                                "station authenticated (%s)\n", "shared key");
                 IEEE80211_NOTE(vap, IEEE80211_MSG_AUTH, ni,
                                "station authenticated (%s)\n", "shared key");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <INFO> [Step 02 - SEND AUTH] %s: station authenticated shared key\n", 
-                    __func__, estatus);
-
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <SEND> [Step 02 - SEND AUTH] %s: send shared key auth response frame\n", 
-                    __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
-                vap->iv_stats.is_client_access_successfully_cnt++; // zhaoyang1 modifies for client access statistics 2015-03-27
-                // zhaoyang1 modifies for y assistant access debug 2015-04-17
-				y_assistant_netlink_access_debug_send(ni->ni_macaddr, 
-					vap->iv_myaddr, 12, vap->iv_des_ssid[0].ssid);
-
-                #if ATOPT_THINAP
-                if (!thinap)
-                {
-                    if (ni->ni_authmode != IEEE80211_AUTH_8021X)
-                    {
-                        ieee80211_node_authorize(ni);
-                    }
-                }
-                else
-                {
-                    ieee80211_node_unauthorize(ni);
-                }
-                #else
                 ieee80211_node_authorize(ni);
-                #endif
                 /*
                  * shared auth success.
                  */
@@ -759,15 +581,6 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
                                "bad seq %d \n", seq);
             vap->iv_stats.is_rx_bad_auth++;
             estatus = IEEE80211_STATUS_SEQUENCE;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - SEND AUTH] %s: shared key auth bad seq(%d), estatus = SEQUENCE(%d)\n", 
-                __func__, seq, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             break;
         }
     }
@@ -776,15 +589,6 @@ mlme_auth_shared(struct ieee80211_node *ni, u_int16_t seq, u_int16_t status,
      * Send an error response.
      */
     if (estatus != IEEE80211_STATUS_SUCCESS) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <SEND> [Step 02 - SEND AUTH] %s: send an error response frame, estatus = %d\n", 
-            __func__, estatus);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         ieee80211_send_auth(ni,(seq + 1),estatus, NULL,0,NULL);
     }
 
@@ -807,13 +611,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
     wh = (struct ieee80211_frame *) wbuf_header(wbuf);
     /* AP must be up and running */
     if (!mlme_priv->im_connection_up || ieee80211_vap_ready_is_clear(vap)) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, " <FAIL> [Step 02 - RECV AUTH] %s: ap isn't up or run\n", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         return;
     }
 
@@ -829,14 +626,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
             /* Call MLME indication handler if node is in associated state */
             if (seq == IEEE80211_AUTH_OPEN_REQUEST ||
                 seq == IEEE80211_AUTH_SHARED_REQUEST) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                    " <INFO> [Step 02 - RECV AUTH] %s: station exist in same vap, delete station(%s)\n", __func__, ether_sprintf(ni->ni_macaddr));
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 /* if receive the re-auth frame without any disassoc check if node is at power save mode
                    let the sta leave the power save state. */
                 if ((ni->ni_flags & IEEE80211_NODE_PWR_MGT) == IEEE80211_NODE_PWR_MGT)
@@ -896,29 +685,11 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
                 IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "%s: Reject this Auth since VAP is in pause or forced paused.\n",
                                   __func__);
                 indication_status = IEEE80211_STATUS_OTHER;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-                     " <FAIL> [Step 02 - RECV AUTH] %s: reject this auth since the vap is in forced paused state, indication_status = OTHER(%d)\n", 
-                     __func__, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 return;
             }
 
             ni = ieee80211_dup_bss(vap, wh->i_addr2);
             if (ni == NULL) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <FAIL> [Step 02 - RECV AUTH] %s: create a node for the station failure, indication_status = OTHER(%d)\n", 
-                    __func__, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 indication_status = IEEE80211_STATUS_OTHER;
                 return;
             }
@@ -940,15 +711,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
         if (algo == IEEE80211_AUTH_ALG_SHARED && !RSN_AUTH_IS_SHARED_KEY(&vap->iv_rsn)) {
             response_status = IEEE80211_STATUS_ALG;
             indication_status = IEEE80211_STATUS_ALG;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: response_status = ALG(%d), indication_status = ALG(%d)\n", 
-                __func__, response_status, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             break;
         }
 
@@ -956,15 +718,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
             !RSN_AUTH_IS_OPEN(&vap->iv_rsn)) {
             response_status = IEEE80211_STATUS_ALG;
             indication_status = IEEE80211_STATUS_ALG;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: response_status = ALG(%d), indication_status = ALG(%d)\n", 
-                __func__, response_status, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             break;
         }
 
@@ -977,15 +730,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
             response_status = IEEE80211_STATUS_REFUSED;
             indication_status = IEEE80211_STATUS_REFUSED;
             vap->iv_stats.is_rx_acl++;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: auth: disallowed by ACL, response_status = REFUSED(%d), indication_status = REFUSED(%d)\n", 
-                __func__, response_status, indication_status);    
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
             break;
         }
 
@@ -997,15 +741,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
             vap->iv_stats.is_rx_auth_countermeasures++;
             response_status = IEEE80211_REASON_MIC_FAILURE;
             indication_status = IEEE80211_STATUS_REFUSED;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: auth: TKIP countermeasures enabled, response_status = MIC_FAILURE(%d), indication_status = REFUSED(%d)\n", 
-                __func__, response_status, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             break;
         }
         /*
@@ -1019,28 +754,12 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
 
             response_status = IEEE80211_STATUS_TOOMANY;
             indication_status = IEEE80211_STATUS_TOOMANY;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: num auth'd STAs is %d, max is %d, rejecting new auth, response_status = TOOMANY(%d), indication_status = TOOMANY(%d)\n", 
-                __func__, vap->iv_sta_assoc, vap->iv_max_aid, response_status, indication_status);  
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             break;
         }
         if (algo == IEEE80211_AUTH_ALG_OPEN) {
             if (seq != IEEE80211_AUTH_OPEN_REQUEST) {
                 response_status = IEEE80211_STATUS_SEQUENCE;
                 indication_status = IEEE80211_STATUS_SEQUENCE;
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <INFO> [Step 02 - RECV AUTH] %s: response_status = SEQUENCE(%d), indication_status = SEQUENCE(%d)\n", 
-                    __func__, response_status, indication_status);	
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
                 break;
             }
         } else if (algo == IEEE80211_AUTH_ALG_SHARED) {
@@ -1065,15 +784,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
             vap->iv_stats.is_rx_auth_unsupported++;
             response_status = IEEE80211_STATUS_ALG;
             indication_status = IEEE80211_STATUS_ALG;
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: auth: unsupported algorithm(%d), response_status = ALG(%d), indication_status = ALG(%d)\n", 
-                __func__, algo, response_status, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             break;
         }
     } while (FALSE);
@@ -1105,16 +815,6 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
         if (indication_status != IEEE80211_STATUS_SUCCESS ){
             /* auth is not success, remove the node from node table*/
             IEEE80211_NODE_LEAVE(ni);
-			vap->iv_stats.is_tx_auth_failed++; //zhaoyang1 transplants statistics 2015-01-27
-            
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step 02 - RECV AUTH] %s: auth is not success, remove the node from node table, indication_status = %d\n", 
-                __func__, indication_status);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
         }
     }
 
@@ -1177,9 +877,14 @@ ieee80211_mlme_node_leave_ap(struct ieee80211_node *ni)
 void
 ieee80211_mlme_node_pwrsave_ap(struct ieee80211_node *ni, int enable)
 {
-    struct ieee80211vap *vap = ni->ni_vap;
-    struct ieee80211com *ic = ni->ni_ic;
+    struct ieee80211vap *vap;
+    struct ieee80211com *ic;
     ieee80211_mlme_event          event;
+    if(!ni) {
+        return;
+    }
+    vap = ni->ni_vap;
+    ic = ni->ni_ic;
 
     if  ( ((ni->ni_flags & IEEE80211_NODE_PWR_MGT) != 0) ^ enable) {
         struct ieee80211_mlme_priv    *mlme_priv = vap->iv_mlme_priv;
@@ -1218,9 +923,12 @@ ieee80211_mlme_node_pwrsave_ap(struct ieee80211_node *ni, int enable)
 			if(ni && ni->ni_pspoll) {
 				systime_t current_time = OS_GET_TIMESTAMP();
 				ic->ic_node_pspoll(ni, 0);
+#ifdef ATH_SUPPORT_QUICK_KICKOUT
 				if (CONVERT_SYSTEM_TIME_TO_MS(current_time - ni->ni_pspoll_time) > (IEEE80211_PSPOLL_KICKOUT_THR)) {
-					ieee80211_kick_node(ni);
+                    ni->ni_kickout = true;
 				}
+                /* Revisit later, this reset of ni_pspoll_time to be moved to inactivity phase */
+#endif
 				ni->ni_pspoll_time = 0;
 			}
 

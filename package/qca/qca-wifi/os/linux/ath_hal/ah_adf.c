@@ -850,6 +850,8 @@ adf_os_export_symbol(ath_hal_get_countryCode);
 #ifdef DBG
 adf_os_export_symbol(ath_hal_readRegister);
 adf_os_export_symbol(ath_hal_writeRegister);
+#else 
+adf_os_export_symbol(ath_hal_readRegister);  //zhaoyang modifies for patching rx stuck 2015-12-17
 #endif
 #ifdef ATH_SUPPORT_HTC
 adf_os_export_symbol(ath_hal_htc_reg_write);

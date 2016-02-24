@@ -351,12 +351,71 @@ ol_ath_set_config_param(struct ol_ath_softc_net80211 *scn, ol_ath_param_t param,
                 printk("\n ATF Strict Sched value only accept 1 (Enable) or 0 (Disable)!! \n");
                 return -1;
             }
-
+            if ((value == 1) && (!(ic->ic_atf_sched & IEEE80211_ATF_GROUP_SCHED_POLICY)) && (ic->atfcfg_set.grp_num_cfg > 0))
+            {
+                printk("Fair queue across groups is enabled so strict queue within groups is not allowed. Invalid combination \n");
+                return -EINVAL;
+            }
             retval = wmi_unified_pdev_set_param(scn->wmi_handle,
                     WMI_PDEV_PARAM_ATF_STRICT_SCH,
                     value);
+            if (retval == EOK){
+                if (retval == EOK) {
+                    if (value)
+                        ic->ic_atf_sched |= IEEE80211_ATF_SCHED_STRICT;
+                    else
+                        ic->ic_atf_sched &= ~IEEE80211_ATF_SCHED_STRICT;
+                }
+            }
 #undef OL_ATH_ATF_SCHED_ENABLE
 #undef OL_ATH_ATF_SCHED_DISABLE
+        }
+        break;
+        case  OL_ATH_PARAM_ATF_GROUP_POLICY:
+        {
+            if ((value != 0) && (value != 1))
+            {
+                printk("\n ATF Group policy value only accept 1 (strict) or 0 (fair)!! \n");
+                return -1;
+            }
+            if ((value == 0) && (ic->ic_atf_sched & IEEE80211_ATF_SCHED_STRICT))
+            {
+                printk("\n Strict queue within groups is enabled so fair queue across groups is not allowed.Invalid combination \n");
+                return -EINVAL;
+            }
+            retval = wmi_unified_pdev_set_param(scn->wmi_handle,
+                    WMI_PDEV_PARAM_ATF_SSID_GROUP_POLICY,
+                    value);
+            if (retval == EOK) {
+                if (value)
+                    ic->ic_atf_sched |= IEEE80211_ATF_GROUP_SCHED_POLICY;
+                else
+                    ic->ic_atf_sched &= ~IEEE80211_ATF_GROUP_SCHED_POLICY;
+            }
+
+        }
+        break;
+        case  OL_ATH_PARAM_ATF_OBSS_SCHED:
+        {
+            retval = wmi_unified_pdev_set_param(scn->wmi_handle,
+                    WMI_PDEV_PARAM_ATF_OBSS_NOISE_SCH,
+                    !!value);
+            if (retval == EOK) {
+                if (value)
+                    ic->ic_atf_sched |= IEEE80211_ATF_SCHED_OBSS;
+                else
+                    ic->ic_atf_sched &= ~IEEE80211_ATF_SCHED_OBSS;
+            }
+        }
+        break;
+    case  OL_ATH_PARAM_ATF_OBSS_SCALE:
+        {
+            retval = wmi_unified_pdev_set_param(scn->wmi_handle,
+                    WMI_PDEV_PARAM_ATF_OBSS_NOISE_SCALING_FACTOR,
+                    value);
+            if (retval == EOK) {
+                ic->atf_obss_scale = value;
+            }
         }
         break;
 #endif
@@ -376,6 +435,17 @@ ol_ath_set_config_param(struct ol_ath_softc_net80211 *scn, ol_ath_param_t param,
                 }
                 ic->ic_set_txPowerLimit(ic, value, value, 0);
             }                
+        break;
+
+        case OL_ATH_PARAM_ENABLE_TR069:
+        {
+            if ((value != 0) && (value != 1)) {
+                printk("\n TR069 enable value only accept 1 (Enable) or 0 (Disable)!! \n");
+                return -1;
+            }
+            retval = wmi_unified_pdev_set_param(scn->wmi_handle,
+                             WMI_PDEV_PARAM_ENABLE_TR069_PARAMS, value);
+        }
         break;
 
         case OL_ATH_PARAM_RTS_CTS_RATE:
@@ -877,6 +947,32 @@ low_power_config:
                 }
             }
             break;
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        case OL_ATH_PARAM_STADFS_ENABLE:
+            if(!value) {
+                ieee80211com_clear_cap_ext(ic,IEEE80211_CEXT_STADFS);
+            } else {
+                ieee80211com_set_cap_ext(ic,IEEE80211_CEXT_STADFS);
+            }
+            break;
+#endif
+	 /* Disable AMSDU for Station vap */
+        case OL_ATH_PARAM_DISABLE_STA_VAP_AMSDU:
+	    if(value == 0 || value == 1)
+		ic->ic_sta_vap_amsdu_disable = value;
+            else 
+                printk("Please enter: 1 = Disable A-MSDU & 0 = Enable A-MSDU\n");
+        break;
+
+        case OL_ATH_PARAM_BATCHMODE:
+            return wmi_unified_pdev_set_param(scn->wmi_handle,
+                         WMI_PDEV_PARAM_RX_BATCHMODE, !!value);
+            break;
+        case OL_ATH_PARAM_PACK_AGGR_DELAY:
+            return wmi_unified_pdev_set_param(scn->wmi_handle,
+                         WMI_PDEV_PARAM_PACKET_AGGR_DELAY, !!value);
+            break;
         default:
             return (-1);
     }
@@ -1094,7 +1190,43 @@ ol_ath_get_config_param(struct ol_ath_softc_net80211 *scn, ol_ath_param_t param,
                 *(int *) buff =  scn->ps_report ;
             }
             break;
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        case OL_ATH_PARAM_STADFS_ENABLE:
+            *(int *)buff = ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS);
+            break;
+#endif
+	
+	case OL_ATH_PARAM_DISABLE_STA_VAP_AMSDU:
+             *(int*)buff = ic->ic_sta_vap_amsdu_disable;
+        break;
 
+#if QCA_AIRTIME_FAIRNESS
+        case  OL_ATH_PARAM_ATF_STRICT_SCHED:
+            *(int *)buff =	!!(ic->ic_atf_sched & IEEE80211_ATF_SCHED_STRICT);
+            break;
+        case  OL_ATH_PARAM_ATF_GROUP_POLICY:
+            *(int *)buff =  !!(ic->ic_atf_sched & IEEE80211_ATF_GROUP_SCHED_POLICY);
+            break;
+        case  OL_ATH_PARAM_ATF_OBSS_SCHED:
+            *(int *)buff =	!!(ic->ic_atf_sched & IEEE80211_ATF_SCHED_OBSS);
+            break;
+        case  OL_ATH_PARAM_ATF_OBSS_SCALE:
+            *(int *)buff =	ic->atf_obss_scale;
+            break;
+#endif
+
+        case OL_ATH_PARAM_PHY_OFDM_ERR:
+            *(int *)buff = scn->scn_stats.rx_phyerr;
+            break;
+        case OL_ATH_PARAM_PHY_CCK_ERR:
+            *(int *)buff = scn->scn_stats.rx_phyerr;
+            break;
+        case OL_ATH_PARAM_FCS_ERR:
+            *(int *)buff = scn->scn_stats.fcsBad;
+            break;
+        case OL_ATH_PARAM_CHAN_UTIL:
+            *(int *)buff = -1;
+            break;
         default:
             return (-1);
     }

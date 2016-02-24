@@ -1231,7 +1231,9 @@ ath_hal_getcapability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
 			/*Promiscuous mode was disabled for Honeybee 2.0*/
             return HAL_ENOTSUPP;
         }
-#endif		
+#endif
+    case HAL_CAP_DCS_SUPPORT:
+        return HAL_ENOTSUPP;
     default:
         return HAL_EINVAL;
     }
@@ -2250,6 +2252,13 @@ ath_hal_writeRegister(struct ath_hal *ah, u_int32_t offset, u_int32_t value)
 {
     OS_REG_WRITE(ah, offset, value);
 }
+//zhaoyang modifies for patching rx stuck 2015-12-17
+#else 
+u_int32_t __ahdecl 
+ath_hal_readRegister(struct ath_hal *ah, u_int32_t offset) 
+{ 
+    return OS_REG_READ(ah, offset); 
+} 
 #endif
 
 u_int32_t __ahdecl

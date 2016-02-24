@@ -123,9 +123,23 @@ typedef enum _ol_ath_param_t {
     OL_ATH_PARAM_PS_STATE_CHANGE,  /* firmware should intimate us about ps state change for node  */
 
 #if QCA_AIRTIME_FAIRNESS
-    OL_ATH_PARAM_ATF_STRICT_SCHED,
+    OL_ATH_PARAM_ATF_STRICT_SCHED = 186,
+    OL_ATH_PARAM_ATF_GROUP_POLICY = 187,
 #endif
+    OL_ATH_PARAM_DISABLE_STA_VAP_AMSDU, /* Disable AMSDU for station vap */
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    OL_ATH_PARAM_STADFS_ENABLE = 300,    /* STA DFS is enabled or not  */
+#endif
+    OL_ATH_PARAM_ATF_OBSS_SCHED = 301,
+    OL_ATH_PARAM_ATF_OBSS_SCALE = 302,
+    OL_ATH_PARAM_BATCHMODE = 304,
+    OL_ATH_PARAM_PACK_AGGR_DELAY = 305,
+    OL_ATH_PARAM_PHY_OFDM_ERR = 306,
+    OL_ATH_PARAM_PHY_CCK_ERR = 307,
+    OL_ATH_PARAM_FCS_ERR = 308,
+    OL_ATH_PARAM_CHAN_UTIL = 309,
+    OL_ATH_PARAM_ENABLE_TR069 = 310,
 } ol_ath_param_t;
 
 /*

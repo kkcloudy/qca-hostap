@@ -158,6 +158,15 @@ ath_descdma_setup(
             bf = bf_arr[j];
             for (i = 0; i < nbuf_alloc; i++, bf++, ds += (desc_len * ndesc)) {
                 bf->bf_desc = ds;
+                /**
+                 * In rare cases kernel was crashing due to NULL descriptor
+                 * being assigned to buffers. These debug prints will help
+                 * detect the source of the issue in case it happens again
+                 */
+                if ( !(bf->bf_desc) ) {
+                    printk("\nxxx NULL descriptor detected in %s during assignment of descriptor in %d xxx\n",
+                            __func__, __LINE__);
+                }
                 bf->bf_daddr = DS2PHYS(dd, ds);
                 if (sc->sc_ah && !ath_hal_has4kbsplittrans(sc->sc_ah)) {
                     /*
@@ -168,6 +177,14 @@ ath_descdma_setup(
                     if (ATH_DESC_4KB_BOUND_CHECK(bf->bf_daddr, desc_len * ndesc)) {
                         ds += 0x1000 - (bf->bf_daddr & 0xFFF);    /* start from the next page */
                         bf->bf_desc = ds;
+                        /**
+                         * Debug print in case of kernel crash occuring
+                         * due to NULL descriptor assignment
+                         */
+                        if ( !(bf->bf_desc) ) {
+                            printk("\nxxx NULL descriptor detected in %s during assignment of descriptor in %d xxx\n",
+                                    __func__, __LINE__);
+                        }
                         bf->bf_daddr = DS2PHYS(dd, ds);
                     }
                 }

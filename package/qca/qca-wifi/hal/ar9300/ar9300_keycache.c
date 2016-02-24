@@ -81,11 +81,17 @@ ar9300_reset_key_cache_entry(struct ath_hal *ah, u_int16_t entry)
     if (key_type == AR_KEYTABLE_TYPE_TKIP && IS_MIC_ENABLED(ah)) {
         u_int16_t micentry = entry + 64;  /* MIC goes at slot+64 */
 
-        HALASSERT(micentry < AH_PRIVATE(ah)->ah_caps.hal_key_cache_size);
-        OS_REG_WRITE(ah, AR_KEYTABLE_KEY0(micentry), 0);
-        OS_REG_WRITE(ah, AR_KEYTABLE_KEY1(micentry), 0);
-        OS_REG_WRITE(ah, AR_KEYTABLE_KEY2(micentry), 0);
-        OS_REG_WRITE(ah, AR_KEYTABLE_KEY3(micentry), 0);
+        if(micentry < AH_PRIVATE(ah)->ah_caps.hal_key_cache_size)
+        {
+            OS_REG_WRITE(ah, AR_KEYTABLE_KEY0(micentry), 0);
+            OS_REG_WRITE(ah, AR_KEYTABLE_KEY1(micentry), 0);
+            OS_REG_WRITE(ah, AR_KEYTABLE_KEY2(micentry), 0);
+            OS_REG_WRITE(ah, AR_KEYTABLE_KEY3(micentry), 0);
+        }
+        else
+        {
+            printk(KERN_WARNING "KeyRst: Invalid key entry(%d) for MIC\n", entry);
+        }
         /* NB: key type and MAC are known to be ok */
     }
 

@@ -203,11 +203,37 @@ int wlan_mlme_join_infra(wlan_if_t vaphandle, wlan_scan_entry_t bss_entry, u_int
          */
         vap->iv_bsschan = ni->ni_chan;
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_MLME, "Setting channel number %d\n", ni->ni_chan->ic_ieee);
-        printf("%s.. SETTING CHANNEL NUMBER %d CURR CHANNEl is %d flags 0x%x\n", 
+        printf("%s.. SETTING CHANNEL NUMBER %d CURR CHANNEl is %d flags 0x%x\n",
                 __func__, ni->ni_chan->ic_ieee, vap->iv_ic->ic_curchan->ic_ieee, ni->ni_chan->ic_flags );
         ieee80211_set_channel(ic, phychan);
         ieee80211_wme_initparams(vap);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+        /* start a timer and complete it asynchronously */
+        if((ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) &&
+           (IEEE80211_IS_CHAN_DFS(ic->ic_curchan))) {
+            ic->ic_enable_sta_radar(ic,1);
+        }
+
+        if((DFS_ETSI_DOMAIN == ic->ic_get_dfsdomain(ic)) &&
+           (ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) &&
+           (IEEE80211_IS_CHAN_DFS(ic->ic_curchan)) &&
+           (IEEE80211_IS_CHAN_HISTORY_RADAR(ic->ic_curchan)) &&
+           (!mlme_is_stacac_valid(vap))) {
+
+            printk("STACAC_start chan %d timeout %d sec, curr time: %d sec\n",
+                ic->ic_curchan->ic_freq,
+                ieee80211_get_cac_timeout(ic, ic->ic_curchan),
+                (adf_os_ticks_to_msecs(adf_os_ticks()) / 1000));
+            mlme_set_stacac_running(vap,1);
+            mlme_set_stacac_timer(vap,1000*ieee80211_get_cac_timeout(ic, ic->ic_curchan));
+        } else {
+            ieee80211_mlme_join_infra_continue(vap,EOK);
+        }
+#else
         ieee80211_mlme_join_infra_continue(vap,EOK);
+#endif
+
     } else if (error == EBUSY) {
         /* 
          * resource manager is handling the request asynchronously,
@@ -1380,5 +1406,59 @@ void mlme_sta_connection_reset(struct ieee80211vap *vap)
     mlme_sta_delete_tdls_node(vap);
 #endif
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void mlme_set_stacac_timer(struct ieee80211vap *vap, u_int32_t expire_ms)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+    OS_SET_TIMER(&mlme_priv->im_stacac_timeout_timer,expire_ms);
+}
+
+void mlme_cancel_stacac_timer(struct ieee80211vap *vap)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+	OS_CANCEL_TIMER(&mlme_priv->im_stacac_timeout_timer);
+}
+
+bool mlme_is_stacac_running(struct ieee80211vap *vap)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+    return (mlme_priv->im_is_stacac_running);
+}
+
+void mlme_set_stacac_running(struct ieee80211vap *vap, u_int8_t set)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+    mlme_priv->im_is_stacac_running = set;
+}
+
+bool mlme_is_stacac_valid(struct ieee80211vap *vap)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+    return (mlme_priv->im_is_stacac_cac_valid);
+}
+
+void mlme_set_stacac_valid(struct ieee80211vap *vap, u_int8_t set)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+    mlme_priv->im_is_stacac_cac_valid = set;
+}
+void mlme_reset_mlme_req(struct ieee80211vap *vap)
+{
+    struct ieee80211_mlme_priv *mlme_priv = vap->iv_mlme_priv;
+
+    mlme_priv->im_request_type = MLME_REQ_NONE;
+}
+void mlme_indicate_sta_radar_detect(struct ieee80211_node *ni)
+{
+     ieee80211_mlme_recv_csa(ni, IEEE80211_RADAR_DETECT_DEFAULT_DELAY,true);
+}
+#endif
 
 #endif /* UMAC_SUPPORT_STA */

@@ -3100,19 +3100,14 @@ ar9300_eeprom_set_power_per_rate_table(
     switch (ar9300_get_ntxchains(tx_chainmask)) {
     case 1:
         ahp->upper_limit[0] = AH_MAX(0, scaled_power);
-        ahp->num_txchain_comp[0] = 0;
         break;
     case 2:
-        ahp->num_txchain_comp[1] = AH_MAX(0, scaled_power);
         scaled_power -= REDUCE_SCALED_POWER_BY_TWO_CHAIN;
         ahp->upper_limit[1] = AH_MAX(0, scaled_power);
-        ahp->num_txchain_comp[1] -= ahp->upper_limit[1];
         break;
     case 3:
-        ahp->num_txchain_comp[2] = AH_MAX(0, scaled_power);
         scaled_power -= REDUCE_SCALED_POWER_BY_THREE_CHAIN;
         ahp->upper_limit[2] = AH_MAX(0, scaled_power);
-        ahp->num_txchain_comp[2] -= ahp->upper_limit[2];
         break;
     default:
         HALASSERT(0); /* Unsupported number of chains */
@@ -3394,8 +3389,11 @@ ar9300_eeprom_set_transmit_power(struct ath_hal *ah,
     u_int16_t power_limit)
 {
 #define ABS(_x, _y) ((int)_x > (int)_y ? (int)_x - (int)_y : (int)_y - (int)_x)
+#define INCREASE_MAXPOW_BY_TWO_CHAIN     6  /* 10*log10(2)*2 */
+#define INCREASE_MAXPOW_BY_THREE_CHAIN   10 /* 10*log10(3)*2 */
     u_int8_t target_power_val_t2[ar9300_rate_size];
     u_int8_t target_power_val_t2_eep[ar9300_rate_size];
+    int16_t twice_array_gain = 0, max_power_level = 0;
     struct ath_hal_9300 *ahp = AH9300(ah);
     int  i = 0;
     u_int32_t tmp_paprd_rate_mask = 0, *tmp_ptr = NULL;
@@ -3615,7 +3613,7 @@ ar9300_eeprom_set_transmit_power(struct ath_hal *ah,
     } else if (IS_CHAN_HT20(chan)) {
         i = ALL_TARGET_HT20_0_8_16;     /* ht20 */
     }
-    AH_PRIVATE(ah)->ah_max_power_level = target_power_val_t2[i];
+    max_power_level = target_power_val_t2[i];
     /* Adjusting the ah_max_power_level based on chains and antennaGain*/
     switch (ar9300_get_ntxchains(((ahp->ah_tx_chainmaskopt > 0) ?
                                     ahp->ah_tx_chainmaskopt : ahp->ah_tx_chainmask)))
@@ -3623,20 +3621,28 @@ ar9300_eeprom_set_transmit_power(struct ath_hal *ah,
         case 1:
             break;
         case 2:
-            if (is_reg_dmn_fcc(ahp->reg_dmn)) {
-                AH_PRIVATE(ah)->ah_max_power_level += ahp->cdd_gain_comp[1];
-            }
-            AH_PRIVATE(ah)->ah_max_power_level += ahp->num_txchain_comp[1];
+            twice_array_gain = (ahp->twice_antenna_gain >= ahp->twice_antenna_reduction)? 0: 
+                               ((int16_t)AH_MIN((ahp->twice_antenna_reduction -
+                                   (ahp->twice_antenna_gain + INCREASE_MAXPOW_BY_TWO_CHAIN)), 0));
+            /* Adjusting maxpower with antennaGain */
+            max_power_level -= twice_array_gain;
+            /* Adjusting maxpower based on chain */
+            max_power_level += INCREASE_MAXPOW_BY_TWO_CHAIN;
             break;
         case 3:
-            if (is_reg_dmn_fcc(ahp->reg_dmn)) {
-                AH_PRIVATE(ah)->ah_max_power_level += ahp->cdd_gain_comp[2];
-            }
-            AH_PRIVATE(ah)->ah_max_power_level += ahp->num_txchain_comp[2];
+            twice_array_gain = (ahp->twice_antenna_gain >= ahp->twice_antenna_reduction)? 0:
+                               ((int16_t)AH_MIN((ahp->twice_antenna_reduction -
+                                   (ahp->twice_antenna_gain + INCREASE_MAXPOW_BY_THREE_CHAIN)), 0));
+
+            /* Adjusting maxpower with antennaGain */
+            max_power_level -= twice_array_gain;
+            /* Adjusting maxpower based on chain */
+            max_power_level += INCREASE_MAXPOW_BY_THREE_CHAIN;
             break;
         default:
             HALASSERT(0); /* Unsupported number of chains */
     }
+    AH_PRIVATE(ah)->ah_max_power_level = (int8_t)max_power_level;
 
     ar9300_calibration_apply(ah, chan->channel);
 #undef ABS

@@ -74,6 +74,8 @@ enum {
     ACFG_MAX_DFS_FILTER = 32,       /**< Max number of DFS filters */
     ACFG_MAX_ATF_STALIST_SIZE = 1024, /**< Max size of ATF sta list */
     ACFG_MAX_PERCENT_SIZE = 4,      /**< Max size of percent str */
+    ACFG_MAX_SCAN_CHANS = 32,
+    ACFG_LTEU_MAX_BINS = 10,
 };
 
 /**
@@ -657,6 +659,27 @@ enum {
     ACFG_DBGREQ_SENDSINGLEAMSDU=   18, /* Sends single VHT MPDU AMSDUs */
     ACFG_DBGREQ_GETRRSSI      =    19, /* GET the Inst RSSI */
     ACFG_DBGREQ_GETACSREPORT  =    20, /* GET the ACS report */
+    ACFG_DBGREQ_SETACSUSERCHANLIST  =    21, /* SET ch list for acs reporting  */
+    ACFG_DBGREQ_GETACSUSERCHANLIST  =    22, /* GET ch list used in acs reporting */
+    ACFG_DBGREQ_BLOCK_ACS_CHANNEL	 =    23, /* Block acs for these channels */
+    ACFG_DBGREQ_TR069  	         =    24, /* to be used for tr069 */
+    ACFG_DBGREQ_GET_RRM_STA_LIST    =    25, /* to get list of connected rrm capable staion */
+
+    ACFG_DBGREQ_BSTEERING_SET_PARAMS =   26, /* Set the static band steering parameters */
+    ACFG_DBGREQ_BSTEERING_GET_PARAMS =   27, /* Get the static band steering parameters */
+    ACFG_DBGREQ_BSTEERING_SET_DBG_PARAMS =   28, /* Set the band steering debugging parameters */
+    ACFG_DBGREQ_BSTEERING_GET_DBG_PARAMS =   29, /* Get the band steering debugging parameters */
+    ACFG_DBGREQ_BSTEERING_ENABLE         =   30, /* Enable/Disable band steering */
+    ACFG_DBGREQ_BSTEERING_SET_OVERLOAD   =   31, /* SET overload status */
+    ACFG_DBGREQ_BSTEERING_GET_OVERLOAD   =   32, /* GET overload status */
+    ACFG_DBGREQ_BSTEERING_GET_RSSI       =   33, /* Request RSSI measurement */
+
+    ACFG_DBGREQ_BSTEERING_SET_PROBE_RESP_WH  = 34,/* Control whether probe responses are withheld for a MAC */
+    ACFG_DBGREQ_BSTEERING_GET_PROBE_RESP_WH  = 35,/* Query whether probe responses are withheld for a MAC */
+
+    ACFG_DBGREQ_MU_SCAN             =    36, /* do a MU scan */
+    ACFG_DBGREQ_LTEU_CFG            =    37, /* LTEu specific configuration */
+    ACFG_DBGREQ_AP_SCAN             =    38, /* do a AP scan */
 };
 
 typedef struct acfg_bcnrpt {
@@ -937,6 +960,59 @@ typedef struct acfg_athdbg_req {
             a_uint32_t   data_size;
             void         *data_addr;
         } acs_rep;
+        struct {
+            a_uint32_t   data_size;
+            a_uint32_t   cmdid;
+            void         *data_addr;
+        } tr069;
+        struct {
+            a_uint32_t inactivity_timeout_normal;
+            a_uint32_t inactivity_timeout_overload;
+            a_uint32_t inactivity_check_period;
+            a_uint32_t utilization_sample_period;
+            a_uint32_t utilization_average_num_samples;
+            a_uint32_t inactive_rssi_crossing_threshold;
+            a_uint32_t low_rssi_crossing_threshold;
+        } bst;
+        struct {
+            a_uint8_t  raw_log_enable;
+        } bst_dbg;
+        struct {
+            a_uint8_t sender_addr[ACFG_MACADDR_LEN];
+            a_uint16_t num_measurements;
+        } bst_rssi_req;
+        a_uint8_t bsteering_probe_resp_wh;
+        a_uint8_t bsteering_enable;
+        a_uint8_t bsteering_overload;
+        a_uint8_t bsteering_rssi_num_samples;
+        struct {
+            a_uint8_t     mu_req_id;
+            a_uint8_t     mu_channel;
+            a_uint32_t    mu_type;
+            a_uint32_t    mu_duration;
+            a_uint32_t    lteu_tx_power;
+        } mu_scan;
+        struct {
+            a_uint8_t     lteu_gpio_start;
+            a_uint8_t     lteu_num_bins;
+            a_uint8_t     use_actual_nf;
+            a_uint32_t    lteu_weight[ACFG_LTEU_MAX_BINS];
+            a_uint32_t    lteu_thresh[ACFG_LTEU_MAX_BINS];
+            a_uint32_t    lteu_gamma[ACFG_LTEU_MAX_BINS];
+            a_uint32_t    lteu_scan_timeout;
+            a_uint32_t    alpha_num_bssid;
+        } lteu_cfg_t;
+        struct {
+            a_uint8_t     scan_req_id;
+            a_uint8_t     scan_num_chan;
+            a_uint8_t     scan_channel_list[ACFG_MAX_SCAN_CHANS];
+            a_int32_t     scan_type;
+            a_uint32_t    scan_duration;
+            a_uint32_t    scan_repeat_probe_time;
+            a_uint32_t    scan_rest_time;
+            a_uint32_t    scan_idle_time;
+            a_uint32_t    scan_probe_delay;
+        } ap_scan_t;
     } data;
 } acfg_athdbg_req_t;
 
@@ -1091,9 +1167,15 @@ enum acfg_param_vap {
     ACFG_PARAM_MAX_AMPDU            = 300,   
     ACFG_PARAM_VHT_MAX_AMPDU        = 301,   
     ACFG_PARAM_EXT_IFACEUP_ACS      = 311,
+    ACFG_PARAM_VAP_ENHIND           = 345,
     ACFG_PARAM_SHORT_SLOT           = 351,   /* Set short slot time */
     ACFG_PARAM_ERP                  = 352,   /* Set ERP protection */
     ACFG_PARAM_ATF_OPT              = 355,
+    ACFG_PARAM_ATF_TXBUF_SHARE      = 356,
+    ACFG_PARAM_ATF_TXBUF_MAX        = 357,
+    ACFG_PARAM_ATF_TXBUF_MIN        = 358,
+    ACFG_PARAM_ATF_PER_UNIT         = 359,
+    ACFG_PARAM_ATF_MAX_CLIENT       = 360,
 };
 typedef a_uint32_t acfg_param_vap_t ;
 
@@ -1179,7 +1261,11 @@ enum acfg_param_radio {
      * Acs Run time Debug level
      * */
     ACFG_PARAM_RADIO_ACS_DEBUGTRACE = 124  | ATH_PARAM_SHIFT, 
-    ACFG_PARAM_RADIO_FW_HANG_ID     = 137  | ATH_PARAM_SHIFT,  
+    ACFG_PARAM_RADIO_FW_HANG_ID     = 137  | ATH_PARAM_SHIFT,
+    ACFG_PARAM_RADIO_ATF_STRICT_SCHED = 186 | ATH_PARAM_SHIFT,
+    ACFG_PARAM_RADIO_STADFS_ENABLE  = 300  | ATH_PARAM_SHIFT,
+    ACFG_PARAM_RADIO_ATF_OBSS_SCHED = 301  | ATH_PARAM_SHIFT,
+    ACFG_PARAM_RADIO_ATF_OBSS_SCALE = 302  | ATH_PARAM_SHIFT,
     ACFG_PARAM_RADIO_FW_RECOVERY_ID = 180  | ATH_PARAM_SHIFT, 
 
     ACFG_PARAM_RADIO_COUNTRYID            = 00 | SPECIAL_PARAM_SHIFT,
@@ -1199,6 +1285,7 @@ enum acfg_param_radio {
     ACFG_PARAM_HAL_CONFIG_CRDC_NUMERATOR  = 40,
     ACFG_PARAM_HAL_CONFIG_CRDC_DENOMINATOR= 41,
     ACFG_PARAM_HAL_CONFIG_PRINT_BBDEBUG   = 45,
+    ACFG_PARAM_HAL_CONFIG_ENABLEADAPTIVECCATHRES = 24,
 };
 typedef a_uint32_t acfg_param_radio_t ;
 
@@ -1778,7 +1865,14 @@ typedef enum {
     ACFG_FLAG_INVALID = 0,
     ACFG_FLAG_VAP_IND = 1,
     ACFG_FLAG_EXTAP   = 2,
+    ACFG_FLAG_VAP_ENHIND = 4,
 } WDS_FLAGS;
+
+typedef enum {
+    ACFG_FLAG_ATF_STRICT_SCHED  = 0x01,
+    ACFG_FLAG_ATF_OBSS_SCHED    = 0x02,
+    ACFG_FLAG_ATF_MAXSTA        = 0x04,
+} ATF_SCHED_FLAGS;
 
 typedef struct {
     a_uint8_t enabled;
@@ -1800,6 +1894,8 @@ typedef struct {
     a_uint8_t  aggr_burst; /* 0 if unspecified */
     a_uint32_t aggr_burst_dur; /* 0 if unspecified */
     a_uint8_t  ext_icm; /* 0 if unspecified */
+    a_uint8_t sta_dfs_enable; /* 0 if unspecified */
+    a_uint8_t atf_strict_sched; /* -1 if unspecified */
 } acfg_wlan_profile_radio_params_t;
 
 typedef struct {
@@ -1911,6 +2007,9 @@ typedef struct {
     a_uint32_t amsdu; /* 0 if unspecified */
     a_uint32_t max_clients; /* 0 if unspecified */
     acfg_atf_params_t atf;
+    a_uint8_t atf_options;
+    a_uint8_t dtim_period;
+    a_uint8_t primary_vap;
 } acfg_wlan_profile_vap_params_t;
 
 typedef struct {
@@ -2202,6 +2301,8 @@ typedef struct acfg_ath_stats_11n {
         a_uint32_t   bf_bandwidth_miss;
         a_uint32_t   bf_destination_miss;
 #endif
+        a_uint32_t   tx_deducted_tokens;
+        a_uint32_t   tx_unusable_tokens;
     } ast_11n_stats;
     struct {
         a_uint32_t           dfs_stats_valid;

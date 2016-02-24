@@ -168,7 +168,7 @@ u_int8_t *
 ieee80211_setup_wpa_ie(struct ieee80211vap *vap, u_int8_t *ie)
 {
     static const u_int8_t oui[4] = { WPA_OUI_BYTES, WPA_OUI_TYPE };
-    static const u_int8_t cipher_suite[][4] = {
+    static const u_int8_t cipher_suite[IEEE80211_CIPHER_MAX][4] = {
         { WPA_OUI_BYTES, WPA_CSE_WEP40 },    /* NB: 40-bit */
         { WPA_OUI_BYTES, WPA_CSE_TKIP },
         { 0x00, 0x00, 0x00, 0x00 },        /* XXX WRAP */
@@ -253,7 +253,7 @@ ieee80211_setup_wpa_ie(struct ieee80211vap *vap, u_int8_t *ie)
 u_int8_t *
 ieee80211_setup_rsn_ie(struct ieee80211vap *vap, u_int8_t *ie)
 {
-    static const u_int8_t cipher_suite[][4] = {
+    static const u_int8_t cipher_suite[IEEE80211_CIPHER_MAX][4] = {
         { RSN_OUI_BYTES, RSN_CSE_WEP40 },    /* NB: 40-bit */
         { RSN_OUI_BYTES, RSN_CSE_TKIP },
         { RSN_OUI_BYTES, RSN_CSE_WRAP },
@@ -1150,6 +1150,9 @@ ieee80211_add_extcap(u_int8_t *frm,struct ieee80211_node *ni)
     if (vap->iv_hotspot_xcaps) {
         ext_capflags |= vap->iv_hotspot_xcaps;
     }
+    if (vap->iv_hotspot_xcaps2) {
+        ext_capflags2 |= vap->iv_hotspot_xcaps2;
+    }
 #endif
     
     if (vap->iv_ath_cap & IEEE80211_ATHC_TDLS) {
@@ -1164,7 +1167,6 @@ ieee80211_add_extcap(u_int8_t *frm,struct ieee80211_node *ni)
         ie->elem_id = IEEE80211_ELEMID_XCAPS;
         ie->elem_len = sizeof(struct ieee80211_ie_ext_cap) - 2;
         ie->ext_capflags = htole32(ext_capflags);
-        ie->ext_capflags2 = ext_capflags2;
         ie->ext_capflags2 = htole32(ext_capflags2);
         return frm + sizeof (struct ieee80211_ie_ext_cap);
     }
@@ -1173,7 +1175,43 @@ ieee80211_add_extcap(u_int8_t *frm,struct ieee80211_node *ni)
     }
 }
 
-/* 
+#if ATH_SUPPORT_HS20
+u_int8_t *ieee80211_add_qosmapset(u_int8_t *frm, struct ieee80211_node *ni)
+{
+    struct ieee80211vap *vap = ni->ni_vap;
+    struct ieee80211_qos_map *qos_map = &vap->iv_qos_map;
+    struct ieee80211_ie_qos_map_set *ie_qos_map_set =
+        (struct ieee80211_ie_qos_map_set *)frm;
+    u_int8_t *pos = ie_qos_map_set->qos_map_set;
+    u_int8_t len, elem_len = 0;
+
+    if (qos_map->valid && ni->ni_qosmap_enabled) {
+        if (qos_map->num_dscp_except) {
+            len = qos_map->num_dscp_except *
+                  sizeof(struct ieee80211_dscp_exception);
+            OS_MEMCPY(pos, qos_map->dscp_exception, len);
+            elem_len += len;
+            pos += len;
+        }
+
+        len = IEEE80211_MAX_QOS_UP_RANGE * sizeof(struct ieee80211_dscp_range);
+        OS_MEMCPY(pos, qos_map->up, len);
+        elem_len += len;
+        pos += len;
+
+        ie_qos_map_set->elem_id = IEEE80211_ELEMID_QOS_MAP;
+        ie_qos_map_set->elem_len = elem_len;
+
+        return pos;
+
+    } else {
+        /* QoS Map is not valid or not enabled */
+        return frm;
+    }
+}
+#endif /* ATH_SUPPORT_HS20 */
+
+/*
  * Update overlapping bss scan element.
  */
 void
@@ -1545,6 +1583,8 @@ ieee80211_parse_vhtop(struct ieee80211_node *ni, u_int8_t *ie)
            /* Exact channel width is already taken care of by the HT parse */
        break;
        case IEEE80211_VHTOP_CHWIDTH_80:
+       case IEEE80211_VHTOP_CHWIDTH_160:
+       case IEEE80211_VHTOP_CHWIDTH_80_80:
            ni->ni_chwidth = IEEE80211_CWM_WIDTH80; 
        break;
        default:
@@ -2739,6 +2779,8 @@ ieee80211_get_new_sw_chan (
                     }
                 break;
                 case IEEE80211_VHTOP_CHWIDTH_80 :
+                case IEEE80211_VHTOP_CHWIDTH_160:
+                case IEEE80211_VHTOP_CHWIDTH_80_80:
                     if (IEEE80211_SUPPORT_PHY_MODE(ic, IEEE80211_MODE_11AC_VHT80)) {
                         phymode = IEEE80211_MODE_11AC_VHT80;
                     } else if (IEEE80211_SUPPORT_PHY_MODE(ic, IEEE80211_MODE_11AC_VHT40)) {
@@ -3556,3 +3598,28 @@ ieee80211_add_chan_switch_wrp(u_int8_t *frm, struct ieee80211_node *ni,
     }
     return efrm;
 }
+
+#if ATH_BAND_STEERING
+/**
+ * @brief  Process power capability IE
+ *
+ * @param [in] ni  the STA that sent the IE
+ * @param [in] ie  the IE to be processed
+ */
+void ieee80211_process_pwrcap_ie(struct ieee80211_node *ni, u_int8_t *ie)
+{
+    if (!ni || !ie) {
+        return;
+    }
+
+    u_int8_t len = ie[1];
+    if (len != 2) {
+        IEEE80211_DISCARD_IE(ni->ni_vap,
+            IEEE80211_MSG_ELEMID,
+            "Power Cap IE", "invalid len %u", len);
+        return;
+    }
+
+    ni->ni_max_txpower = ie[3];
+}
+#endif

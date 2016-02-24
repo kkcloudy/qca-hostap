@@ -248,7 +248,7 @@ ieee80211_build_countryie(struct ieee80211vap *vap)
             continue;
 
         if (ic->ic_no_weather_radar_chan 
-                && (IEEE80211_IS_CHAN_WEATHER_RADAR(c)) 
+                && (ieee80211_check_weather_radar_channel(c))
                 && (DFS_ETSI_DOMAIN  == ic->ic_get_dfsdomain(ic))) 
         {
             /* skipping advertising weather radar channels */

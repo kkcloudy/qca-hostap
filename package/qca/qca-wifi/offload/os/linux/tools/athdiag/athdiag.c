@@ -1696,6 +1696,13 @@ main (int argc, char **argv) {
             }
             memset(&filestat, '\0', sizeof(struct stat));
             buffer = (A_UINT8 *)MALLOC(MAX_BUF);
+            if (buffer == NULL)
+            {
+                fprintf(stderr, "err %s malloc failed \n",
+                        __FUNCTION__);
+                exit(1);
+            }
+
             fstat(fd, &filestat);
             file_length = filestat.st_size;
             if (file_length == 0) {

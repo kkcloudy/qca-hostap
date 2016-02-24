@@ -29,10 +29,6 @@
 #include <sys/socket.h>
 #include <linux/wireless.h>
 #include <netinet/ether.h>
-#include <linux/types.h>
-#include <linux/if.h> //zhaoyang1 transplants statistics 2015-01-27
-
-
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,26 +63,6 @@
 #ifndef SIOCG80211STATS
 #define	SIOCG80211STATS	(SIOCDEVPRIVATE+2)
 #endif
-
-const unsigned char rssi_range[17][16] = {
-						"-10 +",
-						"-19 ~ -10",
-						"-39 ~ -20",
-					    "-49 ~ -40",
-					    "-59 ~ -50",
-					    "-64 ~ -60",
-					    "-67 ~ -65",
-					    "-70 ~ -68",
-					    "-73 ~ -71",
-					    "-76 ~ -74",
-					    "-79 ~ -77",
-					    "-82 ~ -80",
-					    "-85 ~ -83",
-					    "-88 ~ -86",
-					    "-91 ~ -89",
-					    "-94 ~ -92",
-					    "-95 -",
-};
 
 static void
 printstats(FILE *fd, const struct ieee80211_stats *stats)
@@ -189,106 +165,6 @@ printstats(FILE *fd, const struct ieee80211_stats *stats)
     STAT(ps_unassoc,"ps-poll for unassoc. sta ");
     STAT(ps_badaid, " ps-poll w/ incorrect aid ");
     STAT(ps_qempty," ps-poll w/ nothing to send ");
-
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-    fprintf(fd, "\n****** Association deny statistics ******\n");
-	STAT(rx_assoc_bss,	"rx assoc from wrong bssid");
-	STAT(rx_assoc_notauth,	"rx assoc w/o auth");
-	STAT(rx_assoc_capmismatch,"rx assoc w/ cap mismatch");
-	STAT(rx_assoc_norate,	"rx assoc w/ no rate match");
-	STAT(rx_assoc_badwpaie,	"rx assoc w/ bad WPA IE");
-    STAT(rx_assoc_puren_mismatch, "rx assoc no ht rate puren mismatch");
-    STAT(rx_assoc_traffic_balance_too_many_stations, "rx assoc traffic balance too many sta");
-    STAT(rx_reassoc_bss,	"rx reassoc from wrong bssid");
-	STAT(rx_reassoc_notauth,	"rx reassoc w/o auth");
-	STAT(rx_reassoc_capmismatch,"rx reassoc w/ cap mismatch");
-	STAT(rx_reassoc_norate,	"rx reassoc w/ no rate match");
-	STAT(rx_reassoc_badwpaie,	"rx reassoc w/ bad WPA IE");
-    STAT(rx_reassoc_puren_mismatch, "rx reassoc no ht rate puren mismatch");
-    STAT(rx_reassoc_traffic_balance_too_many_stations, "rx reassoc traffic balance too many sta");
-    fprintf(fd, "%u tx_assoc_respon_deny\n", stats->is_rx_reassoc_capmismatch
-                                            + stats->is_rx_reassoc_norate
-                                            + stats->is_rx_reassoc_puren_mismatch
-                                            + stats->is_rx_reassoc_traffic_balance_too_many_stations
-                                            + stats->is_rx_assoc_capmismatch
-                                            + stats->is_rx_assoc_norate
-                                            + stats->is_rx_assoc_puren_mismatch
-                                            + stats->is_rx_assoc_traffic_balance_too_many_stations);
-    fprintf(fd, "\n***** TX  Deauth  Frame  statistics *****\n");
-    STAT(deauth_not_authed, "rx data from sta not authed");
-    STAT(ps_unassoc,"rx pspoll from sta not assoc");
-    STAT(deauth_expire, "sta timeout");
-    STAT(deauth_excessive_retries, "excessive retries");
-    STAT(deauth_data_lower_rssi, "rx data from lower rssi sta");
-    STAT(deauth_ioctl_kicknode, "kick sta send deauth");
-    fprintf(fd, "%u tx deauth\n", stats->is_deauth_not_authed
-                                + stats->is_ps_unassoc
-                                + stats->is_deauth_expire
-                                + stats->is_deauth_excessive_retries
-                                + stats->is_rx_reassoc_notauth
-                                + stats->is_rx_assoc_notauth
-                                + stats->is_rx_reassoc_badscie
-                                + stats->is_rx_assoc_badwpaie
-                                + stats->is_deauth_data_lower_rssi
-                                + stats->is_deauth_ioctl_kicknode);
-    fprintf(fd, "\n***** TX Disassoc  Frame statistics *****\n");
-    STAT(tx_disassoc_not_assoc, "recv data from not assoc");
-    STAT(tx_disassoc_ioctl_kicknode, "kick sta send disassoc");
-    STAT(tx_disassoc_bss_stop, "stop bss kick all stas");
-    fprintf(fd, "%u tx disassoc\n", stats->is_tx_disassoc_not_assoc
-                                  + stats->is_tx_disassoc_ioctl_kicknode
-                                  + stats->is_tx_disassoc_bss_stop);
-    STAT(tx_auth_failed, "send auth deny");
-	/* Autelan-Begin: zhaoyang1 modifies for client access statistics 2015-03-27 */
-	fprintf(fd, "\n***** Clinet    Access   statistics *****\n");
-	fprintf(fd, "%u client access totally cnt\n", 
-								stats->is_client_access_totally_cnt);
-	fprintf(fd, "%u client access successfully cnt\n", 
-								stats->is_client_access_successfully_cnt);
-	fprintf(fd, "%u client access failed cnt\n", 
-		stats->is_client_access_totally_cnt - stats->is_client_access_successfully_cnt);
-	/* Autelan-End: zhaoyang1 modifies for client access statistics 2015-03-27 */
-    fprintf(fd, "\n***** RX   data    Rssi  statistics *****\n");
-    {
-        int i = 0, count = 1;
-        for(i = 0; i < 17 ; i++) {
-            fprintf(fd,"rssi[%s] = %llu  ", rssi_range[i], stats->is_rssi_stats[i].ns_rx_data);  
-            if ((count++) % 5 == 0)
-                fprintf(fd,"\n");
-        }
-    }
-    fprintf(fd, "\n\n***** RX   data    Rate  statistics *****\n");
-    {
-        int i = 0, count = 1;
-        for (i = 0; i < 12; i++) {
-            fprintf(fd, "%dM: %llu  ", 
-                          stats->is_rx_rate_index[i].dot11Rate/2, stats->is_rx_rate_index[i].count);
-            if ((count++) % 6 == 0)
-                fprintf(fd,"\n");
-        }
-        count = 1;
-        for (i = 0; i < 24; i++) {
-            fprintf(fd, "MCS[%d]: %llu  ", i, stats->is_rx_mcs_count[i]);
-            if ((count++) % 8 == 0)
-                fprintf(fd,"\n");
-        }
-        count = 1;
-        fprintf(fd, "\n*****  TX   data    Rate  statistics *****\n");
-        for (i = 0; i < 12; i++) {
-           fprintf(fd, "%dM: %llu  ", 
-                          stats->is_tx_rate_index[i].dot11Rate/2, stats->is_tx_rate_index[i].count);
-           if ((count++) % 6 == 0)
-                fprintf(fd,"\n");
-        }
-        count = 1;
-        for (i = 0; i < 24; i++) {
-            fprintf(fd, "MCS[%d]: %llu  ", i, stats->is_tx_mcs_count[i]);
-            if ((count++) % 8 == 0)
-                fprintf(fd, "\n");
-        }
-        fprintf(fd, "\n");
-    }
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 #undef STAT
 #undef N
 }
@@ -296,28 +172,13 @@ printstats(FILE *fd, const struct ieee80211_stats *stats)
 static void
 print_mac_stats(FILE *fd, const struct ieee80211_mac_stats *stats, int unicast)
 {
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
 #define	STAT(x,fmt) \
-	if (stats->ims_##x) fprintf(fd, "%llu " fmt "\n", stats->ims_##x)
+	if (stats->ims_##x) fprintf(fd, "%lu " fmt "\n", (long unsigned int) stats->ims_##x)
 
     int i=0;
-	
-    if (0 == unicast) {
-        fprintf(fd, "\n******    Multicast    statistics  ******\n");
-    } else if (1 == unicast){
-        fprintf(fd, "\n******    Unicast      statistics  ******\n");
-    } 
-	
+    fprintf(fd, "%s\n", unicast ? "\t**** 80211 unicast stats **** " : "\t **** 80211 multicast stats ****");
     STAT(tx_packets, "frames successfully transmitted ");
-    STAT(tx_bytes, "bytes successfully transmitted ");
     STAT(rx_packets, "frames successfully received ");
-    STAT(rx_bytes, "bytes successfully received ");
-
-    STAT(tx_retry_packets, "frames retry transmitted ");
-    STAT(tx_retry_bytes, "bytes retry transmitted ");
-    STAT(rx_retry_packets, "frame retry received ");
-    STAT(rx_retry_bytes, "bytes retry received ");
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 
     /* Decryption errors */
     STAT(rx_unencrypted, "rx w/o wep and privacy on ");
@@ -369,15 +230,12 @@ print_sta_stats(FILE *fd, const u_int8_t macaddr[IEEE80211_ADDR_LEN])
 
 	sep = "\t";
 	STAT(rx_data, "%u");
-	STAT(rx_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(rx_mgmt, "%u");
 	STAT(rx_ctrl, "%u");
 	STAT64(rx_beacons, "%llu");
 	STAT(rx_proberesp, "%u");
 	STAT(rx_ucast, "%u");
-	STAT(rx_ucast_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(rx_mcast, "%u");
-	STAT(rx_mcast_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(rx_bytes, "%llu");
 	STAT(rx_dup, "%u");
 	STAT(rx_noprivacy, "%u");
@@ -391,19 +249,14 @@ print_sta_stats(FILE *fd, const u_int8_t macaddr[IEEE80211_ADDR_LEN])
 	STAT(rx_decryptcrc, "%u");
 	STAT(rx_unauth, "%u");
 	STAT(rx_unencrypted, "%u");
-	STAT(rx_retry_packets, "%u"); //zhaoyang1 transplants statistics 2015-01-27
-	STAT(rx_retry_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	fprintf(fd, "\n");
 
 	sep = "\t";
 	STAT(tx_data, "%u");
-	STAT(tx_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(tx_mgmt, "%u");
 	STAT(tx_probereq, "%u");
 	STAT(tx_ucast, "%u");
-	STAT(tx_ucast_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(tx_mcast, "%u");
-	STAT(tx_mcast_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(tx_bytes, "%llu");
 	STAT(tx_novlantag, "%u");
 	STAT(tx_vlanmismatch, "%u");
@@ -418,8 +271,6 @@ print_sta_stats(FILE *fd, const u_int8_t macaddr[IEEE80211_ADDR_LEN])
 	STAT(tx_deauth_code, "%u");
 	STAT(tx_disassoc, "%u");
 	STAT(tx_disassoc_code, "%u");
-	STAT(tx_retry_packets, "%u"); 
-	STAT(tx_retry_bytes, "%llu"); //zhaoyang1 transplants statistics 2015-01-27
 	STAT(psq_drops, "%u");
 	fprintf(fd, "\n");
 
@@ -437,126 +288,10 @@ print_sta_stats(FILE *fd, const u_int8_t macaddr[IEEE80211_ADDR_LEN])
 	fprintf(fd, "\n");
 	sep = "\t";
 	STAT(tx_eosplost, "%u");
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	sep = "\t";
-    STAT(rx_unencrypted, "%u");
-    STAT(rx_badkeyid, "%u");
-    STAT(rx_decryptcrc, "%u");
-    STAT(rx_wepfail, "%u");
-    STAT(rx_tkipreplay, "%u");
-	STAT(rx_fcserr, "%u");
-    STAT(rx_tkipformat, "%u");
-    STAT(rx_tkipmic, "%u");
-    STAT(rx_tkipicv, "%u");
-    STAT(rx_ccmpreplay, "%u");
-    STAT(rx_ccmpformat, "%u");
-    STAT(rx_ccmpmic, "%u");
-    STAT(rx_wpireplay, "%u");
-    STAT(rx_wpimic, "%u");
-    STAT(tx_discard, "%u");
-    STAT(rx_discard, "%u");
 	fprintf(fd, "\n");
-
-	fprintf(fd, "\n***** RX   data    Rssi  statistics *****\n");
-    {
-        int i = 0, count = 1;
-        for(i = 0; i < 17 ; i++) {
-            fprintf(fd,"rssi[%s] = %llu  ", rssi_range[i], ns->ns_rssi_stats[i].ns_rx_data);  
-            if ((count++) % 5 == 0)
-                fprintf(fd,"\n");
-        }
-    }
-
-    fprintf(fd, "\n\n***** RX   data    Rate  statistics *****\n");
-    {
-        int i = 0, count = 1;
-        for (i = 0; i < 12; i++) {
-            fprintf(fd, "%dM: %llu  ", 
-                          ns->ns_rx_rate_index[i].dot11Rate/2, ns->ns_rx_rate_index[i].count);
-            if ((count++) % 6 == 0)
-                fprintf(fd,"\n");
-        }
-
-        count = 1;
-        for (i = 0; i < 24; i++) {
-            fprintf(fd, "MCS[%d]: %llu  ", i, ns->ns_rx_mcs_count[i]);
-            if ((count++) % 8 == 0)
-                fprintf(fd,"\n");
-        }
-            
-        count = 1;
-        fprintf(fd, "\n*****  TX   data    Rate  statistics *****\n");
-        for (i = 0; i < 12; i++) {
-           fprintf(fd, "%dM: %llu  ", 
-                          ns->ns_tx_rate_index[i].dot11Rate/2, ns->ns_tx_rate_index[i].count);
-           if ((count++) % 6 == 0)
-                fprintf(fd,"\n");
-        }
-
-        count = 1;
-        for (i = 0; i < 24; i++) {
-            fprintf(fd, "MCS[%d]: %llu  ", i, ns->ns_tx_mcs_count[i]);
-            if ((count++) % 8 == 0)
-                fprintf(fd, "\n");
-        }
-        fprintf(fd, "\n");
-    }
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 #undef STAT
 #undef STAT64
 }
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
- static struct ieee80211_mac_stats *
- data_statistic(struct ieee80211_mac_stats *total,struct ieee80211_mac_stats * mstats,int is_unicast)
-{
-	struct ieee80211_mac_stats *unicast = NULL;
-	struct ieee80211_mac_stats *multicast = NULL;
-	struct ieee80211_mac_stats *braodcast = NULL;
-	if(is_unicast == 1) {
-		unicast = mstats;
-		total->ims_rx_packets += unicast->ims_rx_packets;
-		total->ims_rx_bytes   += unicast->ims_rx_bytes; 
-
-		total->ims_tx_packets += unicast->ims_tx_packets;
-		total->ims_tx_bytes   += unicast->ims_tx_bytes; 
-
-        total->ims_rx_retry_packets += unicast->ims_rx_retry_packets;
-        total->ims_rx_retry_bytes += unicast->ims_rx_retry_bytes;
-
-        total->ims_tx_retry_packets += unicast->ims_tx_retry_packets;
-        total->ims_tx_retry_bytes += unicast->ims_tx_retry_bytes;
-		
-	}
-	if(is_unicast == 0) {
-		multicast = mstats;
-		total->ims_rx_packets += multicast->ims_rx_packets;
-		total->ims_rx_bytes   += multicast->ims_rx_bytes; 
-
-		total->ims_tx_packets += multicast->ims_tx_packets;
-		total->ims_tx_bytes   += multicast->ims_tx_bytes; 
-
-        total->ims_rx_retry_packets += multicast->ims_rx_retry_packets;
-        total->ims_rx_retry_bytes += multicast->ims_rx_retry_bytes;
-
-        total->ims_tx_retry_packets += multicast->ims_tx_retry_packets;
-        total->ims_tx_retry_bytes += multicast->ims_tx_retry_bytes;
-		
-	}
-	return total;
-}
-
-static void
-print_mstats(struct ieee80211_mac_stats *mstats)
-{
-
-    printf("******      Total    statistics    ******\n");
-    printf("tx_packets = %llu,\ttx_bytes = %llu\n",mstats->ims_tx_packets,mstats->ims_tx_bytes);
-    printf("tx_retry_packets = %llu,\ttx_retry_bytes = %llu\n",mstats->ims_tx_retry_packets,mstats->ims_tx_retry_bytes);
-	printf("rx_packets = %llu,\trx_bytes = %llu\n",mstats->ims_rx_packets,mstats->ims_rx_bytes);
-    printf("rx_retry_packets = %llu,\trx_retry_bytes = %llu\n",mstats->ims_rx_retry_packets,mstats->ims_rx_retry_bytes);
-    
-}
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 
 int
 main(int argc, char *argv[])
@@ -588,14 +323,9 @@ main(int argc, char *argv[])
 	if (argc == optind && !allnodes) {
 		struct ieee80211_stats *stats;
 
-		struct ieee80211_mac_stats *total = NULL;
 		/* no args, just show global stats */
         /* fetch both ieee80211_stats, and mac_stats, including multicast and unicast stats */
-		//zhaoyang1 transplants statistics 2015-01-27
-        stats = malloc(sizeof(struct ieee80211_stats)+ 3* sizeof(struct ieee80211_mac_stats));
-		memset(stats,0,(sizeof(struct ieee80211_stats)+ 3* sizeof(struct ieee80211_mac_stats)));
-		total = malloc(sizeof(struct ieee80211_mac_stats));
-		memset(total,0,sizeof(struct ieee80211_mac_stats));
+        stats = malloc(sizeof(struct ieee80211_stats)+ 2* sizeof(struct ieee80211_mac_stats));
         if (!stats) {
             fprintf (stderr, "Unable to allocate memory for stats\n");
             return -1;
@@ -607,16 +337,10 @@ main(int argc, char *argv[])
         /* MAC stats uses, u_int64_t, there is a 8 byte hole in between stats and mac stats, 
          * account for that.
          */
-		//zhaoyang1 transplants statistics 2015-01-27
-		data_statistic(total, (struct ieee80211_mac_stats*)(((void*)stats)+sizeof(*stats)),1);
-		data_statistic(total, &((struct ieee80211_mac_stats*)(((void*)stats)+sizeof(*stats)))[1],0);
-		print_mstats(total); 
-	    free(total);  
-        /* Unicast stats*/
-        print_mac_stats(stdout, (struct ieee80211_mac_stats*)(((void*)stats)+sizeof(*stats)), 1); 
+        print_mac_stats(stdout, (struct ieee80211_mac_stats*)(((void*)stats)+sizeof(*stats)+8), 1); 
         /* multicast stats */
-        print_mac_stats(stdout, &((struct ieee80211_mac_stats *)(((void*)stats)+sizeof(*stats)))[1], 0);
-  /*AUTELAN-End:zhaoenjuan modified for _U64(32->64)*/                  
+        print_mac_stats(stdout, &((struct ieee80211_mac_stats *)(((void*)stats)+sizeof(*stats)+8))[1], 0);
+                    
         free(stats);
 		return 0;
 	}

@@ -401,6 +401,13 @@ ieee80211_set_keymapping_key(struct ieee80211vap *vap, ieee80211_keyval *kval)
     u_int8_t flags;
     int error = 0;
 
+    /* AP must be ready */
+    if (ieee80211_vap_ready_is_clear(vap)) {
+        printk("%s:vap not ready.\n", __FUNCTION__);
+        error = -EINVAL;
+        return error;
+    }
+
     /*
      * We don't support uni-directional key mapping keys
      */
@@ -423,13 +430,14 @@ ieee80211_set_keymapping_key(struct ieee80211vap *vap, ieee80211_keyval *kval)
     ni = ieee80211_vap_find_node(vap, kval->macaddr);
     if (ni == NULL) {
         /*
-         * alloc node gives required  extra reference
+         * dup_bss gives required  extra reference
          */
-        ni = ieee80211_alloc_node(&vap->iv_ic->ic_sta, vap, kval->macaddr);
+        ni = ieee80211_dup_bss(vap, kval->macaddr);
         if (ni == NULL) {
             error = -ENOMEM;
             goto bad;
         }
+        printk("%s:node not found, creating one %x.\n", __FUNCTION__, ni);
     }
 
     if (vap->iv_opmode == IEEE80211_M_STA && ni != vap->iv_bss 

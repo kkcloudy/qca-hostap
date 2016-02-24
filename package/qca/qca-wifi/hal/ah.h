@@ -281,7 +281,8 @@ typedef enum {
 	HAL_CAP_WRAP_HW_DECRYPT           = 136, /* HW Decryption for WRAP feature*/
 	HAL_CAP_WRAP_PROMISC     = 137, /* Promiscuous mode for WRAP feature*/
 #endif
-    HAL_CAP_PN_CHECK_WAR_SUPPORT    = 138,  /* PN check WAR support for this chip */
+    HAL_CAP_PN_CHECK_WAR_SUPPORT = 138,  /* PN check WAR support for this chip */
+    HAL_CAP_DCS_SUPPORT          = 139,  /* DCS support for this chip */ 
 } HAL_CAPABILITY_TYPE;
 
 typedef enum {
@@ -1130,7 +1131,7 @@ enum {
 #define HAL_DIAG_PRINT_REG_COUNTER  0x00000001 /* print tf, rf, rc, cc counters */
 #define HAL_DIAG_PRINT_REG_ALL      0x80000000 /* print all registers */
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
+
 typedef struct halCounters {
     u_int32_t   tx_frame_count;
     u_int32_t   rx_frame_count;
@@ -1139,15 +1140,6 @@ typedef struct halCounters {
     u_int8_t    is_rx_active;     // true (1) or false (0)
     u_int8_t    is_tx_active;     // true (1) or false (0)
 } HAL_COUNTERS;
-
-typedef struct halMibCounters {
-	u_int32_t   tx_frame_count;
-	u_int32_t   rx_frame_count;
-	u_int32_t   rx_clear_count;
-	u_int32_t   cycle_count;	
-} HAL_MibCOUNTERS;
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27  */
-
 
 #ifdef ATH_CCX
 typedef struct {
@@ -2266,8 +2258,6 @@ struct ath_hal {
     void      __ahdecl(*ah_force_tsf_sync)(struct ath_hal*,
                 const u_int8_t *bssid, u_int16_t assoc_id);
     bool  __ahdecl(*ah_gpio_cfg_input)(struct ath_hal *, u_int32_t gpio);
-	//zhaoyang1 transplants statistics 2015-01-27
-	u_int32_t  __ahdecl(*ah_calcTxRetryCount)(struct ath_hal *, void*, struct ath_tx_status *);
     bool  __ahdecl(*ah_gpio_cfg_output)(struct ath_hal *,
                 u_int32_t gpio, HAL_GPIO_OUTPUT_MUX_TYPE signalType);
     bool  __ahdecl(*ah_gpio_cfg_output_led_off)(struct ath_hal *,
@@ -2479,13 +2469,11 @@ struct ath_hal {
     void      __ahdecl(*ah_set_11n_virtual_more_frag)(struct ath_hal *ah,
                 void *ds, u_int vmf);
     int8_t    __ahdecl(*ah_get_11n_ext_busy)(struct ath_hal *ah);
+    u_int32_t __ahdecl(*ah_get_ch_busy_pct)(struct ath_hal *ah);
     void      __ahdecl(*ah_set_11n_mac2040)(struct ath_hal *ah, HAL_HT_MACMODE);
     HAL_HT_RXCLEAR __ahdecl(*ah_get_11n_rx_clear)(struct ath_hal *ah);
     void      __ahdecl(*ah_set_11n_rx_clear)(struct ath_hal *ah, HAL_HT_RXCLEAR rxclear);
     u_int32_t __ahdecl(*ah_get_mib_cycle_counts_pct)(struct ath_hal *ah, u_int32_t*, u_int32_t*, u_int32_t*);
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    u_int32_t __ahdecl(*ah_get_mib_cycle)(struct ath_hal *ah, HAL_MibCOUNTERS *pmibcnts);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
     void      __ahdecl(*ah_dma_reg_dump)(struct ath_hal *);
     u_int32_t __ahdecl(*ah_ppm_get_rssi_dump)(struct ath_hal *);
     u_int32_t __ahdecl(*ah_ppm_arm_trigger)(struct ath_hal *);
@@ -2807,6 +2795,9 @@ extern bool __ahdecl  ath_hal_get_chandata(struct ath_hal * ah, HAL_CHANNEL * ch
 #ifdef DBG
 extern u_int32_t __ahdecl ath_hal_readRegister(struct ath_hal *ah, u_int32_t offset);
 extern void __ahdecl ath_hal_writeRegister(struct ath_hal *ah, u_int32_t offset, u_int32_t value);
+//zhaoyang modifies for patching rx stuck 2015-12-17
+#else 
+extern u_int32_t __ahdecl ath_hal_readRegister(struct ath_hal *ah, u_int32_t offset); 
 #endif
 
 /*

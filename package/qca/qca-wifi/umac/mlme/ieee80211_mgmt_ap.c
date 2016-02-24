@@ -42,13 +42,18 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
     u_int8_t reason;
     int reassoc, resp;
     u_int8_t *ssid, *rates, *xrates, *wpa, *wme, *ath, *htcap,*vendor_ie, *wps, *aow, *vhtcap;
-    u_int8_t *athextcap, *opmode;
+
+    u_int8_t *athextcap, *opmode, *xcaps;
+#if ATH_BAND_STEERING
+    u_int8_t *pwrcap = NULL;
+#endif
+
+#define ADD_NI_RATES_NUM 8
+    u_int8_t temp_ni_rates[ADD_NI_RATES_NUM] = {0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7};
 
 #if UMAC_SUPPORT_WNM
-
 	u_int8_t *timbcast;
 	timbcast = NULL;
-
 #endif
 
 
@@ -93,28 +98,17 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                           wh, ieee80211_mgt_subtype_name[subtype >>
                                                          IEEE80211_FC0_SUBTYPE_SHIFT],
                           "%s\n", "wrong bssid");
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <FAIL> [Step %s - RECV %s REQ] %s: wrong bssid\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         vap->iv_stats.is_rx_assoc_bss++;
         return -EINVAL;
     }
 
-	// zhaoyang1 modifies for y assistant access debug 2015-04-17
-	y_assistant_netlink_access_debug_send(wh->i_addr2, 
-		vap->iv_myaddr, 2, vap->iv_des_ssid[0].ssid);
     vendor_ie = NULL;
     capinfo = le16toh(*(u_int16_t *)frm);    frm += 2;
     bintval = le16toh(*(u_int16_t *)frm);    frm += 2;
     if (reassoc)
         frm += 6;    /* ignore current AP info */
     ssid = rates = xrates = wpa = wme = ath = htcap = wps = aow = vhtcap = opmode = NULL;
-    athextcap = NULL;
+    athextcap = xcaps = NULL;
     while (((frm + 1) < efrm) && (frm + frm[1] + 1) < efrm) {
         switch (*frm) {
         case IEEE80211_ELEMID_SSID:
@@ -142,6 +136,11 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                 timbcast = frm;
             break;
 #endif
+#if UMAC_SUPPORT_WNM ||ATH_SUPPORT_HS20
+        case IEEE80211_ELEMID_XCAPS:
+            xcaps = frm;
+            break;
+#endif
         case IEEE80211_ELEMID_VHTCAP:
             if(vhtcap == NULL)
                 vhtcap = (u_int8_t *)(struct ieee80211_ie_vhtcap *)frm;
@@ -150,6 +149,11 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
             if(opmode == NULL)
                 opmode = (u_int8_t *)(struct ieee80211_ie_op_mode_ntfy *)frm;
             break;
+#if ATH_BAND_STEERING
+        case IEEE80211_ELEMID_PWRCAP:
+            pwrcap = frm;
+            break;
+#endif
         case IEEE80211_ELEMID_VENDOR:
             if (iswpaoui(frm)) {
                 if (RSN_AUTH_IS_WPA(&vap->iv_bss->ni_rsn))
@@ -189,15 +193,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                           wh, ieee80211_mgt_subtype_name[subtype >>
                                                          IEEE80211_FC0_SUBTYPE_SHIFT],
                           "%s\n", "reached the end of frame");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <FAIL> [Step %s - RECV %s REQ] %s: reached the end of frame\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         vap->iv_stats.is_rx_badchan++;
         return -EINVAL;
     }
@@ -210,26 +205,8 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                            "%s: deny %s request, sta %s not authenticated\n", __func__,
                            reassoc ? "reassoc" : "assoc", ether_sprintf(wh->i_addr2));
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <FAIL> [Step %s - RECV %s REQ] %s: deny %s request, sta not authenticated\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc");
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         ni = ieee80211_tmp_node(vap,wh->i_addr2);
         if (ni) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <SEND> [Step 05 - SEND DEAUTH] %s: sta not authenticated, reason = ASSOC_NOT_AUTHED(%d)\n", 
-                __func__, IEEE80211_REASON_ASSOC_NOT_AUTHED);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, reason %d\n", 
                     __func__, ether_sprintf(wh->i_addr2), IEEE80211_REASON_ASSOC_NOT_AUTHED);
             ieee80211_send_deauth(ni, IEEE80211_REASON_ASSOC_NOT_AUTHED);
@@ -249,9 +226,32 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
     }
 #endif  /* ATH_SUPPORT_AOW */
 
+#if ATH_SUPPORT_HS20
+    if (xcaps) {
+        struct ieee80211_ie_ext_cap *extcaps =
+            (struct ieee80211_ie_ext_cap *)xcaps;
 
+        if (extcaps->elem_len > 4 &&
+            ((le32toh(extcaps->ext_capflags2)) & IEEE80211_EXTCAPIE_QOS_MAP))
+            ni->ni_qosmap_enabled = 1;
+        else
+            ni->ni_qosmap_enabled = 0;
 
+        /* Copy first word only to node structure, only part used at the moment */
+        ni->ni_ext_capabilities = le32toh(extcaps->ext_capflags);
+    }
+    else {
+        /* No extended capabilities present */
+        ni->ni_ext_capabilities = 0;
+    }
+#endif
+
+#if ATH_SUPPORT_HS20
+    if ((wpa == NULL) && (RSN_AUTH_IS_WPA(&vap->iv_bss->ni_rsn) ||
+        RSN_AUTH_IS_RSNA(&vap->iv_bss->ni_rsn)) && !vap->iv_osen) {
+#else
     if ((wpa == NULL) && (RSN_AUTH_IS_WPA(&vap->iv_bss->ni_rsn) || RSN_AUTH_IS_RSNA(&vap->iv_bss->ni_rsn))) {
+#endif
 
 #if NOT_YET                
         if ((vap->iv_tsn_mode) && (capinfo & IEEE80211_CAPINFO_PRIVACY) && (htcap == NULL)) {
@@ -263,15 +263,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                                IEEE80211_MSG_WPA,
                                wh->i_addr2,
                                "TSN: STA caps 0x%x, allow on", capinfo);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step %s - RECV %s REQ] %s: STA caps 0x%x, allow on\n", 
-                reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, capinfo);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
         } else 
 #endif        
         if (vap->iv_wps_mode) {
@@ -298,15 +289,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                                IEEE80211_MSG_WPA,
                                wh->i_addr2,
                               "WPS: allow STA with no WPA/RSN IE on in order to do WPS EAPOL, caps 0x%x\n", capinfo);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <INFO> [Step %s - RECV %s REQ] %s: WPS: allow STA with no WPA/RSN IE on in order to do WPS EAPOL, caps 0x%x\n", 
-                reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, capinfo);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         } else {
 
             /*
@@ -325,15 +307,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                                reassoc ? "reassoc" : "assoc");
             IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, reason %d\n", 
                     __func__, ether_sprintf(wh->i_addr2), IEEE80211_REASON_RSN_REQUIRED);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-		 IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-		  	" <SEND> [Step 05 - SEND DEAUTH] %s: deny %s request, no WPA/RSN ie, reason = RSN_REQUIRED(%d)\n", 
-		  	__func__, reassoc ? "reassoc" : "assoc", IEEE80211_REASON_RSN_REQUIRED);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
             ieee80211_send_deauth(ni, IEEE80211_REASON_RSN_REQUIRED);
             IEEE80211_NODE_LEAVE(ni);
             vap->iv_stats.is_rx_assoc_badwpaie++;    /*XXX*/
@@ -371,16 +344,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
             }
         }
         if (reason != 0) {
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, reason = %d\n", 
-                reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", reason);
-
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             ieee80211_send_assocresp(ni, reassoc, reason, NULL);
             IEEE80211_NODE_LEAVE(ni);
             vap->iv_stats.is_rx_assoc_badwpaie++;
@@ -418,20 +381,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                            rsn.rsn_mcastcipherset, rsn.rsn_mcastkeylen,
                            rsn.rsn_ucastcipherset, rsn.rsn_ucastkeylen,
                            rsn.rsn_keymgmtset, rsn.rsn_caps);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                            " <INFO> [Step %s - RECV %s REQ] %s: %s ie: mc %u/%u uc %u/%u key %u caps 0x%x\n", 
-                            reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", 
-                            __func__, 
-                            LOCAL_ELEMID_TYPE_CHECK,
-                            rsn.rsn_mcastcipherset, rsn.rsn_mcastkeylen,
-                            rsn.rsn_ucastcipherset, rsn.rsn_ucastkeylen,
-                            rsn.rsn_keymgmtset, rsn.rsn_caps);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         #undef LOCAL_ELEMID_TYPE_CHECK
     }
     /* discard challenge after association */
@@ -444,15 +393,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                            "deny %s request, capability mismatch 0x%x",
                            reassoc ? "reassoc" : "assoc", capinfo);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, capability mismatch 0x%x, reason = CAPINFO(%d)\n", 
-            reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", capinfo, IEEE80211_STATUS_CAPINFO);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         ieee80211_send_assocresp(ni,reassoc,IEEE80211_STATUS_CAPINFO,NULL);
         IEEE80211_NODE_LEAVE(ni);
         vap->iv_stats.is_rx_assoc_capmismatch++;
@@ -467,15 +407,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                            "deny %s request, rate set mismatch",
                            reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, rate set mismatch, reason = BASIC_RATE(%d)\n", 
-            reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", IEEE80211_STATUS_BASIC_RATE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
         ieee80211_send_assocresp(ni,reassoc,IEEE80211_STATUS_BASIC_RATE,NULL);
         IEEE80211_NODE_LEAVE(ni);
         vap->iv_stats.is_rx_assoc_norate++;
@@ -491,15 +422,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                                wh->i_addr2, "deny %s request, short slot time\
                 capability mismatch 0x%x", reassoc ? "reassoc" 
                                : "assoc", capinfo);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <SEND> [Step %s - SEND %s RESP] %s: deny %s request,short slot time capability mismatch 0x%x, reason = CAPINFO(%d)\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", capinfo, IEEE80211_STATUS_CAPINFO);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-            
             ieee80211_send_assocresp(ni,reassoc,IEEE80211_STATUS_CAPINFO,NULL);
             IEEE80211_NODE_LEAVE(ni);
             vap->iv_stats.is_rx_assoc_capmismatch++;
@@ -557,6 +479,17 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         OS_FREE(ni->ni_wnm->timbcast_ie);
         ni->ni_wnm->timbcast_ie = NULL;
     }
+
+    if (xcaps) {
+        struct ieee80211_ie_ext_cap *extcaps =
+            (struct ieee80211_ie_ext_cap *)xcaps;
+        /* Copy first word only to node structure, only part used at the moment */
+        ni->ni_ext_capabilities = le32toh(extcaps->ext_capflags);
+    }
+    else {
+        /* No extended capabilities present */
+        ni->ni_ext_capabilities = 0;
+    }
 #endif
     if (ath != NULL) {
         /*
@@ -602,22 +535,8 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                            "deny %s request, no ht caps in pure 802.11n mode",
                            reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-	IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <SEND> [Step %s - SEND %s RESP] %s: deny %s request, no ht caps in pure 802.11n mode, reason = NO_HT(%d)\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", IEEE80211_STATUS_NO_HT);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         ieee80211_send_assocresp(ni, reassoc, IEEE80211_STATUS_NO_HT,NULL);
         IEEE80211_NODE_LEAVE(ni);
-		//zhaoyang1 transplants statistics 2015-01-27
-		if (reassoc)
-             vap->iv_stats.is_rx_reassoc_puren_mismatch++;
-        else
-             vap->iv_stats.is_rx_assoc_puren_mismatch++;
         return -EINVAL;
     }
 
@@ -630,15 +549,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                            "deny %s request, no vht caps in pure 802.11ac mode",
                            reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-        IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, no vht caps in pure 802.11ac mode\n", 
-            reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc");
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-        
         ieee80211_send_assocresp(ni, reassoc, IEEE80211_STATUS_NO_VHT,NULL);
         IEEE80211_NODE_LEAVE(ni);
         return -EINVAL;
@@ -677,22 +587,9 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                 IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                                    "deny %s request, Rx MCS set mismatch",
                                     reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, Rx MCS set mismatch, reason = BASIC_RATE(%d)\n", 
-                    reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", IEEE80211_STATUS_BASIC_RATE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
                 ieee80211_send_assocresp(ni, reassoc, IEEE80211_STATUS_BASIC_RATE,NULL);
                 IEEE80211_NODE_LEAVE(ni);
-				//zhaoyang1 transplants statistics 2015-01-27
-				if (reassoc)
-                	vap->iv_stats.is_rx_reassoc_norate++;
-            	else
-                	vap->iv_stats.is_rx_assoc_norate++;
+                vap->iv_stats.is_rx_assoc_norate++;
                 return -EINVAL;
             }
 #ifdef ATH_SUPPORT_TxBF
@@ -710,20 +607,40 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
             IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                                "deny %s request, ht rate set mismatch",
                                 reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-            IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, ht rate set mismatch, reason = BASIC_RATE(%d)\n", 
-                reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", IEEE80211_STATUS_BASIC_RATE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-
             ieee80211_send_assocresp(ni, reassoc, IEEE80211_STATUS_BASIC_RATE,NULL);
             IEEE80211_NODE_LEAVE(ni);
             vap->iv_stats.is_rx_assoc_norate++;
             return -EINVAL;
-        } 
+        }
+
+        if ((ni->ni_flags & IEEE80211_NODE_HT) &&
+                (ni->ni_htrates.rs_nrates < ADD_NI_RATES_NUM || OS_MEMCMP(temp_ni_rates, ni->ni_htrates.rs_rates, ADD_NI_RATES_NUM ))) {
+
+            u_int8_t *p = (u_int8_t *) &ni->ni_htrates.rs_rates[ADD_NI_RATES_NUM];
+            u_int8_t i = 0;
+            u_int8_t rs_nrates = ni->ni_htrates.rs_nrates;
+            u_int8_t temp_rs_rates[IEEE80211_RATE_MAXSIZE];
+
+            IEEE80211_NOTE_MAC(vap,
+                              IEEE80211_MSG_ASSOC,
+                              wh->i_addr2,
+                              "Node is marked HT - but RX MCS 0-7 not supported, Number of Rates supported %d",
+                              ni->ni_htrates.rs_nrates);
+
+           /* Re-initialize ni->ni_htrates.rs_rates[] adding MCS:0-7 & appending existing rates */
+           OS_MEMCPY(temp_rs_rates, ni->ni_htrates.rs_rates, ni->ni_htrates.rs_nrates);
+           OS_MEMZERO(ni->ni_htrates.rs_rates, ni->ni_htrates.rs_nrates);
+           OS_MEMCPY(ni->ni_htrates.rs_rates, temp_ni_rates, ADD_NI_RATES_NUM);/* Fill MCS 0-7 */
+           ni->ni_htrates.rs_nrates = ADD_NI_RATES_NUM;
+           /* Add any other MCS (other than 0-7), if supported */
+           for (i = 0; i < rs_nrates; i++) {
+               if (temp_rs_rates[i] >=  ADD_NI_RATES_NUM) {
+                    *p++ = temp_rs_rates[i];
+                    ni->ni_htrates.rs_nrates++;
+               }
+           }
+        }/* Add MCS 0-7 if not present */
+
     }
       /* Add vht cap for 2.4G mode, if 256QAM is enabled */
     if ((IEEE80211_IS_CHAN_11AC(ic->ic_curchan) || (IEEE80211_IS_CHAN_11NG(ic->ic_curchan))) &&
@@ -736,15 +653,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                 IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                                "deny %s request, vht rate set mismatch",
                                 reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, vht rate set mismatch, reason = BASIC_RATE(%d)\n", 
-                    reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", IEEE80211_STATUS_BASIC_RATE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 ieee80211_send_assocresp(ni,reassoc,IEEE80211_STATUS_BASIC_RATE,NULL);
                 IEEE80211_NODE_LEAVE(ni);
                 vap->iv_stats.is_rx_assoc_norate++;
@@ -758,15 +666,6 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
                 IEEE80211_NOTE_MAC(vap, IEEE80211_MSG_ANY, wh->i_addr2,
                                "deny %s request, vht rate set mismatch",
                                 reassoc ? "reassoc" : "assoc");
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-                IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-                    " <SEND> [Step %s - SEND %s RESP] %s: deny %s request, vht rate set mismatch, reason = BASIC_RATE(%d)\n", 
-                    reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", IEEE80211_STATUS_BASIC_RATE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
-                
                 ieee80211_send_assocresp(ni, reassoc, IEEE80211_STATUS_BASIC_RATE,NULL);
                 IEEE80211_NODE_LEAVE(ni);
                 vap->iv_stats.is_rx_assoc_norate++;
@@ -797,13 +696,25 @@ ieee80211_recv_asreq(struct ieee80211_node *ni, wbuf_t wbuf, int subtype)
         ieee80211_process_athextcap_ie(ni, athextcap);
     }
 
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-	IEEE80211_NOTE_MAC_MGMT_DEBUG(vap, wh->i_addr2, 
-    	" <RECV> [Step %s - RECV %s REQ] %s: recv %s request frame from ni mac %s\n", 
-    	reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc",ether_sprintf(ni->ni_macaddr));
+#if ATH_BAND_STEERING
+    if (pwrcap) {
+        ieee80211_process_pwrcap_ie(ni, pwrcap);
+    }
 #endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
+
+    if (ni->ni_phymode == IEEE80211_MODE_11A) {
+        if (ni->ni_chwidth == IEEE80211_CWM_WIDTH40 || ni->ni_chwidth == IEEE80211_CWM_WIDTH80) {
+            ni->ni_chwidth = IEEE80211_CWM_WIDTH20;
+            IEEE80211_NOTE_MAC(vap,
+                              IEEE80211_MSG_ASSOC,
+                              wh->i_addr2,
+                              "Phymode is 11a but channel width is 0x%x (not 20Mhz)",
+                              ni->ni_chwidth);
+
+        }
+        ni->ni_flags &= ~IEEE80211_NODE_HT;
+        ni->ni_flags &= ~IEEE80211_NODE_VHT;
+    }
 
     ieee80211_mlme_recv_assoc_request(ni, reassoc,vendor_ie, wbuf);
     
@@ -821,25 +732,8 @@ ieee80211_send_assocresp(struct ieee80211_node *ni, u_int8_t reassoc, u_int16_t 
     wbuf_t wbuf;
 
     wbuf = ieee80211_setup_assocresp(ni, NULL, reassoc, reason, optie);
-
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke */
-#if ATOPT_MGMT_DEBUG
-    if (wbuf == NULL) {
-	  IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-			" <FAIL> [Step %s - SEND %s RESP] %s: wbuf alloc failed\n", 
-			reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__);
-        return -ENOMEM;
-    }
-
-    IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-            " <SEND> [Step %s - SEND %s RESP] %s: send %s response frame, reason = %d\n", 
-            reassoc ? "04" : "03", reassoc ? "REASSOC" : "ASSOC", __func__, reassoc ? "reassoc" : "assoc", reason);
-    
-#else
-    if (wbuf == NULL)
-        return -ENOMEM;
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-06, transplant by zhouke  */
+    if (!wbuf)
+        return ENOMEM;
 
     return ieee80211_send_mgmt(vap,ni, wbuf,false);
 }
@@ -923,14 +817,19 @@ ieee80211_setup_assocresp(struct ieee80211_node *ni, wbuf_t wbuf, u_int8_t reass
         if (!(ic->ic_flags & IEEE80211_F_COEXT_DISABLE)) {
             frm = ieee80211_add_obss_scan(frm, ni);
         }
-        frm = ieee80211_add_extcap(frm, ni);
     }
+
+    /* Add extended capbabilities, if applicable */
+    frm = ieee80211_add_extcap(frm, ni);
+
 #if UMAC_SUPPORT_WNM
     if(ieee80211_vap_wnm_is_set(vap)) {
         frm = ieee80211_add_bssmax(frm, vap);
     }
 #endif
-
+#if ATH_SUPPORT_HS20
+    frm = ieee80211_add_qosmapset(frm, ni);
+#endif
     if (ieee80211_vap_wme_is_set(vap) &&
         ni->ni_flags & IEEE80211_NODE_VHT &&
         (IEEE80211_IS_CHAN_11AC(ic->ic_curchan) || IEEE80211_IS_CHAN_11NG(ic->ic_curchan)) &&
@@ -1130,10 +1029,16 @@ void ieee80211_recv_beacon_ap(struct ieee80211_node *ni, wbuf_t wbuf, int subtyp
 static void
 ieee80211_recv_pspoll(struct ieee80211_node *ni, wbuf_t wbuf)
 {
-    struct ieee80211vap *vap = ni->ni_vap;
-    struct ieee80211com *ic = ni->ni_ic;
+    struct ieee80211vap *vap;
+    struct ieee80211com *ic;
     struct ieee80211_frame_min *wh;
     u_int16_t aid;
+
+    if (!ni){
+        return;
+    }
+    vap = ni->ni_vap;
+    ic = ni->ni_ic;
 
     wh = (struct ieee80211_frame_min *)wbuf_header(wbuf);
     if (ni->ni_associd == 0) {
@@ -1148,13 +1053,6 @@ ieee80211_recv_pspoll(struct ieee80211_node *ni, wbuf_t wbuf)
         vap->iv_stats.is_ps_unassoc++;
         IEEE80211_DPRINTF(vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, reason %d\n", 
                 __func__, ether_sprintf(wh->i_addr2), IEEE80211_REASON_NOT_ASSOCED);
-		/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
-#if ATOPT_MGMT_DEBUG
-		IEEE80211_NOTE_MGMT_DEBUG(vap, ni, 
-		  	" <SEND> [Step 05 - SEND DEAUTH] %s: reason = ps poll not assoc (%d)\n", 
-		  	__func__, IEEE80211_REASON_NOT_ASSOCED);
-#endif
-		/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
 
         /* NB: caller deals with reference */
         if (ieee80211_vap_ready_is_set(vap)) {
@@ -1430,7 +1328,6 @@ wlan_send_mgmt(wlan_if_t vaphandle, u_int8_t *macaddr, u_int8_t *mgmt_frm, u_int
     if (wbuf == NULL)
         return -EINVAL;
     frm = (u_int8_t *)wbuf_header(wbuf);
-
     OS_MEMCPY(frm, mgmt_frm, len); 
     wbuf_set_pktlen(wbuf, len);
 
@@ -1446,7 +1343,7 @@ wlan_send_mgmt(wlan_if_t vaphandle, u_int8_t *macaddr, u_int8_t *mgmt_frm, u_int
 
     if ((type == IEEE80211_FC0_TYPE_MGT) && (subtype == IEEE80211_FC0_SUBTYPE_ACTION)) {
         /* protect if PMF is enabled, Turn ON Privacy bit in FC */
-        if (ieee80211_is_pmf_enabled(vap, ni)) {
+        if (ieee80211_is_pmf_enabled(vap, ni) && ni->ni_ucastkey.wk_valid) {
             /* MFP is enabled, so we need to set Privacy bit */
             wh->i_fc[1] |= IEEE80211_FC1_WEP;
         }

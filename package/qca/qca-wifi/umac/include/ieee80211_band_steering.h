@@ -49,6 +49,7 @@ int ieee80211_bsteering_detach(struct ieee80211com *ic);
  *
  * @param [in] vap  the VAP on which the set operation was done
  * @param [in] req  the parameters to be set
+ *
  * @return EOK for success and EINVAL for error cases
  */
 int wlan_bsteering_set_params(struct ieee80211vap *vap,
@@ -61,6 +62,8 @@ int wlan_bsteering_set_params(struct ieee80211vap *vap,
  *
  * @param [in] vap  the VAP on which the get operation was done
  * @param [in] req  the parameters to be retrieved
+ *
+ * @return EOK for success and EINVAL for error cases
  */
 int wlan_bsteering_get_params(const struct ieee80211vap *vap,
                               struct ieee80211req_athdbg *req);
@@ -71,6 +74,8 @@ int wlan_bsteering_get_params(const struct ieee80211vap *vap,
  *
  * @param [in] vap  the VAP on which the request came in
  * @param [in] req  the actual request parameters containing the new values
+ *
+ * @return EOK for success and EINVAL for error cases
  */
 int wlan_bsteering_set_dbg_params(struct ieee80211vap *vap,
                                   const struct ieee80211req_athdbg *req);
@@ -123,14 +128,14 @@ void ieee80211_bsteering_send_auth_fail_event(
                                               struct ieee80211vap *vap, const u_int8_t *mac_addr, u_int8_t rssi);
 
 /**
- * @brief Inform the band steering module that a node is now authorized.
+ * @brief Inform the band steering module that a node is now 
+ *        associated.
  *
  * @param [in] vap  the VAP on which the change occurred
- * @param [in] mac_addr  the MAC address of the client who had its
- *                       authorization status change
+ * @param [in] ni  the node who associated
  */
-void ieee80211_bsteering_send_node_authorized_event(struct ieee80211vap *vap,
-                                                    const u_int8_t *mac_addr);
+void ieee80211_bsteering_send_node_associated_event(struct ieee80211vap *vap,
+                                                    const struct ieee80211_node *ni);
 
 /**
  * @brief Toggle a VAP's overloaded status
@@ -168,6 +173,23 @@ int wlan_bsteering_get_overload(const struct ieee80211vap *vap,
 int wlan_bsteering_enable(struct ieee80211vap *vap,
                           const struct ieee80211req_athdbg *req);
 
+ /**
+ * @brief Enable/Disable band steering events on a VAP
+ *
+ * @pre wlan_bsteering_enable must be called
+ *
+ * @param [inout] vap the VAP whose band steering status
+ *                    changes
+ * @param [in] req request from user space containing the flag
+ *                 indicating enable or disable
+ *
+ * @return EINVAL if band steering not initialized or enabled on
+ *         the radio, EALREADY if band steering on the VAP is
+ *         already in the requested state, otherwise return EOK
+ */
+int wlan_bsteering_enable_events(struct ieee80211vap *vap,
+                                 const struct ieee80211req_athdbg *req);
+
 /**
  * @brief Start RSSI measurement on a specific station
  *
@@ -180,6 +202,19 @@ int wlan_bsteering_enable(struct ieee80211vap *vap,
  */
 int wlan_bsteering_trigger_rssi_measurement(struct ieee80211vap *vap,
                                             const struct ieee80211req_athdbg *req);
+
+/**
+ * @brief Query the data rate related information of the VAP or client
+ *        as specified by the MAC address
+ *
+ * @param [in] vap  the VAP for which to get the value
+ * @param [inout] req  request from user space containing the VAP/station MAC
+ *                     address for which to get the data rate related info
+ *
+ * @return EINVAL if the request is malformed; otherwise EOK
+ */
+int wlan_bsteering_get_datarate_info(struct ieee80211vap *vap,
+                                     struct ieee80211req_athdbg *req);
 
 /**
  * @brief Mark a node's inactivity status in band steering context
@@ -268,6 +303,24 @@ void ieee80211_bsteering_record_rssi(struct ieee80211_node *ni,
                                      u_int8_t rssi);
 
 /**
+ * @brief Called when the Tx rate has changed, and determines if
+ *        it has crossed a threshold.
+ *
+ * @param [in] ni  the node for which the Tx rate has changed 
+ * @param [in] tx_rate  the new Tx rate
+ */
+void ieee80211_bsteering_update_rate(struct ieee80211_node *ni, 
+                                     u_int32_t tx_rate);
+
+/**
+ * @brief Called when a VAP is stopped (this is only seen on a
+ *        RE when the uplink STA interface is disassociated)
+ *
+ * @param [in] vap VAP that has stopped
+ */
+void ieee80211_bsteering_send_vap_stop_event(struct ieee80211vap *vap);
+
+/**
  * @brief Inform the band steering module of an inst RSSI measurement obtained by
  *        sending Null Data Packet
  *
@@ -301,6 +354,107 @@ void ieee80211_bsteering_direct_attach_rssi_update(struct ieee80211com *ic,
                                                    u_int8_t *macaddress,
                                                    u_int8_t status,
                                                    int8_t rssi);
+
+/**
+ * @brief used for direct attach to inform band steering module for node rssi 
+ * @param [in] mac address of reporting node
+ * @param [in] status , success or failure
+ * @param [in] txrateKbps , rate in Kbps of node 
+ */
+
+void ieee80211_bsteering_direct_attach_txrate_update(struct ieee80211com *ic,
+                                                     u_int8_t *macaddress,
+                                                     u_int8_t status,
+                                                     u_int32_t txrateKbps);
+/**
+ * @brief Notify band steering when an error RRM beacon report response is received
+ *
+ * It will generate a netlink event with error status if band steering is enabled.
+ *
+ * @param [in] vap  the VAP on which the report is received
+ * @param [in] token  the dialog token matching the one provided in the request
+ * @param [in] macaddr  the MAC address of the reporter station
+ * @param [in] mode  the measurement report mode contained in the response
+ */
+void ieee80211_bsteering_send_rrm_bcnrpt_error_event(
+        struct ieee80211vap *vap, u_int32_t token, u_int8_t *macaddr,
+        u_int8_t mode);
+
+/**
+ * @brief Allocate memory to be filled with RRM beacon reports received
+ *
+ * The caller is responsible to call ieee80211_bsteering_dealloc_rrm_bcnrpt
+ * to free the allocated memory.
+ *
+ * @param [in] vap  the VAP on which the report is received
+ * @param [inout] reports  memory allocated enough to hold the requested
+ *                         number of beacon reports on success
+ * @return maximum number of beacon reports should be filled on success;
+ *         0 for error cases
+ */
+u_int8_t ieee80211_bsteering_alloc_rrm_bcnrpt(struct ieee80211vap *vap,
+                                              ieee80211_bcnrpt_t **reports);
+
+/**
+ * @brief Free the allocated memory for RRM beacon reports
+ *
+ * @param [inout] reports  the memory to be freed
+ */
+void ieee80211_bsteering_dealloc_rrm_bcnrpt(ieee80211_bcnrpt_t **reports);
+
+/**
+ * @brief Generate an event when beacon report response is received
+ *
+ * It will generate a netlink event if at lease one report is received, and
+ * the beacon report memory will be wiped out for further reports.
+ *
+ * @param [in] vap  the VAP on which the report is received
+ * @param [in] token  the dialog token matching the one provided in the request
+ * @param [in] macaddr  the MAC address of the reporter station
+ * @param [inout] bcnrpt  the beacon report(s) received
+ * @param [in] num_bcnrpt  number of the beacon report(s) to send
+ */
+void ieee80211_bsteering_send_rrm_bcnrpt_event(struct ieee80211vap *vap, u_int32_t token,
+                                               u_int8_t *macaddr, ieee80211_bcnrpt_t *bcnrpt,
+                                               u_int8_t num_bcnrpt);
+
+/**
+ * @brief Generate an event when a BSS Transition Management 
+ *        response frame is received
+ * 
+ * @param [in] vap  the VAP on which the frame is received
+ * @param [in] token  the dialog token matching the one provided in
+ *                    the request
+ * @param [in] macaddr  the MAC address of the sending station
+ * @param [in] bstm_resp  response frame information
+ */
+void ieee80211_bsteering_send_wnm_bstm_resp_event(struct ieee80211vap *vap, u_int32_t token,
+                                                  u_int8_t *macaddr, 
+                                                  struct bs_wnm_bstm_resp *bstm_resp);
+
+/**
+ * @brief Determine whether the VAP has band steering enabled.
+ *
+ * Validate that the VAP has a valid band steering handle, that
+ * it is operating in the right mode (AP mode), and that band steering has been
+ * enabled on the VAP. 
+ *
+ * @param [in] vap  the VAP to check
+ *
+ * @return true if the VAP is valid and has band steering enabled; otherwise
+ *         false
+ */
+bool ieee80211_bsteering_is_vap_enabled(const struct ieee80211vap *vap);
+
+/**
+ * @brief Generate an event when Tx power change on a VAP
+ *
+ * @param [in] vap  the VAP on which Tx power changes
+ * @param [in] tx_power  the new Tx power
+ */
+void ieee80211_bsteering_send_txpower_change_event(struct ieee80211vap *vap,
+                                                   u_int16_t tx_power);
+
 #else
 
 // Stub functions that return error codes to the band steering ioctls.
@@ -347,6 +501,12 @@ static inline int wlan_bsteering_enable(struct ieee80211vap *vap,
     return -EINVAL;
 }
 
+static inline int wlan_bsteering_enable_events(struct ieee80211vap *vap,
+                                               const struct ieee80211req_athdbg *req)
+{
+    return -EINVAL;
+}
+
 static inline int wlan_bsteering_trigger_rssi_measurement(struct ieee80211vap *vap,
                                                           const struct ieee80211req_athdbg *req)
 {
@@ -372,7 +532,21 @@ static inline int wlan_bsteering_get_probe_resp_wh(const struct ieee80211vap *va
     return -EINVAL;
 }
 
+static inline int wlan_bsteering_get_datarate_info(struct ieee80211vap *vap,
+                                                   struct ieee80211req_athdbg *req)
+{
+    return -EINVAL;
+}
 
+static inline bool ieee80211_bsteering_is_vap_enabled(const struct ieee80211vap *vap)
+{
+    return false;
+}
+
+static inline void ieee80211_bsteering_send_vap_stop_event(struct ieee80211vap *vap)
+{
+    return;
+}
 #endif /* ATH_BAND_STEERING */
 
 #endif /* _UMAC_IEEE80211_BAND_STEERING__ */

@@ -275,6 +275,11 @@ struct ieee80211_scanner {
     os_timer_t                          ss_timer;
     os_timer_t                          ss_maxscan_timer;
 
+#if !ATH_SUPPORT_MULTIPLE_SCANS && defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+    adf_os_work_t                       ss_timer_defered;         /* work queue for scan_timer defered */
+    adf_os_work_t                       ss_maxscan_timer_defered; /* work queue for max scan timer defered */
+#endif
+
     enum scanner_event                  ss_pending_event; 
     
     /* 
@@ -626,39 +631,38 @@ static void scanner_construct_chan_list(ieee80211_scanner_t ss, wlan_if_t vaphan
         ss->ss_nchans = 0;
         /* scan all supported channels */
         if ((ss->ss_flags & (IEEE80211_SCAN_ALLBANDS)) == IEEE80211_SCAN_ALLBANDS) {
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            ss->ss_nchans = 0;
+            for (i = 0; i < ss->ss_nallchans; ++ i) {
+                struct ieee80211_channel *ichan;
+                ichan = ss->ss_all_chans[i];
+                /* Remove the  channels for NOL is set*/
+                if(!IEEE80211_IS_CHAN_RADAR(ichan)) {
+                    ss->ss_chans[ss->ss_nchans++] = ss->ss_all_chans[i];
+                }
+            }
+#else
             ss->ss_nchans = ss->ss_nallchans;
             OS_MEMCPY(ss->ss_chans, ss->ss_all_chans, sizeof(struct ieee80211_channel *) * ss->ss_nallchans);
+#endif
         } else {
             for (i = 0; i < ss->ss_nallchans; ++ i) {
                 if ((ss->ss_flags & IEEE80211_SCAN_2GHZ) ?
                     IEEE80211_IS_CHAN_2GHZ(ss->ss_all_chans[i]) : IEEE80211_IS_CHAN_5GHZ(ss->ss_all_chans[i])) {
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+                    struct ieee80211_channel *ichan;
+                    ichan = ss->ss_all_chans[i];
+                    if(!IEEE80211_IS_CHAN_RADAR(ichan)) {
+                        ss->ss_chans[ss->ss_nchans++] = ss->ss_all_chans[i];
+                    }
+#else
                     ss->ss_chans[ss->ss_nchans++] = ss->ss_all_chans[i];
+#endif
                 }
             }
         }
-
-/*AUTELAN-Begin:Added by tuqiang for monitor switch.*/
-		if(vaphandle->iv_monitor 
-				&& (vaphandle->iv_scan_channel >= 0))
-		{
-			for (i = 0; i < ss->ss_nallchans; ++ i) {
-
-				if(ss->ss_all_chans[i]->ic_ieee == vaphandle->iv_scan_channel){
-					ss->ss_chans[0] = ss->ss_all_chans[i];
-
-					IEEE80211_SCAN_PRINTF(ss, IEEE80211_MSG_SCAN, "%s: AUTELAN authorized req channel = %d freq = %d scan\n",
-							__func__, ss->ss_chans[0]->ic_ieee, ss->ss_chans[0]->ic_freq);
-
-					ss->ss_nchans = 1;
-					break;
-				}
-			}
-
-			if(i == ss->ss_nallchans)
-				printk("ERROR : %d channel not supported!\n", vaphandle->iv_scan_channel);
-
-		}
-/* AUTELAN-End: Added by tuqiang for monitor switch*/
     } else {
         int    j;
 
@@ -703,7 +707,17 @@ static void scanner_construct_chan_list(ieee80211_scanner_t ss, wlan_if_t vaphan
                 IEEE80211_IS_CHAN_5GHZ(ss->ss_all_chans[j]))
                 continue; /* only 2G channel, go to next channel */
 
-            ss->ss_chans[ss->ss_nchans++] = ss->ss_all_chans[j]; 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+            do {
+                struct ieee80211_channel *ichan;
+                ichan = ss->ss_all_chans[j];
+                if(!IEEE80211_IS_CHAN_RADAR(ichan)) {
+                    ss->ss_chans[ss->ss_nchans++] = ss->ss_all_chans[j];
+                }
+            } while(0);
+#else
+            ss->ss_chans[ss->ss_nchans++] = ss->ss_all_chans[j];
+#endif
         }
     }
 #undef FREQUENCY_THRESH
@@ -1668,6 +1682,7 @@ static int _ieee80211_scan_get_last_scan_info(ieee80211_scanner_t ss, ieee80211_
         info->default_channel_list_length = ss->ss_nallchans;
         info->channel_list_length         = ss->ss_nchans;
         info->restricted                  = ss->ss_restricted;
+        info->completion_reason           = ss->ss_termination_reason;
 
         if (ss->ss_common.ss_info.si_scan_in_progress) {
             info->scheduling_status      = IEEE80211_SCAN_STATUS_RUNNING;
@@ -3705,6 +3720,9 @@ static OS_TIMER_FUNC(scanner_timer_handler)
             __func__, ieee80211_sm_get_current_state_name(ss->ss_hsm_handle), ieee80211_scan_event_name(ss->ss_pending_event));
     }
 
+#if !ATH_SUPPORT_MULTIPLE_SCANS && defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+    adf_os_sched_work(NULL, &ss->ss_timer_defered);
+#else
     ieee80211_sm_dispatch(ss->ss_hsm_handle,
                           ss->ss_pending_event,
                           0,
@@ -3712,6 +3730,7 @@ static OS_TIMER_FUNC(scanner_timer_handler)
 
     /* Clear pending event */
     ss->ss_pending_event = SCANNER_EVENT_NONE;
+#endif
 }
 
 static OS_TIMER_FUNC(scanner_timer_maxtime_handler)
@@ -3720,10 +3739,14 @@ static OS_TIMER_FUNC(scanner_timer_maxtime_handler)
 
     OS_GET_TIMER_ARG(ss, ieee80211_scanner_t);
 
+#if !ATH_SUPPORT_MULTIPLE_SCANS && defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+   adf_os_sched_work(NULL, &ss->ss_maxscan_timer_defered);
+#else
     ieee80211_sm_dispatch(ss->ss_hsm_handle,
                           SCANNER_EVENT_MAXSCANTIME_EXPIRE,
                           0,
                           NULL); 
+#endif
 }
 
 /*
@@ -4538,7 +4561,34 @@ static int _ieee80211_scan_disable_scan_scheduler(ieee80211_scanner_t       ss,
         max_suspend_time);
 }
 
+#if !ATH_SUPPORT_MULTIPLE_SCANS && defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+void scan_timer_defered(void *timer_arg)
+{
+    ieee80211_scanner_t      ss;
 
+    OS_GET_TIMER_ARG(ss, ieee80211_scanner_t);
+
+    ieee80211_sm_dispatch(ss->ss_hsm_handle,
+                          ss->ss_pending_event,
+                          0,
+                          NULL);
+
+    /* Clear pending event */
+    ss->ss_pending_event = SCANNER_EVENT_NONE;
+}
+
+void scan_max_timer_defered(void *timer_arg)
+{
+    ieee80211_scanner_t      ss;
+
+    OS_GET_TIMER_ARG(ss, ieee80211_scanner_t);
+
+    ieee80211_sm_dispatch(ss->ss_hsm_handle,
+                          SCANNER_EVENT_MAXSCANTIME_EXPIRE,
+                          0,
+                          NULL);
+}
+#endif
 
 int _ieee80211_scan_attach(ieee80211_scanner_t        *ss,
                           wlan_dev_t                 devhandle, 
@@ -4627,6 +4677,11 @@ int _ieee80211_scan_attach(ieee80211_scanner_t        *ss,
          */
         OS_INIT_TIMER(osdev, &((*ss)->ss_timer), scanner_timer_handler, (void *) (*ss));
         OS_INIT_TIMER(osdev, &((*ss)->ss_maxscan_timer), scanner_timer_maxtime_handler, (void *) (*ss));
+
+#if !ATH_SUPPORT_MULTIPLE_SCANS && defined USE_WORKQUEUE_FOR_MESGQ_AND_SCAN
+        adf_os_create_work(osdev, &((*ss)->ss_timer_defered), scan_timer_defered, (void *)(*ss));
+        adf_os_create_work(osdev, &((*ss)->ss_maxscan_timer_defered), scan_max_timer_defered, (void *)(*ss));
+#endif
 
         spin_lock_init(&((*ss)->ss_lock));
         (*ss)->ss_is_txq_empty    = is_txq_empty;

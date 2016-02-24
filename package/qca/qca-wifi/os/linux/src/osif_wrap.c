@@ -59,8 +59,8 @@ int osif_wrap_proc_read(char *buf, char **start, off_t offset, int count, int *e
 	struct wrap_devt *wdt = &wc->wc_devt;
 	osif_dev *osd;
 	int len=0;
-	struct net_device *netdev;
 #if notyet
+	struct net_device *netdev;
     int type=-1;
 #endif
 
@@ -70,8 +70,8 @@ int osif_wrap_proc_read(char *buf, char **start, off_t offset, int count, int *e
 	len += sprintf(buf+len,"Isolation is %s\n",(wc->wc_isolation==1)?"enabled":"disabled");
 	len += sprintf(buf+len,"%-4s [ type][%-17s] [d:o:s]\n","dev","oma");
 	TAILQ_FOREACH(osd, &wdt->wdt_dev, osif_dev_list) {
-		netdev = OSIF_TO_NETDEV(osd);
 #if notyet
+        netdev = OSIF_TO_NETDEV(osd);
 		if(netdev->br_port)
 			type  = br_get_port_type(netdev->br_port);
 			len += sprintf(buf+len,"%s [%d][%s] [%lu:%lu:%lu]\n",	
@@ -121,6 +121,7 @@ static void osif_wrap_proc_init(struct wrap_com *wc)
         OSIF_WRAP_MSG_ERR("Failed to alloc mem for wrap proc entry \n");
         return;
     }
+    OS_MEMZERO(tmp1,sizeof(tmp));
     snprintf(tmp, sizeof(tmp),
                        WRAP_PROC_FILE "%d\0", proc_idx++);
     OS_MEMCPY(tmp1,tmp,strlen(tmp)); 
@@ -130,10 +131,12 @@ static void osif_wrap_proc_init(struct wrap_com *wc)
     proc_entry = proc_create_data(wc->wc_proc_name, WRAP_PROC_PERM, NULL,&fops,(void *)(wc));
 #else
     proc_entry = create_proc_entry(wc->wc_proc_name, WRAP_PROC_PERM, NULL);
-    proc_entry->nlink = 1;
-    proc_entry->data = (void *)(wc);
-    proc_entry->read_proc = osif_wrap_proc_read;
-    proc_entry->write_proc = osif_wrap_proc_write;
+    if(proc_entry){
+        proc_entry->nlink = 1;
+        proc_entry->data = (void *)(wc);
+        proc_entry->read_proc = osif_wrap_proc_read;
+        proc_entry->write_proc = osif_wrap_proc_write;
+    }
 #endif
 	return;
 }
@@ -324,7 +327,7 @@ int osif_wrap_detach(wlan_dev_t ic)
 	if(wrap_com->wc_use_cnt==0){		
 		osif_wrap_devt_detach(wrap_com);
 		OS_FREE(wrap_com);
-		wrap_com = NULL;
+		ic->ic_wrap_com = NULL;
 		OSIF_WRAP_MSG("osif wrap detached\n");	
 	}
 

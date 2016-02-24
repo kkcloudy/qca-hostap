@@ -45,7 +45,13 @@ OS_TIMER_FUNC(dfs_remove_from_nol)
 
     /* Only operate in HOSTAP/IBSS */
     if (ic->ic_opmode != IEEE80211_M_HOSTAP &&
-      ic->ic_opmode != IEEE80211_M_IBSS)
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+          ic->ic_opmode != IEEE80211_M_IBSS &&
+          !(ic->ic_opmode == IEEE80211_M_STA &&
+          ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)))
+#else
+        ic->ic_opmode != IEEE80211_M_IBSS)
+#endif
         goto done;
 
     /* Delete the given NOL entry */
@@ -83,6 +89,19 @@ dfs_print_nol(struct ath_dfs *dfs)
     }
 }
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void
+dfs_print_nolhistory(struct ieee80211com *ic,struct ath_dfs *dfs)
+{
+
+    if (dfs == NULL) {
+        DFS_DPRINTK(dfs, ATH_DEBUG_DFS_NOL, "%s: sc_dfs is NULL\n", __func__);
+        return;
+    }
+    ic->ic_dfs_print_nolhistory(ic);
+    return;
+}
+#endif
 
 void
 dfs_get_nol(struct ath_dfs *dfs, struct dfsreq_nolelem *dfs_nol,

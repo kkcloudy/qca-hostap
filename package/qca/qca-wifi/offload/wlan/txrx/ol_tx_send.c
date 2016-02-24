@@ -24,9 +24,11 @@
 #include "htt_internal.h"
 #endif
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/	
+/*Added-Begin:pengdecai for 11ac station timeout*/	
+#if ATOPT_ORI_ATHEROS_BUG
 extern int ol_node_activity(struct ol_txrx_peer_t *peer);
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
 void
 ol_tx_send(
@@ -359,7 +361,8 @@ ol_tx_completion_handler(
         }
     }
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/	
+/*Added-Begin:pengdecai for 11ac station timeout*/	
+#if ATOPT_ORI_ATHEROS_BUG
 	switch (status) {
 		struct ol_txrx_peer_t *peer = NULL;
         case htt_tx_status_ok:
@@ -372,7 +375,8 @@ ol_tx_completion_handler(
 		default:
 		break;
 	}
-/*AUTELAN-Added-End:pengdecai for 11ac station timeout*/
+#endif
+/*Added-End:pengdecai for 11ac station timeout*/
 
     /* One shot protected access to pdev freelist, when setup */
     if (lcl_freelist) {

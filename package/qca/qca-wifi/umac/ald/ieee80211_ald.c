@@ -124,6 +124,7 @@ int wlan_ald_sta_enable(wlan_if_t vaphandle, u_int8_t *macaddr, u_int32_t enable
             ((retval = ic->ic_node_ext_stats_enable(ni, enable)) == 0)) {
             ni->ni_flags ^= IEEE80211_NODE_EXT_STATS;
         }
+        ieee80211_free_node(ni);
     } else {
         retval = -EINVAL;
     }

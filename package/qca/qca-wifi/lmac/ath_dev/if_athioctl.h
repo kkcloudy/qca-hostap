@@ -55,9 +55,6 @@ struct ath_11n_stats {
     u_int32_t   tx_badsetups;       /* tx key setup failures */
     u_int32_t   tx_normnobufs;      /* tx no desc for legacy packets */
     u_int32_t   tx_schednone;       /* tx schedule pkt queue empty */
-#if ATOPT_DRV_MONITOR
-	u_int32_t   aute_tx_schedule;    /*tx schedule do something*/ //zhaoenjuan  for drv monitor stats
-#endif
     u_int32_t   tx_bars;            /* tx bars sent */
     u_int32_t   tx_legacy;          /* tx legacy frames sent */
     u_int32_t   txunaggr_single;    /* tx unaggregate singles sent */
@@ -154,7 +151,8 @@ struct ath_11n_stats {
     u_int32_t   bf_bandwidth_miss;  /* beamform bandwidth mismatch */ 
     u_int32_t   bf_destination_miss;/* beamform destination mismatch */ 
 #endif
-
+    u_int32_t   tx_deducted_tokens; /* ATF txtokens deducted */
+    u_int32_t   tx_unusable_tokens; /* ATF txtokens unusable */
 };
 
 
@@ -181,23 +179,6 @@ struct ath_dfs_stats {
     u_int32_t       num_filter;
     struct dfs_filter_stats fstat[DFS_MAX_FILTER];    
 };
-
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-#define MIB_TIMER_DEFAULT 5000	// 5sec
-struct ath_mib_cnts {
-    u_int32_t   txFrameCount;
-    u_int32_t   rxFrameCount;
-    u_int32_t   rxClearCount;
-    u_int32_t   cycleCount;
-};
-typedef struct channel_utility {
-	unsigned long timestamps_sec;
-	u_int32_t cyclecount;
-	u_int32_t rxclearcount;
-	u_int32_t rxfrmaecount;
-	u_int32_t txfrmaecount;
-} CHANNEL_UTILITY;
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 
 struct ath_bb_panic_info {
     int valid;
@@ -360,9 +341,6 @@ struct ath_stats {
     u_int32_t   ast_rx_num_qos_data[16];        /* per tid rx packets (includes duplicates)*/
     u_int32_t   ast_rx_num_nonqos_data;         /* non qos rx packets    */
     u_int32_t   ast_txq_packets[16];            /* perq packets sent on the interface for each category */
-#if ATOPT_DRV_MONITOR
-    u_int32_t   ast_txq_noaggr_packets[16];     /* perq no-aggr packets sent on the interface for each category */  //zhaoenjuan  for drv monitor stats
-#endif
     u_int32_t   ast_txq_xretries[16];           /* per q tx failed 'cuz too many retries */
     u_int32_t   ast_txq_fifoerr[16];            /* per q tx failed 'cuz FIFO underrun */
     u_int32_t   ast_txq_filtered[16];           /*per q  tx failed 'cuz xmit filtered */
@@ -461,14 +439,6 @@ struct ath_stats {
     int16_t     ast_noise_floor;
     struct ast_mib_mac_stats ast_mib_stats;
     struct ath_bb_panic_info ast_bb_panic[MAX_BB_PANICS];
-
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    u_int32_t  mib_timer_period;
-    u_int8_t sec5_ch_utility_ptr;
-    u_int16_t min1_ch_utility_ptr;
-    CHANNEL_UTILITY sec5_ch_utility_data[60];		//5min
-    CHANNEL_UTILITY min1_ch_utility_data[1440];	//24h
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 };
 
 struct ath_stats_container {
@@ -684,11 +654,18 @@ typedef enum {
     ATH_PARAM_RESET_OL_STATS            = 143,
     ATH_PARAM_DISABLE_DFS               = 144,
     ATH_PARAM_DECLINE_ADDBA_ENABLE      = 145,
-    ATH_PARAM_ATF_STRICT_SCHED          = 146,
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    ATH_PARAM_MIB_PERIOD = 152,
-    ATH_PARAM_CH_UTIL_OPEN = 153,
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
+    ATH_PARAM_ATF_STRICT_SCHED          = 186,
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    ATH_PARAM_STADFS_ENABLE             = 300,
+#endif
+    ATH_PARAM_ATF_OBSS_SCHED            = 301,
+    ATH_PARAM_ATF_OBSS_SCALE            = 302,
+    ATH_PARAM_ATH_CTL_POWER_SCALE       = 303,
+    ATH_PARAM_PHY_OFDM_ERR              = 304,
+    ATH_PARAM_PHY_CCK_ERR               = 305,
+    ATH_PARAM_FCS_ERR                   = 306,
+    ATH_PARAM_CHAN_UTIL                 = 307,
+    ATH_PARAM_ATF_GROUP_SCHED_POLICY    = 308,
 } ath_param_ID_t;
 
 #define ATH_TX_POWER_SRM 0
@@ -746,22 +723,11 @@ struct ath_diag32 {
 #define SIOCGATHEACS        (SIOCDEVPRIVATE+6)
 #define SIOCGATHAOW         (SIOCDEVPRIVATE+8)
 #define SIOCSATHSUSPEND     (SIOCDEVPRIVATE+10)
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-#define SIOCSATHSYNCINFO     (SIOCDEVPRIVATE+11)
-#define SIOCSATHCONNECTRULE     (SIOCDEVPRIVATE+12)
-
-#define SIOCGATHPHYSTATS    (SIOCDEVPRIVATE+16)
-#define SIOCG80211PROFILE     (SIOCDEVPRIVATE+17)
-#else
 /* Currently exposed only for Linux, as part of some Access Point
    statistics.
    TODO: Implement for other platforms, if required. */
 #define SIOCGATHPHYSTATS    (SIOCDEVPRIVATE+11)
 #define SIOCG80211PROFILE     (SIOCDEVPRIVATE+12)
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
 /* 13 for TX99 */
 #define SIOCGATHPHYSTATSCUR (SIOCDEVPRIVATE+14)
 #define SIOCGSETCTLPOW   	(SIOCDEVPRIVATE+15)

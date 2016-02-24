@@ -1,66 +1,88 @@
 #
-# Copyright (c) 2014 Qualcomm Atheros, Inc.
-#
-# All Rights Reserved.
-# Qualcomm Atheros Confidential and Proprietary.
+# Makes spectral apps
 #
 
-include $(TOPDIR)/rules.mk
+ifeq ($(obj),)
+obj := .
+endif
 
-PKG_NAME:=qca-spectral
+# Default OS is linux
+ifeq ($(OS),)
+OS := linux
+endif
 
-PKG_VERSION:=10.2.r2-00013-4
-PKG_RELEASE:=1
+# Important note: Values of CC, AR and LD should be passed to this script.
 
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
-#PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
+# Path defines...
+SPECTRAL_DRIVER_PATH	:= $(ATHEROSPATH)/lmac/spectral
+ADF_INC					:= ${ATHEROSPATH}/adf/include
+ADF_OS_INC				:= ${ATHEROSPATH}/adf/include/os
+ASF_INC					:= ${ATHEROSPATH}/asf/include
+ATH_DEV_INC				:= ${ATHEROSPATH}/lmac/ath_dev
+ATH_DFS_INC				:= ${ATHEROSPATH}/lmac/dfs
+UMAC_INC				:= ${ATHEROSPATH}/umac/include
+COMMON_INC				:= ./common
+HAL_INC					:= ${ATHEROSPATH}/hal
+CLASSIFIER_SRC			:= ./common
+CLASSIFIER_INC			:= ./common
+BINDIR					= /usr/local/bin
+DEPTH					:= ../../drivers/wlan
+TOOLS_HEADER_INC_PATH	:= ../../drivers/wlan_modules/os/linux/include
+WLAN_INC_PATH			:= ../../drivers/wlan_modules/include
+OL_WLAN_INC_PATH	    := $(ATHEROSPATH)/include/
+OL_WLAN_HINC_PATH	    := $(ATHEROSPATH)/offload/include/
 
-include $(INCLUDE_DIR)/package-version-override.mk
-include $(INCLUDE_DIR)/package.mk
 
-#PKG_BRANCH:=$(basename $(PKG_VERSION))
-#PKG_SOURCE_URL:=http://tritium.qca.qualcomm.com/software/$(PKG_BRANCH)/AP$(PKG_VERSION:999.999.0%=QCAMain%)/src/components
+# Spectral
+ifeq ($(strip ${ATH_SUPPORT_SPECTRAL}),1)
+ALL+= ssd athssd
+SPECTRAL_TOOLS+= ssd athssd
+endif
 
-define Package/qca-spectral
-  SECTION:=QCA
-  CATEGORY:=QCA Proprietary software
-  URL:=http://www.qca.qualcomm.com
-  MAINTAINER:=Qualcomm Atheros
-  TITLE:=QCA Spectral Analysis
-  DEPENDS:=kmod-qca-wifi +libpthread
-endef
+# ICM
+ifeq ($(strip ${ATH_SUPPORT_ICM}),1)
+ALL+= icm
+SPECTRAL_TOOLS+= icm
+INCS+=-I${COMMON}/dfs -I${COMMON} -I${COMMON}/spectral
+endif
 
-define KernelPackage/qca-spectral/config
-$(call Package/$(PKG_NAME)/override_source_path,kmod-$(PKG_NAME))
-$(call Package/$(PKG_NAME)/override_version,kmod-$(PKG_NAME),$(PKG_SUPPORTED_VERSION))
-endef
+all: ${ALL}
 
-MAKEOPTS+= \
-	$(TARGET_CONFIGURE_OPTS) \
-	COPTS="$(TARGET_CFLAGS)" \
-	ATHEROSPATH=$(STAGING_DIR)/usr/include \
-	ATH_SUPPORT_ICM=1 \
-	ATH_SUPPORT_SPECTRAL=1
+# Add necessary include path
+INCS+= -I$(ATHEROSPATH) -I${HAL}/${OS} -I${HAL_INC} -I${COMMON_INC}
+INCS+= -I${CLASSIFIER_INC} -I${ADF_INC} -I${ADF_OS_INC} -I${ASF_INC}
+INCS+= -I${SPECTRAL_DRIVER_PATH} -I${ATH_DEV_INC} -I${ATH_DFS_INC} -I.
+INCS+= -I${TOOLS_HEADER_INC_PATH} -I${WLAN_INC_PATH} -I${OL_WLAN_INC_PATH} -I${OL_WLAN_HINC_PATH}
 
-define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)
-	cp src/$(PKG_NAME)-$(PKG_VERSION)/* $(PKG_BUILD_DIR) -rf
-endef
+# Update CFLAGS
+CFLAGS= ${INCS} ${COPTS} -Wall
 
-define Build/Compile
-	$(MAKE) -C $(PKG_BUILD_DIR) $(MAKEOPTS)
-endef
+ifeq (${BUILD_STATIC}, y)
+LDFLAGS= -static
+endif
 
-define Package/qca-spectral/install
-	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/athssd $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/icm $(1)/usr/sbin
+ifeq (${BUILD_DEBUG}, y)
+CFLAGS+= -g
+endif
 
-	$(INSTALL_DIR) $(1)/lib/wifi
-	$(INSTALL_BIN) ./files/icm.sh $(1)/lib/wifi
+ifeq (${BUILD_OPTIMIZED}, y)
+CFLAGS += -Os -pipe -mips32r2 -mtune=mips32r2 -funit-at-a-time
+endif
 
-	$(INSTALL_DIR) $(1)/etc/ath
-	$(INSTALL_DATA) ./files/icm.conf $(1)/etc/ath
-endef
+ssd: ssd.c ssd_utils.c ssd_proto.c ssd_data.c ssd_list.c ssd_interf.c ath_classifier.c ${CLASSIFIER_SRC}/classifier.c
+	${CC} -o ssd ${CFLAGS} ${LDFLAGS} ssd.c ssd_proto.c ssd_data.c ssd_utils.c ssd_list.c ssd_interf.c ${CLASSIFIER_SRC}/classifier_init.c ${CLASSIFIER_SRC}/classifier.c ath_classifier.c -lm
 
-$(eval $(call BuildPackage,qca-spectral))
+athssd: ath_ssd.c ath_classifier.c ${CLASSIFIER_SRC}/classifier.c ath_ssd_cmds.c
+	${CC} -o athssd ${CFLAGS} ${LDFLAGS} ath_ssd.c ath_ssd_cmds.c ath_classifier.c -lm
+
+icm: icm.c icm_socket.c icm_spectral.c icm_test.c icm_scan.c ath_classifier.c icm_utils.c icm_selector.c icm_cmds.c
+	${CC} -o icm ${CFLAGS} ${LDFLAGS} -lpthread icm.c icm_test.c icm_scan.c icm_socket.c icm_spectral.c icm_utils.c ath_classifier.c icm_selector.c  icm_cmds.c -lm
+
+diagtools: logadc.c logspectral.c
+	make -f Makefile.logspectraladc
+
+clean:
+	@rm -rf ssd athssd icm
+ 
+athssd_clean:
+	@rm -rf athssd

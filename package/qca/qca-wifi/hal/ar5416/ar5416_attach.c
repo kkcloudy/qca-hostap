@@ -292,7 +292,6 @@ static const struct ath_hal_private ar5416hal = {
         ar5416WriteAssocid,
         ar5416ForceTSFSync,
         ar5416GpioCfgInput,
-        AH_NULL,
         ar5416GpioCfgOutput,
         ar5416GpioCfgOutputLEDoff,
         ar5416GpioGet,
@@ -443,11 +442,11 @@ static const struct ath_hal_private ar5416hal = {
         ar5416Set11nBurstDuration,
         ar5416Set11nVirtualMoreFrag,
         ar5416Get11nExtBusy,
+        ar5416GetChBusyPct,
         ar5416Set11nMac2040,
         ar5416Get11nRxClear,
         ar5416Set11nRxClear,
         ar5416GetMibCycleCountsPct,
-        AH_NULL,	/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
         ar5416DmaRegDump,
 
         /* ForcePPM specific functions */

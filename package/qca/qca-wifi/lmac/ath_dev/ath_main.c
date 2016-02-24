@@ -43,9 +43,6 @@ int ath_dev_get_ctldutycycle(ath_dev_t dev);
 int ath_dev_get_extdutycycle(ath_dev_t dev);
 u_int32_t ath_init_spectral_ops(struct ath_spectral_ops* p_sops);
 #endif
-#if ATOPT_DRV_MONITOR
-#include "../../ATOPT/drv_monitor/drv_monitor.h"
-#endif
 
 #if ATH_SUPPORT_GREEN_AP
 u_int32_t ath_init_green_ap_ops(GREEN_AP_OPS* p_gapops);
@@ -56,6 +53,7 @@ u_int32_t ath_green_ap_get_current_channel_flags(void* arg);
 u_int32_t ath_green_ap_reset_dev(void* arg);
 #endif  /* ATH_SUPPORT_GREEN_AP */
 
+static int ath_sc_chan_busy(void *arg);
 
 #if ATH_RESET_SERIAL
 int
@@ -87,15 +85,6 @@ module_param(macaddr_override, charp, S_IRUSR);
 MODULE_PARM_DESC(macaddr_override, "Local MAC address override");
 #endif
 #endif /* __linux__ */
-
-#if ATOPT_MAC_RULE
-#include <linux/moduleparam.h>
-int new_dispatch_mac = 0;
-EXPORT_SYMBOL(new_dispatch_mac);
-module_param(new_dispatch_mac, int, 0600);
-MODULE_PARM_DESC(new_dispatch_mac, "New method of dispatch mac");
-#endif
-static OS_TIMER_FUNC(ath_ch_utility_5sec_timer);/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 
 #if ATH_SUPPORT_VOW_DCS
 #define INTR_DETECTION_CNT 6      /* Interference detection cnt for channel change */
@@ -273,6 +262,9 @@ u_int8_t ath_tx99_ops(ath_dev_t dev, int cmd, void *tx99_wcmd);
 u_int8_t ath_set_ctl_pwr(ath_dev_t dev, u_int8_t *ctl_pwr_array,
                             int rd, u_int8_t chainmask);
 bool ath_ant_swcom_sel(ath_dev_t dev, u_int8_t ops, u_int32_t *tbl1, u_int32_t *tbl2);
+
+static int ath_get_vap_stats(ath_dev_t dev, int if_id, struct ath_vap_dev_stats *vap_stats);
+
 /*
 ** Internal Prototypes
 */
@@ -2180,6 +2172,104 @@ out:
 }
 #endif
 
+/* Beginning: zhaoyang modifies for patching rx stuck 2015-12-17 */
+static unsigned int hw_read_count = 0; 
+static u_int16_t reset_required = 0; 
+#define WAIT_COUNT 50 /* Suggested by Ravi and Srikanth : This is 800milliseconds delay */ 
+static 
+OS_TIMER_FUNC(ath_rx_hwreg_checker) 
+{ 
+    struct ath_softc *sc; 
+    u_int32_t pcu_obs; 
+    OS_GET_TIMER_ARG(sc, struct ath_softc *); 
+ 
+    if (!sc->sc_nvaps || sc->sc_invalid || sc->sc_scanning || atomic_read(&sc->sc_in_reset)) { 
+        return; 
+    } 
+ 
+    if(hw_read_count < WAIT_COUNT) { 
+        pcu_obs = ath_hal_readRegister(sc->sc_ah,0x806C); 
+        if((pcu_obs >> 20 & 0x3f) == 0x17) { 
+            reset_required++; 
+        } 
+        hw_read_count++; 
+    } /* End of while(count < 1000) { */ 
+    if(hw_read_count >= WAIT_COUNT || reset_required > 2) { 
+        if(reset_required > 2) { 
+            DPRINTF(sc, ATH_DEBUG_ANY, "\n %s resetting hardware for Rx stuck ",__func__); 
+            sc->sc_reset_type = ATH_RESET_NOLOSS; 
+            ath_internal_reset(sc); 
+            sc->sc_reset_type = ATH_RESET_DEFAULT; 
+            sc->sc_stats.ast_resetOnError++; 
+            reset_required = 0; 
+        } 
+        hw_read_count = 0; 
+    } else { 
+        if (!sc->sc_rxstuck_shutdown_flag) { 
+            OS_SET_TIMER(&sc->sc_hwstuck, 10); 
+        } else { 
+            OS_CANCEL_TIMER(&sc->sc_hwstuck); 
+        } 
+    } 
+    return; 
+} 
+ 
+#define RXSTUCK_TIMER_VAL 1000 /* 1 sec */ 
+static 
+OS_TIMER_FUNC(ath_rx_stuck_checker) 
+{ 
+    struct ath_softc *sc; 
+    u_int32_t cur_lp_rx_dp; 
+    u_int32_t cur_fifo_depth; 
+ 
+    OS_GET_TIMER_ARG(sc, struct ath_softc *); 
+ 
+    if (!sc->sc_nvaps || sc->sc_invalid || sc->sc_scanning || atomic_read(&sc->sc_in_reset) ) { 
+        goto out; 
+    } 
+ 
+    /* 
+     * if we get receive overrun interrupt then check 
+     * if FIFO depth is > 0 and then check if LP Rx_DP 
+     * is not moving. If not moving reset the CHIP 
+     *  Size of LP RxDP FIFO  {0x0070}LP[7:0] 
+     *  Size of HP RxDP FIFO  {0x0070}LP[12:8] 
+     */ 
+    cur_lp_rx_dp = ath_hal_readRegister(sc->sc_ah,0x0078); 
+    cur_fifo_depth = ath_hal_readRegister(sc->sc_ah,0x0070) & 0x00001FFF; 
+    if(sc->sc_stats.ast_rxorn &&  cur_fifo_depth && (sc->sc_stats.ast_rxorn != sc->sc_last_rxorn)) { 
+         DPRINTF(sc, ATH_DEBUG_ANY, "\n %s overrun is hit\n",__func__); 
+        if(sc->sc_last_lp_rx_dp && (cur_lp_rx_dp == sc->sc_last_lp_rx_dp)) { 
+            reset_required++; 
+        } 
+    } 
+    else { 
+        if((sc->sc_last_lp_rx_dp && (cur_lp_rx_dp == sc->sc_last_lp_rx_dp))) { 
+            OS_SET_TIMER(&sc->sc_hwstuck, 10); 
+        } /* End of if */ 
+    } /* End of else */ 
+ 
+ 
+    if (reset_required > 2) { 
+        /* hardware Rx stuck detected !!!! reset hardware */ 
+        DPRINTF(sc, ATH_DEBUG_ANY, "\n %s resetting hardware for Rx stuck ",__func__); 
+        sc->sc_reset_type = ATH_RESET_NOLOSS; 
+        ath_internal_reset(sc); 
+        sc->sc_reset_type = ATH_RESET_DEFAULT; 
+        sc->sc_stats.ast_resetOnError++; 
+        reset_required = 0; 
+    } 
+    sc->sc_last_rxorn = sc->sc_stats.ast_rxorn; 
+    sc->sc_last_lp_rx_dp = cur_lp_rx_dp; 
+out: 
+    if (!sc->sc_rxstuck_shutdown_flag) { 
+        OS_SET_TIMER(&sc->sc_rxstuck, RXSTUCK_TIMER_VAL); 
+    } else { 
+        OS_CANCEL_TIMER(&sc->sc_rxstuck); 
+    } 
+    return; 
+} 
+/* Ending: zhaoyang modifies for patching rx stuck 2015-12-17 */
 #if ATH_HW_TXQ_STUCK_WAR
 #define MAX_QSTUCK_TIME 3 /* 3*1000=3 which means min of 2 sec and max of 3 sec */
 #define QSTUCK_TIMER_VAL 1000 /* 1 sec */
@@ -2591,8 +2681,10 @@ ath_calibrate(void *arg)
 #if ATH_SUPPORT_DFS 
                 if (!(sc->sc_dfs_wait)) 
 #endif
-				{
-                    ath_sc_chk_intr(sc, &ani_stats);
+                {
+                    if (ath_hal_getcapability(ah, HAL_CAP_DCS_SUPPORT, 0, NULL) == HAL_OK ) {
+                        ath_sc_chk_intr(sc, &ani_stats);
+                    }
                 }
             }
 #endif
@@ -4154,11 +4246,6 @@ ath_vap_up(ath_dev_t dev, int if_id, const u_int8_t bssid[IEEE80211_ADDR_LEN],
     }
 #endif
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	if(sc->sc_ch_utility_switch)
-		OS_SET_TIMER(&sc->sc_ch_utility_5sec_timer, sc->sc_stats.mib_timer_period);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	
 #if ATH_SUPPORT_FLOWMAC_MODULE
     if (sc->sc_osnetif_flowcntrl) {
         /* do not pause the ingress here */
@@ -5239,34 +5326,13 @@ ath_common_intr(ath_dev_t dev, HAL_INT status)
                 if (status & (HAL_INT_RXHP | HAL_INT_RXLP | HAL_INT_RXORN)) {
                     sched = ATH_ISR_SCHED;
                 }
-#if ATOPT_DRV_MONITOR		
-			/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor*/
-				if(status & HAL_INT_RXHP )
-					sc->rx_intr_hp++;			
-				if(status & HAL_INT_RXLP )
-					sc->rx_intr_lp++;
-			/*AUTELAN-End:zhaoenjuan transplant for drv monitor*/
-#endif
                 if (status & HAL_INT_RXORN) {
                     sc->sc_stats.ast_rxorn++;
                 }
                 if (status & HAL_INT_RX) {
-#if ATOPT_DRV_MONITOR							
-					sc->rx_intr++;	/*AUTELAN-zhaoenjuan transplant for drv monitor*/
-#endif
                     ATH_UPDATE_INTR_STATS(sc, rx);
                 }
 #else // ATH_OSPREY_RXDEFERRED
-#if ATOPT_DRV_MONITOR		
-			/*AUTELAN-End:zhaoenjuan transplant for drv monitor*/
-				if(status & HAL_INT_RXHP )
-					sc->rx_intr_hp++;			
-				if(status & HAL_INT_RXLP )
-					sc->rx_intr_lp++;
-                if (status & HAL_INT_RX)
-					sc->rx_intr++;
-			/*AUTELAN-End:zhaoenjuan transplant for drv monitor*/
-#endif
                 ath_rx_edma_intr(sc, status, &sched);                 
 #endif // ATH_OSPREY_RXDEFERRED               
             } 
@@ -5292,9 +5358,6 @@ ath_common_intr(ath_dev_t dev, HAL_INT status)
                     ATH_UPDATE_INTR_STATS(sc, rx);
 #if ATH_SUPPORT_DESCFAST
                     ath_rx_proc_descfast(dev);
-#endif
-#if ATOPT_DRV_MONITOR		
-					sc->rx_intr_noedma++;	/*AUTELAN-zhaoenjuan transplant for drv monitor*/
 #endif
                     sched = ATH_ISR_SCHED;
                 }
@@ -6398,6 +6461,14 @@ ath_get_extbusyper(ath_dev_t dev)
     return ath_hal_get11nextbusy(ATH_DEV_TO_SC(dev)->sc_ah);
 }
 
+static unsigned int
+ath_get_chbusyper(ath_dev_t dev)
+{
+    struct ath_softc *sc = ATH_DEV_TO_SC(dev);
+
+    return sc->sc_chan_busy_per;
+}
+
 #ifndef REMOVE_PKT_LOG
 static int
 ath_start_pktlog(void *scn, int log_state)
@@ -6581,10 +6652,16 @@ static void ath_atf_get_unused_txtoken( ath_node_t node , u_int32_t *unused_toke
 }
 
 /* Find corresponding ath_node entry  and update atf_units */
-static void ath_atf_update_node_txtoken( ath_node_t node , u_int32_t txtoken)
+static void ath_atf_update_node_txtoken( ath_node_t node , u_int32_t txtoken, struct atf_stats *stats)
 {
     struct ath_node *an = ATH_NODE(node);
-    ath_atf_sc_update_node_txtoken(an, txtoken);
+    ath_atf_sc_update_node_txtoken(an, txtoken, stats);
+}
+
+static void ath_atf_tokens_unassigned(ath_dev_t dev , u_int32_t tokens_unassigned)
+{
+    struct ath_softc *sc = ATH_DEV_TO_SC(dev);
+    ath_atf_sc_tokens_unassigned(sc, tokens_unassigned);
 }
 
 static void ath_atf_set(ath_dev_t dev, u_int8_t enable)
@@ -6597,6 +6674,24 @@ static void ath_atf_clear(ath_dev_t dev, u_int8_t disable)
 {
     struct ath_softc *sc = ATH_DEV_TO_SC(dev);
     ath_atf_sc_clear(sc, disable);
+}
+
+static void ath_atf_node_resume( ath_node_t node )
+{
+    struct ath_node *an = ATH_NODE(node);
+    ath_atf_sc_node_resume(an);
+}
+
+static u_int32_t ath_node_buf_held(ath_node_t node)
+{
+    struct ath_node *an = ATH_NODE(node);
+    return an->an_num_buf_held;
+}
+
+static void ath_atf_capable_node( ath_node_t node, u_int8_t val)
+{
+    struct ath_node *an = ATH_NODE(node);
+    ath_atf_sc_capable_node(an, val);
 }
 #endif
 
@@ -7053,6 +7148,7 @@ static const struct ath_ops ath_ar_ops = {
     ath_set_macmode,            /* set_macmode */
     ath_set_extprotspacing,     /* set_extprotspacing */
     ath_get_extbusyper,         /* get_extbusyper */
+    ath_get_chbusyper,          /* get_chbusyper */
 #if ATH_SUPPORT_DFS
     ath_attach_dfs,          
     ath_detach_dfs,          
@@ -7244,7 +7340,11 @@ static const struct ath_ops ath_ar_ops = {
     ath_atf_update_node_txtoken,    /* ath_atf_update_node_txtoken */
     ath_atf_set,                    /* ath_atf_set */
     ath_atf_clear,                  /* ath_atf_clear*/
-    ath_atf_get_unused_txtoken,    /* ath_atf_get_unused_txtoken */
+    ath_atf_get_unused_txtoken,     /* ath_atf_get_unused_txtoken */
+    ath_atf_node_resume,            /* ath_atf_node_resume */
+    ath_node_buf_held,              /* ath_node_buf_held */
+    ath_atf_tokens_unassigned,      /* ath_atf_tokens_unassigned */
+    ath_atf_capable_node,           /* ath_atf_capable_node */
 #endif
     /* Green AP functions */
     ath_green_ap_dev_set_enable,
@@ -7430,12 +7530,8 @@ static const struct ath_ops ath_ar_ops = {
 #if ATH_TxBF_DYNAMIC_LOF_ON_N_CHAIN_MASK    
     ath_txbf_loforceon_update,           /* txbf_loforceon_update */
 #endif 
-    ath_node_pspoll,                     /* node_pspoll*/   
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    ath_get_channel_utility,	/* get_channel_utility */
-    ath_get_channel_utility_all	/*ath_get_channel_utility_all */
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
+    ath_node_pspoll,                      /* node_pspoll*/   
+    ath_get_vap_stats                   /* get_vap_stats */
 };
 
 int ath_dev_attach(u_int16_t            devid,
@@ -7994,12 +8090,17 @@ int ath_dev_attach(u_int16_t            devid,
     sc->sc_max_inact = 5;
     OS_SET_TIMER(&sc->sc_inact, 60000 /* ms */);
 #endif
-#if ATOPT_DRV_MONITOR		
-/*AUTELAN-Begin:zhaoenjuan  for drv monitor*/
-    OS_INIT_TIMER(sc->sc_osdev, &sc->sc_drv_monitor, autelan_drv_monitor, sc);
-    OS_SET_TIMER(&sc->sc_drv_monitor, autelan_drv_monitor_period);
-/*AUTELAN-End:zhaoenjuan  for drv monitor*/
-#endif
+
+/* Beginning: zhaoyang modifies for patching rx stuck 2015-12-17 */
+    sc->sc_rxstuck_shutdown_flag = 0; 
+    if(sc->sc_enhanceddmasupport) { 
+        OS_INIT_TIMER(sc->sc_osdev, &sc->sc_rxstuck, ath_rx_stuck_checker, sc); 
+        OS_INIT_TIMER(sc->sc_osdev, &sc->sc_hwstuck, ath_rx_hwreg_checker, sc); 
+        OS_SET_TIMER(&sc->sc_rxstuck, RXSTUCK_TIMER_VAL); 
+    } 
+/* Ending: zhaoyang modifies for patching rx stuck 2015-12-17 */
+
+
 #if ATH_HW_TXQ_STUCK_WAR
     if(sc->sc_enhanceddmasupport) {
         OS_INIT_TIMER(sc->sc_osdev, &sc->sc_qstuck, ath_txq_stuck_checker, sc);
@@ -8227,16 +8328,7 @@ int ath_dev_attach(u_int16_t            devid,
     ath_hal_getmac(ah, sc->sc_myaddr);
     if (sc->sc_hasbmask) {
         ath_hal_getbssidmask(ah, sc->sc_bssidmask);
-        #if ATOPT_MAC_RULE
-        if (new_dispatch_mac == 0) {
-            ATH_SET_VAP_BSSID_MASK(sc->sc_bssidmask);
-        }
-        else if (new_dispatch_mac == 1) {
-            NEW_ATH_SET_VAP_BSSID_MASK(sc->sc_bssidmask, new_dispatch_mac);
-        }
-        #else
         ATH_SET_VAP_BSSID_MASK(sc->sc_bssidmask);
-        #endif
         ath_hal_setbssidmask(ah, sc->sc_bssidmask);
     }
 
@@ -8451,11 +8543,6 @@ int ath_dev_attach(u_int16_t            devid,
     sc->total_delay_timeout = ATH_RC_TOTAL_DELAY_TIMEOUT;
 #endif
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    sc->sc_stats.mib_timer_period = MIB_TIMER_DEFAULT;
-	OS_INIT_TIMER(sc->sc_osdev, &sc->sc_ch_utility_5sec_timer, ath_ch_utility_5sec_timer, sc);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
 #if ATH_SUPPORT_VOWEXT
     /* RCA variables */
     sc->rca_aggr_uptime = ATH_11N_RCA_AGGR_UPTIME;
@@ -8583,6 +8670,11 @@ int ath_dev_attach(u_int16_t            devid,
 		sc->sc_wrap_hwcrypt = 1;
 	}
 #endif	
+    sc->sc_reg_parm.burst_beacons = 1;
+
+    ath_initialize_timer(sc->sc_osdev, &sc->sc_chan_busy, 200, ath_sc_chan_busy, sc);
+    ath_set_timer_period(&sc->sc_chan_busy, 200);
+    ath_start_timer(&sc->sc_chan_busy);
     
     return 0;
 
@@ -8681,6 +8773,9 @@ ath_dev_free(ath_dev_t dev)
 
     DPRINTF(sc, ATH_DEBUG_ANY, "%s\n", __func__);
 
+	sc->sc_rxstuck_shutdown_flag = 1;  //zhaoyang modifies for patching rx stuck 2015-12-17
+
+
     ATH_USB_TQUEUE_FREE(sc);
     ATH_HTC_TXTQUEUE_FREE(sc);
     ATH_HTC_UAPSD_CREDITUPDATE_FREE(sc);
@@ -8698,9 +8793,14 @@ ath_dev_free(ath_dev_t dev)
 #ifdef ATH_TX_INACT_TIMER
     OS_CANCEL_TIMER(&sc->sc_inact);
 #endif
-#if ATOPT_DRV_MONITOR		
-    OS_CANCEL_TIMER(&sc->sc_drv_monitor);//AUTELAN:zhaoenjuan for drv monitor
-#endif
+
+	//zhaoyang modifies for patching rx stuck 2015-12-17
+    if(sc->sc_enhanceddmasupport) { 
+        adf_os_timer_sync_cancel(&sc->sc_rxstuck); 
+        adf_os_timer_sync_cancel(&sc->sc_hwstuck); 
+    } 
+ 
+
 #if ATH_HW_TXQ_STUCK_WAR
     if(sc->sc_enhanceddmasupport) {
         OS_CANCEL_TIMER(&sc->sc_qstuck);
@@ -8826,6 +8926,8 @@ ath_dev_free(ath_dev_t dev)
         ath_cancel_timer(&sc->sc_selfgen_timer, CANCEL_NO_SLEEP);
         ath_free_timer(&sc->sc_selfgen_timer);
     }
+    ath_cancel_timer(&sc->sc_chan_busy, CANCEL_NO_SLEEP);
+    ath_free_timer(&sc->sc_chan_busy);
 
 #endif  // for TxBF RC
 #if ATH_LOW_PRIORITY_CALIBRATE
@@ -8844,9 +8946,6 @@ ath_dev_free(ath_dev_t dev)
         ath_free_timer(&sc->sc_traffic_fast_recover_timer);
     }
 #endif
-
-    OS_CANCEL_TIMER(&sc->sc_ch_utility_5sec_timer);/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	
     ath_led_free_control(&sc->sc_led_control);
     ath_beacon_detach(sc);
 
@@ -8890,10 +8989,7 @@ ath_vap_attach(ath_dev_t dev, int if_id, ieee80211_if_t if_data, HAL_OPMODE opmo
     struct ath_softc *sc = ATH_DEV_TO_SC(dev);
     struct ath_vap *avp;
     int rx_mitigation;
-	
-#if ATOPT_DRV_MONITOR		
-    u_int32_t error_code;  //AUTELAN:zhaoenjuan modified drv monitor,interface id not create,restart the ap 
-#endif
+
     DPRINTF(sc, ATH_DEBUG_STATE, 
             "%s : enter. dev=0x%p, if_id=0x%x, if_data=0x%p, opmode=%s, iv_opmode=%s, nostabeacons=0x%x\n", 
             __func__,    dev,      if_id,      if_data,
@@ -8929,25 +9025,10 @@ ath_vap_attach(ath_dev_t dev, int if_id, ieee80211_if_t if_data, HAL_OPMODE opmo
         printk("%s: WAR_DELETE_VAP sc_nvaps=%d\n", __func__, sc->sc_nvaps);
     }
 #else
-	
-#if ATOPT_DRV_MONITOR
-   /*AUTELAN-Begin:zhaoenjuan modified drv monitor,interface id not create,restart the ap */ 
-    if (if_id >= ATH_VAPSIZE) {
-        printk("%s: Invalid interface id = %u,exceed the limit<8>\n", __func__, if_id);
-        return -EINVAL;
-        }
-    else if(sc->sc_vaps[if_id] != NULL){
-        error_code = AUTE_DRV_IFID_NOT_CREATE;
-        printk("%s: Invalid repeat interface id = %u\n", __func__, if_id); 
-        printk("autelan--interface id = %u to create failure.\n",if_id);
-        if (kes_debug_print_handle){  
-            kes_debug_print_handle(KERN_EMERG "autelan--interface id = %u to create failure.\n",if_id);  
-        }
-        aute_kernel_restart(error_code); 
+    if (if_id >= ATH_VAPSIZE || sc->sc_vaps[if_id] != NULL) {
+        printk("%s: Invalid interface id = %u\n", __func__, if_id);
         return -EINVAL;
     }
-   /*AUTELAN-ENd:zhaoenjuan modified drv monitor,interface id not create,restart the ap*/ 
- #endif
 #endif    
 
     switch (opmode) {
@@ -9516,6 +9597,7 @@ ath_node_attach(ath_dev_t dev, int if_id, ieee80211_node_t ni, bool tmpnode)
     ATH_NODE_ATF_TOKEN_LOCK_INIT(an);
     an->an_atf_txtoken = 0;
     an->an_atf_nodepaused = 0;
+    an->an_tx_unusable_tokens_updated = 0;
 #endif
 
 #ifdef ATH_SWRETRY
@@ -10329,129 +10411,6 @@ ath_get_default_antenna(ath_dev_t dev)
     return ATH_DEV_TO_SC(dev)->sc_defant;
 }
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-int ath_get_channel_utility_all(ath_dev_t dev,  char * p, u_int32_t *ch_utility_ptr, int sec5)
-{
-	struct ath_softc *sc = NULL;
-	sc = ATH_DEV_TO_SC(dev);
-	if(sc->sc_ch_utility_switch == 0)
-	{
-		return 1;
-	}
-	else
-	{
-		if(sec5 == 1)
-		{
-			if( sc->sc_stats.sec5_ch_utility_ptr == 0)
-				*ch_utility_ptr = 59;
-			else
-				*ch_utility_ptr = sc->sc_stats.sec5_ch_utility_ptr -1;
-			memcpy(p, &sc->sc_stats.sec5_ch_utility_data, sizeof(sc->sc_stats.sec5_ch_utility_data));
-		}
-		else
-		{
-			if( sc->sc_stats.sec5_ch_utility_ptr == 0)
-				*ch_utility_ptr = 1439;
-			else
-				*ch_utility_ptr = sc->sc_stats.min1_ch_utility_ptr - 1;
-			memcpy(p, &sc->sc_stats.min1_ch_utility_data, sizeof(sc->sc_stats.min1_ch_utility_data));
-		}
-		return 0;
-	}
-}
-
-u_int32_t ath_get_channel_utility(ath_dev_t dev, u_int32_t *rxc_pcnt, u_int32_t *rxf_pcnt, u_int32_t *txf_pcnt)
-{
-	struct ath_mib_cycle_cnts pCnts_first, pCnts_second;
-	u_int32_t cyclecount, rxclear, rxframe, txframe;
-	u_int32_t retval = 1;
-	struct ath_softc *sc = ATH_DEV_TO_SC(dev);	
-
-	ath_hal_getMibCycleCounts(sc->sc_ah, (HAL_COUNTERS*)&pCnts_first);
-//	mdelay(50);
-	OS_DELAY(1000); //delay 1ms
-	ath_hal_getMibCycleCounts(sc->sc_ah, (HAL_COUNTERS*)&pCnts_second);
-	
-	if( pCnts_second.cycleCount > pCnts_first.cycleCount)
-	{
-		cyclecount = pCnts_second.cycleCount - pCnts_first.cycleCount;
-		rxclear = pCnts_second.rxClearCount - pCnts_first.rxClearCount;
-		rxframe = pCnts_second.rxFrameCount - pCnts_first.rxFrameCount;
-		txframe =  pCnts_second.txFrameCount - pCnts_first.txFrameCount;
-		if (cyclecount < 0xFFFFFFFF /100) {
-			*rxc_pcnt = rxclear * 100 / cyclecount;
-			*rxf_pcnt = rxframe * 100 / cyclecount;
-			*txf_pcnt = txframe * 100 / cyclecount;
-		}
-		else
-		{
-			*rxc_pcnt = rxclear / (cyclecount / 100);
-			*rxf_pcnt = rxframe  / (cyclecount / 100);
-			*txf_pcnt = txframe / (cyclecount / 100);
-		}
-	}
-	else
-	{
-		retval = 0;
-	}
-	return retval;
-}
-
-static OS_TIMER_FUNC(ath_ch_utility_5sec_timer)
-{
-	struct ath_softc    *sc;
-	struct timeval tv_val;
-	int i, j = 0;
-	struct ath_mib_cnts temp_data;
-
-	OS_GET_TIMER_ARG(sc, struct ath_softc *);
-	{
-		OS_GET_TIMER_ARG(sc, struct ath_softc *);
-		ath_hal_getMibCycle(sc->sc_ah, (HAL_MibCOUNTERS*)&temp_data);
-		if(temp_data.cycleCount != 0)
-		{
-			do_gettimeofday(&tv_val);
-			sc->sc_stats.sec5_ch_utility_data[sc->sc_stats.sec5_ch_utility_ptr].timestamps_sec = tv_val.tv_sec;
-			sc->sc_stats.sec5_ch_utility_data[sc->sc_stats.sec5_ch_utility_ptr].cyclecount = temp_data.cycleCount;
-			sc->sc_stats.sec5_ch_utility_data[sc->sc_stats.sec5_ch_utility_ptr].rxclearcount = temp_data.rxClearCount;
-			sc->sc_stats.sec5_ch_utility_data[sc->sc_stats.sec5_ch_utility_ptr].rxfrmaecount = temp_data.rxFrameCount;
-			sc->sc_stats.sec5_ch_utility_data[sc->sc_stats.sec5_ch_utility_ptr].txfrmaecount = temp_data.txFrameCount;
-
-			if((sc->sc_stats.sec5_ch_utility_ptr % 12) == 0)
-			{
-				for(i = 0; i < 12; i++)
-				{	j = 0;
-					if(sc->sc_stats.sec5_ch_utility_ptr < i)
-						j = 59;
-					if(sc->sc_stats.sec5_ch_utility_data[j + sc->sc_stats.sec5_ch_utility_ptr  - i].txfrmaecount == 0)
-						continue;
-					sc->sc_stats.min1_ch_utility_data[sc->sc_stats.min1_ch_utility_ptr].cyclecount += sc->sc_stats.sec5_ch_utility_data[j + sc->sc_stats.sec5_ch_utility_ptr  - i].cyclecount;
-					sc->sc_stats.min1_ch_utility_data[sc->sc_stats.min1_ch_utility_ptr].rxclearcount += sc->sc_stats.sec5_ch_utility_data[j + sc->sc_stats.sec5_ch_utility_ptr  - i].rxclearcount;
-					sc->sc_stats.min1_ch_utility_data[sc->sc_stats.min1_ch_utility_ptr].rxfrmaecount += sc->sc_stats.sec5_ch_utility_data[j + sc->sc_stats.sec5_ch_utility_ptr  - i].rxfrmaecount;
-					sc->sc_stats.min1_ch_utility_data[sc->sc_stats.min1_ch_utility_ptr].txfrmaecount += sc->sc_stats.sec5_ch_utility_data[j+ sc->sc_stats.sec5_ch_utility_ptr - i].txfrmaecount;
-
-				}
-				sc->sc_stats.min1_ch_utility_data[sc->sc_stats.min1_ch_utility_ptr].timestamps_sec = tv_val.tv_sec;
-				sc->sc_stats.min1_ch_utility_ptr++;
-				if(sc->sc_stats.min1_ch_utility_ptr == 1440)
-					sc->sc_stats.min1_ch_utility_ptr = 0;
-			}
-			sc->sc_stats.sec5_ch_utility_ptr++;
-			if(sc->sc_stats.sec5_ch_utility_ptr == 60)
-				sc->sc_stats.sec5_ch_utility_ptr = 0;
-		}
-	}
-	if(sc->sc_ch_utility_switch)		
-		OS_SET_TIMER(&sc->sc_ch_utility_5sec_timer, sc->sc_stats.mib_timer_period);
-	else
-	{
-		sc->sc_stats.sec5_ch_utility_ptr = 0;
-		sc->sc_stats.min1_ch_utility_ptr = 0;
-		memset(&sc->sc_stats.sec5_ch_utility_data, 0, sizeof(CHANNEL_UTILITY) * 60);
-		memset(&sc->sc_stats.min1_ch_utility_data, 0, sizeof(CHANNEL_UTILITY) * 1440);
-	}
-}
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 #ifdef DBG
 static u_int32_t
 ath_register_read(ath_dev_t dev, u_int32_t offset)
@@ -13151,3 +13110,45 @@ ath_node_pspoll(ath_dev_t dev,ath_node_t node, bool value)
 }
 
 
+static int
+ath_get_vap_stats(ath_dev_t dev, int if_id, struct ath_vap_dev_stats *vap_stats)
+{
+    struct ath_softc *sc = ATH_DEV_TO_SC(dev);
+    struct ath_vap *avp = sc->sc_vaps[if_id];
+
+    memcpy(vap_stats, (struct ath_vap_stats *)&avp->av_stats, sizeof(avp->av_stats));
+    return 0;
+}
+
+static int
+ath_sc_chan_busy(void *arg)
+{
+    struct ath_softc        *sc = (struct ath_softc *)arg;
+    u_int8_t ctlrxc, extrxc, rfcnt, tfcnt;
+    u_int32_t chan_busy_per;
+
+    if (!sc->sc_nvaps || sc->sc_invalid || 
+        sc->sc_scanning || atomic_read(&sc->sc_in_reset)) {
+      return 0;
+    }
+
+    /* get the channel busy percentages */
+    ATH_PS_WAKEUP(sc);
+    chan_busy_per = ath_hal_getchbusyper(sc->sc_ah);
+    ATH_PS_SLEEP(sc);
+
+    ctlrxc = chan_busy_per & 0xff;
+    extrxc = (chan_busy_per & 0xff00) >> 8;
+    rfcnt = (chan_busy_per & 0xff0000) >> 16;
+    tfcnt = (chan_busy_per & 0xff000000) >> 24;
+
+    if ((ctlrxc == 255) || (extrxc == 255) || (rfcnt == 255) || (tfcnt == 255))
+        return 0;
+
+    sc->sc_chan_busy_per = chan_busy_per;
+
+    /* re-arm the timer */
+    ath_set_timer_period(&sc->sc_chan_busy, 200);
+
+    return 0;
+}

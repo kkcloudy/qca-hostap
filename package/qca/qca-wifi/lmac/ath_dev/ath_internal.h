@@ -120,16 +120,6 @@ struct ath_dfs;
 
 #endif
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-#define MAX_LEN_CH_U_LINK 300
-
-u_int32_t ath_get_ch_utility_by_1min_all_array(ath_dev_t dev);
-u_int32_t ath_get_ch_utility_by_5sec_all_array(ath_dev_t dev);
-u_int32_t ath_get_channel_utility(ath_dev_t dev, u_int32_t *rxc_pcnt, u_int32_t *rxf_pcnt, u_int32_t *txf_pcnt);
-int ath_get_channel_utility_all(ath_dev_t dev,  char * p, u_int32_t *ch_utility_ptr, int sec5);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
-
 #define ATH_RX_HANG_CHECK_MS             1000
 #define IF_ID_DIRECT_ATTACH (0)
 #if ATH_SUPPORT_SPECTRAL
@@ -649,14 +639,28 @@ struct ath_node {
     bool an_pspoll;
 #if QCA_AIRTIME_FAIRNESS
     u_int8_t    an_atf_nodepaused; /* Set when a node is paused by ATF */
+    u_int8_t    an_allowed_buf_updated; /* Set after an_allowed_bufs has been computed once */
+    u_int16_t   an_num_buf_held; /* Buffers held by a node currently  */
+    u_int16_t   an_max_num_buf_held; /* Max buffers held by a node */
+    u_int16_t   an_min_num_buf_held; /* Min buffers held by a node */
+    u_int16_t   an_pkt_drop_nobuf; /* Packets dropped as node is already holding max allowed buffers */
+    u_int16_t   an_allowed_bufs; /* Buffers that this node can hold at max */
+    u_int16_t   an_num_bufs_sent; /* Buffers transmitted (or failed) */
+    u_int16_t   an_num_bytes_sent; /* Bytes transmitted (or failed) */
     u_int32_t   an_atf_txtoken; /* Tokens available for a node */
+    u_int32_t   an_shadow_atf_txtoken; /* Tokens available for a node */
     u_int32_t   an_atf_excess_consumed; /* Transmit took more time than estimated
                                            (actualairtime - estimated airtime) */
     u_int32_t   an_atf_less_consumed;  /* Transmit completion happened faster than estimated 
                                            (estimatedairtime - actual airtime */ 
+    u_int32_t   an_atf_capable;      /* mark ATF capable client */
     spinlock_t  an_atftoken_lock;    /* atf token lock */    
+    u_int32_t   an_tx_unusable_tokens_updated:1; /* for athstats */
 #endif
 };
+
+#define ATF_MIN_BUFS                    64
+#define ATF_MAX_BUFS                    1024
 
 #define ATH_NODE(_n)                    ((struct ath_node *)(_n))
 
@@ -745,6 +749,15 @@ struct ath_txq {
 #endif
 };
 
+struct ath_vap_stats {
+    u_int32_t av_tx_xretries;
+    u_int32_t av_tx_retries;
+    u_int32_t av_tx_mretries;
+    u_int32_t av_ack_failures;
+    u_int32_t av_retry_count;
+    u_int32_t av_aggr_pkt_count;
+};
+
 #define MCAST_MIN_FREEBUF 48
 #define MAX_TIMBUFFERS_PER_VAP 2
 /* driver-specific vap state */
@@ -781,6 +794,7 @@ struct ath_vap {
     atomic_t                        av_stop_beacon;         /* stop and return beacon resource */
     atomic_t                        av_beacon_cabq_use_cnt; /* pending threads using beacon and cabq */
     ath_vap_info_t                  av_vap_info;            /* Opaque handle for ATH_VAP_INFO */
+    struct ath_vap_stats             av_stats;               /* VAP specific stats */
 };
 
 
@@ -1718,9 +1732,7 @@ struct ath_softc {
     os_timer_t              sc_qstuck;      /* q stuck monitoring timer */
     systime_t               sc_last_rxeol;  /* last Rx EOL interrupt receive time */
 #endif
-#if ATOPT_DRV_MONITOR
-    os_timer_t              sc_drv_monitor;//AUTELAN-zhaoenjuan  for drv monitor
-#endif
+
     u_int8_t                sc_tx_chainmask;
     u_int8_t                sc_rx_chainmask;
     u_int8_t                sc_rxchaindetect_ref;
@@ -1879,10 +1891,6 @@ struct ath_softc {
 #endif
 #endif
 
-#ifdef ATOPT_PROC_COMMAND
-    struct ctl_table_header *sc_sysctl_header;
-    struct ctl_table        *sc_sysctls;
-#endif
 #if ATH_TX_DUTY_CYCLE
     uint32_t                sc_tx_dc_period;        /* tx duty cycle period */
     int8_t                  sc_tx_dc_active_pct;    /* tx duty cycle active percentage  */
@@ -2109,26 +2117,22 @@ struct ath_softc {
 	bool       sc_wrap_hwcrypt;
 #endif	
 #if QCA_AIRTIME_FAIRNESS
-    unsigned int  
-                    sc_atf_enable        : 1, /* enable/disable atf */
-                    sc_atf_strictsched  : 1; /* enable/disable strict scheduling */
+    u_int32_t
+                sc_atf_enable        : 1, /* enable/disable atf */
+                sc_atf_strictsched  : 1; /* enable/disable strict scheduling */
+    u_int32_t   sc_atf_tokens_unassigned;
+    u_int32_t   sc_atf_tokens_unassigned_adj;
+    u_int16_t   sc_num_buf_held;
 #endif
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-    u_int8_t		    sc_ch_utility_switch;
-    os_timer_t          sc_ch_utility_5sec_timer;
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-#if ATOPT_DRV_MONITOR
-	/* AUTELAN-Begin:zhaoenjuan for drv monitor wifi1 rx stuck  */
-    u_int32_t rx_hp_cnt;
-    u_int32_t rx_lp_cnt;
-    u_int32_t rx_incomplete_cnt;
-    u_int32_t rx_null_cnt;
-    u_int32_t rx_intr_hp;
-    u_int32_t rx_intr_lp;
-    u_int32_t rx_intr;
-    u_int32_t rx_intr_noedma;
-    /* AUTELAN-End:zhaoenjuan for drv monitor wifi1 rx stuck */
-#endif
+    struct ath_timer        sc_chan_busy;
+    u_int32_t   sc_chan_busy_per;       /* Channel busy percentage */
+	
+	//zhaoyang modifies for patching rx stuck 2015-12-17
+    os_timer_t              sc_rxstuck;     /* rx stuck monitoring timer */ 
+    os_timer_t              sc_hwstuck;     /* hw stuck monitoring timer */ 
+    bool                    sc_rxstuck_shutdown_flag;  /*rx stuck timer monitor flag */ 
+    u_int32_t sc_last_rxorn; 
+    u_int32_t sc_last_lp_rx_dp; 
 };
 
 typedef enum {
@@ -2403,10 +2407,8 @@ enum {
     ATH_WPS_BUTTON_DOWN_SUP     = 0x00000010,     /* Push button down event supported */
     ATH_WPS_BUTTON_STATE_SUP    = 0x00000040      /* Push button current state reporting supported */
 };
-/*Autelan-Begin: zhaoyang1 fixes the debug print of 'Adding multicast frames to FMS queue' 2014-12-23*/
-//#define ATH_DEBUG_MAX_MASK 32
-#define ATH_DEBUG_MAX_MASK 64
-/*Autelan-End: zhaoyang1 fixes the debug print of 'Adding multicast frames to FMS queue' 2014-12-23*/
+
+#define ATH_DEBUG_MAX_MASK 32
 enum {
     ATH_DEBUG_XMIT = 0,    /* basic xmit operation */
     ATH_DEBUG_XMIT_DESC,   /* xmit descriptors */
@@ -3247,9 +3249,9 @@ u_int64_t   ath_gettsftstamp(ath_dev_t dev);
 void        ath_setrxfilter(ath_dev_t dev, u_int32_t filter);
 
 int         ath_get_mib_cyclecounts(ath_dev_t dev, HAL_COUNTERS *pCnts);
-#ifdef ATH_CCX
 int         ath_update_mib_macstats(ath_dev_t dev);
 int         ath_get_mib_macstats(ath_dev_t dev, struct ath_mib_mac_stats *pStats);
+#ifdef ATH_CCX
 u_int8_t    ath_rcRateValueToPer(ath_dev_t, struct ath_node *, int);
 void        ath_clear_mib_counters(ath_dev_t dev);
 u_int64_t   ath_gettsf64(ath_dev_t dev);
@@ -3688,9 +3690,6 @@ void        ath_process_phyerr(struct ath_softc *sc, struct ath_buf *bf,
 #define ath_hal_txcalcairtime(_ah, _ds, _ts, _comp_wastedt, _nbad, _nframes) \
     ((*(_ah)->ah_calc_tx_airtime)((_ah), (_ds), (_ts), (_comp_wastedt), (_nbad), (_nframes)))
 
-#define ath_hal_txcalcretrycount(_ah, _ds, _ts) \
-    ((*(_ah)->ah_calcTxRetryCount)((_ah), (_ds), (_ts)))  //zhaoyang1 transplants statistics 2015-01-27
-
 #define ath_hal_gpioCfgInput(_ah, _gpio) \
     ((*(_ah)->ah_gpio_cfg_input)((_ah), (_gpio)))
 #define ath_hal_gpioCfgOutput(_ah, _gpio, _signalType) \
@@ -3995,6 +3994,8 @@ extern int16_t ath_hal_getChanNoise(struct ath_hal *ah, HAL_CHANNEL *chan);
     ((*(_ah)->ah_set_11n_virtual_more_frag)(_ah, _ds, _vmf))
 #define ath_hal_get11nextbusy(_ah) \
     ((*(_ah)->ah_get_11n_ext_busy)((_ah)))
+#define ath_hal_getchbusyper(_ah) \
+    ((*(_ah)->ah_get_ch_busy_pct)((_ah)))
 #define ath_hal_set11nmac2040(_ah, _mode) \
     ((*(_ah)->ah_set_11n_mac2040)((_ah), (_mode)))
 #define ath_hal_get11nRxClear(_ah) \
@@ -4033,10 +4034,6 @@ extern int16_t ath_hal_getChanNoise(struct ath_hal *ah, HAL_CHANNEL *chan);
     ((*(_ah)->ah_get_mib_cycle_counts_pct)((_ah), (_pRxc), (_pRxf), (_pTxf)))
 #define ath_hal_getMibCycleCounts(_ah, _pContext) \
     ((*(_ah)->ah_get_mib_cycle_counts)((_ah), (_pContext)))
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-#define ath_hal_getMibCycle(_ah, _pContext) \
-		((*(_ah)->ah_get_mib_cycle)((_ah), _pContext))
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
 #define ath_hal_getVowStats(_ah, _pContext, _flag)              \
     ((*(_ah)->ah_get_vow_stats)((_ah), (_pContext), (_flag)))
 #define ath_hal_dmaRegDump(_ah) \

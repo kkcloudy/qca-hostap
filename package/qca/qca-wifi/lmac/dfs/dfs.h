@@ -658,6 +658,9 @@ int         dfs_get_random_bin5_dur(struct ath_dfs *dfs, u_int64_t tstamp);
 /* Debug prototypes */
 void         dfs_print_delayline(struct ath_dfs *dfs, struct dfs_delayline *dl);
 void         dfs_print_nol(struct ath_dfs *dfs);
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void         dfs_print_nolhistory(struct ieee80211com *ic,struct ath_dfs *dfs);
+#endif
 void         dfs_print_filters(struct ath_dfs *dfs);
 void         dfs_print_activity(struct ath_dfs *dfs);
 OS_TIMER_FUNC(dfs_debug_timeout);

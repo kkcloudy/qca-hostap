@@ -241,7 +241,11 @@ ieee80211_beacon_init(struct ieee80211_node *ni, struct ieee80211_beacon_offsets
         frm = ieee80211_add_htcap(frm, ni, IEEE80211_FC0_SUBTYPE_BEACON);
     }
 
+#if ATH_SUPPORT_HS20
+    if (add_wpa_ie && !vap->iv_osen) {
+#else
     if (add_wpa_ie) {
+#endif
         if (RSN_AUTH_IS_RSNA(rsn))
             frm = ieee80211_setup_rsn_ie(vap, frm);
     }
@@ -287,15 +291,9 @@ ieee80211_beacon_init(struct ieee80211_node *ni, struct ieee80211_beacon_offsets
     }
 #endif /* UMAC_SUPPORT_WNM */
 
-    if ((IEEE80211_IS_CHAN_11AC(vap->iv_bsschan) ||
-        IEEE80211_IS_CHAN_11N(vap->iv_bsschan)) && enable_htrates) {
-        bo->bo_extcap = frm;
-        frm = ieee80211_add_extcap(frm, ni);
-    }
-    else
-    {
-        bo->bo_extcap = NULL;
-    }
+    /* Add extended capbabilities, if applicable */
+    bo->bo_extcap = frm;
+    frm = ieee80211_add_extcap(frm, ni);
 
     /*
      * VHT capable : 
@@ -358,6 +356,11 @@ ieee80211_beacon_init(struct ieee80211_node *ni, struct ieee80211_beacon_offsets
          vap->iv_opmode == IEEE80211_M_BTAMP)) {
             
         bo->bo_wme = frm;
+        if ( ic->do_wme_init == 0){
+          printk("%s:(%d) Restore wme params \n", __func__, __LINE__);
+          ieee80211_wme_initparams_locked(vap);
+          ic->do_wme_init = 1;
+        }
         frm = ieee80211_add_wme_param(frm, &ic->ic_wme, IEEE80211_VAP_IS_UAPSD_ENABLED(vap));
         vap->iv_flags &= ~IEEE80211_F_WMEUPDATE;
     }
@@ -1085,6 +1088,7 @@ ieee80211_beacon_update(struct ieee80211_node *ni,
 		u_int8_t	* tempbuf;
 		
                 vap->iv_flags |= IEEE80211_F_CHANSWITCH;
+                vap->channel_switch_state = 1;
                 if (bo->bo_chanswitch[0] != IEEE80211_ELEMID_CHANSWITCHANN)
                 {
                 /* copy out trailer to open up a slot */

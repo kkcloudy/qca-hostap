@@ -912,9 +912,9 @@ typedef struct {
     u_int32_t   tqi_int_flags;       /* flags for internal use */
 } HAL_TX_QUEUE_INFO;
 
-extern  bool ath_hal_set_tx_q_props(struct ath_hal *ah,
+extern  bool __ahdecl ath_hal_set_tx_q_props(struct ath_hal *ah,
         HAL_TX_QUEUE_INFO *qi, const HAL_TXQ_INFO *q_info);
-extern  bool ath_hal_get_tx_q_props(struct ath_hal *ah,
+extern  bool __ahdecl ath_hal_get_tx_q_props(struct ath_hal *ah,
         HAL_TXQ_INFO *q_info, const HAL_TX_QUEUE_INFO *qi);
 
 typedef enum {
@@ -1303,17 +1303,17 @@ static inline void hal_assert(int condition)
 /*
  * Convert between microseconds and core system clocks.
  */
-extern  u_int ath_hal_mac_clks(struct ath_hal *ah, u_int usecs);
-extern  u_int ath_hal_mac_usec(struct ath_hal *ah, u_int clks);
+extern  u_int __ahdecl ath_hal_mac_clks(struct ath_hal *ah, u_int usecs);
+extern  u_int __ahdecl ath_hal_mac_usec(struct ath_hal *ah, u_int clks);
 
 /*
  * Generic get/set capability support.  Each chip overrides
  * this routine to support chip-specific capabilities.
  */
-extern  HAL_STATUS ath_hal_getcapability(struct ath_hal *ah,
+extern  HAL_STATUS __ahdecl ath_hal_getcapability(struct ath_hal *ah,
         HAL_CAPABILITY_TYPE type, u_int32_t capability,
         u_int32_t *result);
-extern  bool ath_hal_setcapability(struct ath_hal *ah,
+extern  bool __ahdecl ath_hal_setcapability(struct ath_hal *ah,
         HAL_CAPABILITY_TYPE type, u_int32_t capability,
         u_int32_t setting, HAL_STATUS *status);
 
@@ -1365,19 +1365,19 @@ typedef struct {
         u_int32_t val;          /* reg value  */
 } HAL_DIAG_REGVAL;
 
-extern  bool ath_hal_getdiagstate(struct ath_hal *ah, int request,
+extern  bool __ahdecl ath_hal_getdiagstate(struct ath_hal *ah, int request,
             const void *args, u_int32_t argsize,
             void **result, u_int32_t *resultsize);
 
 /*
  * Setup a h/w rate table for use.
  */
-extern  void ath_hal_setupratetable(struct ath_hal *ah, HAL_RATE_TABLE *rt);
+extern  void __ahdecl ath_hal_setupratetable(struct ath_hal *ah, HAL_RATE_TABLE *rt);
 
 /*
  * Common routine for implementing getChanNoise api.
  */
-extern  int16_t ath_hal_get_chan_noise(struct ath_hal *ah, HAL_CHANNEL *chan);
+extern  int16_t __ahdecl ath_hal_get_chan_noise(struct ath_hal *ah, HAL_CHANNEL *chan);
 
 #ifdef ATH_TX99_DIAG
 /* Tx99 functions */
@@ -1412,9 +1412,9 @@ typedef enum {
 
 extern  WIRELESS_MODE ath_hal_chan2wmode(struct ath_hal *, const HAL_CHANNEL *);
 extern  WIRELESS_MODE ath_hal_chan2htwmode(struct ath_hal *, const HAL_CHANNEL *);
-extern  u_int ath_hal_get_curmode(struct ath_hal *, HAL_CHANNEL_INTERNAL *);
+extern  u_int __ahdecl ath_hal_get_curmode(struct ath_hal *, HAL_CHANNEL_INTERNAL *);
 
-extern  u_int8_t ath_hal_chan_2_clock_rate_mhz(struct ath_hal *);
+extern  u_int8_t __ahdecl ath_hal_chan_2_clock_rate_mhz(struct ath_hal *);
 extern int8_t ath_hal_get_twice_max_regpower(struct ath_hal_private *ahpriv, HAL_CHANNEL_INTERNAL *ichan,
                             HAL_CHANNEL *chan);
 

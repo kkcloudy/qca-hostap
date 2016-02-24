@@ -67,6 +67,9 @@ struct ol_txrx_stats_req {
 #define TXRX_FW_STATS_CE_STATS                   10
 #define TXRX_FW_STATS_VOW_UMAC_COUNTER           11
 
+#define BSS_CHAN_INFO_READ                        1
+#define BSS_CHAN_INFO_READ_AND_CLEAR              2
+
 #if ATH_PERF_PWR_OFFLOAD == 0 /*---------------------------------------------*/
 
 #define ol_txrx_debug(vdev, debug_specs) 0

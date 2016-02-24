@@ -59,6 +59,8 @@
 #define CHANNEL_HOPPING_CNTWIN_TIMER 5 /* 5 sec  */
 #define CHANNEL_HOPPING_VIDEO_BRIDGE_THRESHOLD -90
 
+#define MAX_32BIT_UNSIGNED_VALUE 0xFFFFFFFFU
+
 #if DEBUG_EACS
 
 extern unsigned int  eacs_dbg_mask ;

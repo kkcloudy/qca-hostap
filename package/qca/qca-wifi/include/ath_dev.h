@@ -397,7 +397,6 @@ typedef struct {
     u_int32_t       tstamp;         /* tx time stamp*/
 #endif
     u_int32_t       rateKbps;
-	u_int8_t     	ratecode; //zhaoyang1 transplants statistics 2015-01-27
 
 } ieee80211_tx_status_t;
 
@@ -547,17 +546,6 @@ struct ath_vap_config {
     u_int8_t         av_short_gi;
 };
 
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-struct ath_mib_cycle_cnts {
-    u_int32_t   txFrameCount;
-    u_int32_t   rxFrameCount;
-    u_int32_t   rxClearCount;
-    u_int32_t   cycleCount;
-    u_int8_t    isRxActive;
-    u_int8_t    isTxActive;
-};
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-
 
 struct ath_mib_mac_stats {
     u_int32_t   ackrcv_bad;
@@ -568,6 +556,15 @@ struct ath_mib_mac_stats {
 #ifdef ATH_SUPPORT_HTC
     HTC_HOST_TGT_MIB_STATS  tgt_stats;
 #endif
+};
+
+struct ath_vap_dev_stats {
+    u_int32_t av_tx_xretries;
+    u_int32_t av_tx_retries;
+    u_int32_t av_tx_mretries;
+    u_int32_t av_ack_failures;
+    u_int32_t av_retry_count;
+    u_int32_t av_aggr_pkt_count;
 };
 
 #ifdef ATH_CCX
@@ -1161,10 +1158,13 @@ struct ieee80211_ops {
 #endif
 #if ATH_BAND_STEERING
     void        (*bsteering_rssi_update)(ieee80211_handle_t ,u_int8_t *macaddres, u_int8_t status ,int8_t rssi);
+    void        (*bsteering_rate_update)(ieee80211_handle_t ,u_int8_t *macaddres, u_int8_t status ,u_int32_t rateKbps);
 #endif
 #if QCA_AIRTIME_FAIRNESS
-    void         (*atf_strict_scheduling)(ieee80211_handle_t ieee, u_int32_t enable);
-    u_int32_t    (*get_atf_strict_scheduling)(ieee80211_handle_t ieee);
+    void         (*atf_scheduling)(ieee80211_handle_t ieee, u_int32_t enable);
+    u_int32_t    (*get_atf_scheduling)(ieee80211_handle_t ieee);
+    u_int8_t     (*get_atf_allocations)(ieee80211_node_t node, u_int32_t *tx_tokens, u_int32_t *alloted_tx_tokens, u_int32_t *unassigned_txtokens);
+    void         (*atf_obss_scale)(ieee80211_handle_t ieee, u_int32_t scale);
 #endif
 };
 
@@ -1346,6 +1346,10 @@ typedef enum {
 typedef void (*ath_notify_tx_beacon_function)(void *arg, int beacon_id, u_int32_t tx_status);
 typedef void (*ath_vap_info_notify_func)(void *arg, ath_vap_infotype infotype,
                                          u_int32_t param1, u_int32_t param2);
+
+#if QCA_AIRTIME_FAIRNESS
+struct atf_stats;
+#endif
 
 /*
  * @brief callback function tabled to be registered with umac.
@@ -2528,6 +2532,15 @@ struct ath_ops {
      */
     int         (*get_extbusyper)(ath_dev_t);
 
+    /**
+     * Return approximation of channel busy stats like ctrl/ext channel busy %,
+     * Tx/Rx frame %.
+     * @param dev : handle to LMAC device
+     * @return 0% (clear) -> 100% (busy)
+     * -1 for invalid estimate
+     */
+    unsigned int         (*get_chbusyper)(ath_dev_t);
+
 #ifdef ATH_SUPPORT_DFS
     /**
      * Attach dfs subsystem. 
@@ -3400,10 +3413,14 @@ struct ath_ops {
 #endif
 #if QCA_AIRTIME_FAIRNESS
     /* Airtime Fairness */
-    void        (*ath_atf_update_node_txtoken)(ath_node_t node, u_int32_t atf_units);
+    void        (*ath_atf_update_node_txtoken)(ath_node_t node, u_int32_t atf_units, struct atf_stats *stats);
     void        (*ath_atf_set)(ath_dev_t dev, u_int8_t enable);
     void        (*ath_atf_clear)(ath_dev_t dev, u_int8_t disable);
     void        (*ath_atf_get_unused_txtoken)(ath_node_t node, u_int32_t *unused_tokens);
+    void        (*ath_atf_node_resume)(ath_node_t node);
+    u_int32_t   (*ath_node_buf_held)(ath_node_t node);
+    void        (*ath_atf_tokens_unassigned)(ath_dev_t dev, u_int32_t airtime_unassigned);
+    void        (*ath_atf_capable_node)(ath_node_t node, u_int8_t val);
 #endif
     /* GreenAP stuff */
     /**
@@ -3987,11 +4004,8 @@ struct ath_ops {
     void        (*txbf_loforceon_update)(ath_dev_t dev,bool loforcestate);
 #endif
     void         (*node_pspoll)(ath_dev_t dev,ath_node_t node,bool value);
-/* AUTELAN-Begin:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	u_int32_t (*get_channel_utility)(ath_dev_t dev, u_int32_t *rxc_pcnt, u_int32_t *rxf_pcnt, u_int32_t *txf_pcnt);
-	int (*ath_get_channel_utility_all)(ath_dev_t dev,  char * p, u_int32_t *ch_utility_ptr, int sec5);
-/* AUTELAN-End:zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
-	
+    int         (*get_vap_stats)(ath_dev_t dev, int if_id, struct ath_vap_dev_stats *pStats);
+
 };
 
 /* Load-time configuration for ATH device */

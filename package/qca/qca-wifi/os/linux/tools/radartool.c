@@ -79,8 +79,31 @@ radarShowNol(struct radarhandler *radar)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 	return 0;
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+static int
+radarShowNolHistory(struct radarhandler *radar)
+{
+	u_int32_t result;
+    struct ifreq ifr;
+
+	radar->atd.ad_id = DFS_SHOW_NOLHISTORY | ATH_DIAG_DYN;
+	radar->atd.ad_out_data = NULL;
+	radar->atd.ad_out_size = 0;
+	radar->atd.ad_in_data = (void *) &result;
+	radar->atd.ad_in_size = sizeof(u_int32_t);
+    strcpy(ifr.ifr_name, radar->atd.ad_name);
+    ifr.ifr_data = (caddr_t)&radar->atd;
+	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
+		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
+    return 0;
+}
+#endif
+
 static int
 radarSetDebugLevel(struct radarhandler *radar, u_int32_t level)
 {
@@ -96,6 +119,7 @@ radarSetDebugLevel(struct radarhandler *radar, u_int32_t level)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 	return 0;
 }
 static int
@@ -113,6 +137,7 @@ radarIgnoreCAC(struct radarhandler *radar, u_int32_t value)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 	return 0;
 }
 static int
@@ -130,6 +155,7 @@ radarSetNOLTimeout(struct radarhandler *radar, u_int32_t value)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 	return 0;
 }
 
@@ -146,9 +172,10 @@ radarSetFalseRssiThres(struct radarhandler *radar, u_int32_t level)
 	radar->atd.ad_in_size = sizeof(u_int32_t);
     strcpy(ifr.ifr_name, radar->atd.ad_name);
     ifr.ifr_data = (caddr_t)&radar->atd;
-	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
-		err(1, radar->atd.ad_name);
-	return 0;
+    if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
+        err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 static int
 radarSetPeakMag(struct radarhandler *radar, u_int32_t level)
@@ -163,9 +190,10 @@ radarSetPeakMag(struct radarhandler *radar, u_int32_t level)
 	radar->atd.ad_in_size = sizeof(u_int32_t);
     strcpy(ifr.ifr_name, radar->atd.ad_name);
     ifr.ifr_data = (caddr_t)&radar->atd;
-	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
-		err(1, radar->atd.ad_name);
-	return 0;
+    if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
+        err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 static int      
 radarGetCacValidTime(struct radarhandler *radar)
@@ -176,12 +204,11 @@ radarGetCacValidTime(struct radarhandler *radar)
     radar->atd.ad_id = DFS_GET_CAC_VALID_TIME | ATH_DIAG_DYN;
     radar->atd.ad_in_data = NULL;
     radar->atd.ad_in_size = 0;
-    radar->atd.ad_out_data = (void *) &result;
     radar->atd.ad_out_size = sizeof(u_int32_t);
     strcpy(ifr.ifr_name, radar->atd.ad_name);
     ifr.ifr_data = (caddr_t) &radar->atd;
     if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
-          err(1, radar->atd.ad_name);
+        err(1, radar->atd.ad_name);
     return(result);
 }
 static int
@@ -194,12 +221,13 @@ radarSetCacValidTime(struct radarhandler *radar, u_int32_t level)
 	radar->atd.ad_out_data = NULL;
 	radar->atd.ad_out_size = 0;
 	radar->atd.ad_in_data = (void *) &level;
-	radar->atd.ad_in_size = sizeof(u_int32_t);
-    	strcpy(ifr.ifr_name, radar->atd.ad_name);
-    	ifr.ifr_data = (caddr_t)&radar->atd;
-	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
-		err(1, radar->atd.ad_name);
-	return 0;
+    radar->atd.ad_in_size = sizeof(u_int32_t);
+    strcpy(ifr.ifr_name, radar->atd.ad_name);
+    ifr.ifr_data = (caddr_t)&radar->atd;
+    if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
+        err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 static int
 radarDisableFFT(struct radarhandler *radar)
@@ -216,7 +244,8 @@ radarDisableFFT(struct radarhandler *radar)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
-	return 0;
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 
 static int
@@ -234,7 +263,8 @@ radarEnableFFT(struct radarhandler *radar)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
-	return 0;
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 static int
 radarDisableDetect(struct radarhandler *radar)
@@ -251,7 +281,8 @@ radarDisableDetect(struct radarhandler *radar)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
-	return 0;
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 
 static int
@@ -267,9 +298,10 @@ radarEnableDetect(struct radarhandler *radar)
 	radar->atd.ad_in_size = sizeof(u_int32_t);
     strcpy(ifr.ifr_name, radar->atd.ad_name);
     ifr.ifr_data = (caddr_t)&radar->atd;
-	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
-		err(1, radar->atd.ad_name);
-	return 0;
+    if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
+        err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
+    return 0;
 }
 
 static int
@@ -287,7 +319,8 @@ radarBangRadar(struct radarhandler *radar)
     ifr.ifr_data = (caddr_t)&radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
-	return 0;
+	radar->atd.ad_in_data = NULL;
+    return 0;
 }
 
 static void
@@ -312,7 +345,7 @@ radarGetUseNol(struct radarhandler *radar)
 	radar->atd.ad_id = DFS_GET_USENOL | ATH_DIAG_DYN;
 	radar->atd.ad_in_data = NULL;
 	radar->atd.ad_in_size = 0;
-	radar->atd.ad_out_data = (void *) &result;
+    radar->atd.ad_out_data = (void *) &result;
 	radar->atd.ad_out_size = sizeof(u_int32_t);
     strcpy(ifr.ifr_name, radar->atd.ad_name);
     ifr.ifr_data = (caddr_t)&radar->atd;
@@ -333,8 +366,9 @@ radarSetUsenol(struct radarhandler *radar, u_int32_t usenol )
     strcpy(ifr.ifr_name, radar->atd.ad_name);
     ifr.ifr_data = (caddr_t) &radar->atd;
     if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
-              err(1, radar->atd.ad_name);
-        return 0;
+        err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL; 
+    return 0;
 }
 
 static int
@@ -351,6 +385,7 @@ radarSetMuteTime(struct radarhandler *radar, u_int32_t dur)
     ifr.ifr_data = (caddr_t) &radar->atd;
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 	return 0;
 }
 
@@ -426,6 +461,7 @@ radarset(struct radarhandler *radar, int op, u_int32_t param)
 
 	if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
 		err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 }
 
 void
@@ -508,6 +544,7 @@ radarSetNol(struct radarhandler *radar, char *fname)
 
     if (ioctl(radar->s, SIOCGATHPHYERR, &ifr) < 0)
         err(1, radar->atd.ad_name);
+    radar->atd.ad_in_data = NULL;
 }
 
 static void
@@ -630,6 +667,10 @@ main(int argc, char *argv[])
 			radarBangRadar(&radar);
 		} else if (streq(argv[1], "shownol")) {
 			radarShowNol(&radar);
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+		} else if (streq(argv[1], "shownolhistory")) {
+			radarShowNolHistory(&radar);
+#endif
 		} else if (streq(argv[1], "disable")) {
 			radarDisableDetect(&radar);
 		} else if (streq(argv[1], "enable")) {

@@ -19,11 +19,9 @@ INCS += -I$(obj)/$(DEPTH)/include -I$(obj)/$(DEPTH)/umac/include \
         -I$(obj)/$(DEPTH)/hal -I$(obj)/$(DEPTH)/lmac/ath_dev \
         -I$(obj)/$(DEPTH)/hal/$(OS) \
         -I$(obj)/$(DEPTH)/umac/aow \
-        -I$(obj)/$(DEPTH)/ATOPT/command
-        -I$(obj)/$(DEPTH)/ATOPT/thinap
-        -I$(obj)/$(DEPTH)/ATOPT/traffic_limit
-        -I$(obj)/$(DEPTH)/ATOPT/sync_info
-obj-m += ath_usbdrv.o at_proc_command.o
+        -I$(obj)/$(DEPTH)/ATOPT/include
+
+obj-m += ath_usbdrv.o
 EXTRA_CFLAGS+= $(INCS) $(COPTS)
 ath_usbdrv-objs := usbdrv.o if_ath_usb.o fwu.o fwu_1_1.o
 

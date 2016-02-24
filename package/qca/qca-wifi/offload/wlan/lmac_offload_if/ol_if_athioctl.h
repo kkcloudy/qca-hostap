@@ -148,7 +148,8 @@ struct ath_11n_stats {
     u_int32_t   bf_bandwidth_miss;  /* beamform bandwidth mismatch */ 
     u_int32_t   bf_destination_miss;/* beamform destination mismatch */ 
 #endif
-
+    u_int32_t   tx_deducted_tokens; /* ATF txtokens deducted */
+    u_int32_t   tx_unusable_tokens; /* ATF txtokens unusable */
 };
 
 struct ath_bb_panic_info {

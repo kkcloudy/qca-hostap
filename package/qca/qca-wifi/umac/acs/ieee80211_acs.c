@@ -72,7 +72,7 @@ ieee80211_acs_check_interference(struct ieee80211_channel *chan, struct ieee8021
      * (4) skip excluded 11D channels. See bug 31246 
      */
     if ( IEEE80211_IS_CHAN_STURBO(chan) || 
-            IEEE80211_IS_CHAN_RADAR(chan) ||
+         ieee80211_check_weather_radar_channel(chan) ||
             (IEEE80211_IS_CHAN_DFSFLAG(chan) && ieee80211_ic_block_dfschan_is_set(ic)) ||
             IEEE80211_IS_CHAN_11D_EXCLUDED(chan) ) {
         return (1);
@@ -474,7 +474,7 @@ ieee80211_acs_find_best_11na_centerchan(ieee80211_acs_t acs)
             }
         }
         if(acs->acs_ic->ic_no_weather_radar_chan) {
-            if(IEEE80211_IS_CHAN_WEATHER_RADAR(channel)
+            if(ieee80211_check_weather_radar_channel(channel)
                     && (acs->acs_ic->ic_get_dfsdomain(acs->acs_ic) == DFS_ETSI_DOMAIN)) {
                 acs->acs_channelrejflag[cur_chan] |= ACS_REJFLAG_WEATHER_RADAR ;
                 eacs_trace(EACS_DBG_DEFAULT,("Channel rej %d  Weather Radar Flag %x \n",cur_chan,acs->acs_channelrejflag[cur_chan]));
@@ -615,8 +615,8 @@ ieee80211_acs_find_best_11na_centerchan(ieee80211_acs_t acs)
     }
 
 
-
-    eacs_trace(EACS_DBG_RSSI,("Minimum Rssi Channel %d \n",ieee80211_chan2ieee(acs->acs_ic, acs->acs_chans[rssimix])));
+    if ((rssimix > 0) && (rssimix < IEEE80211_ACS_CHAN_MAX))
+        eacs_trace(EACS_DBG_RSSI,("Minimum Rssi Channel %d \n",ieee80211_chan2ieee(acs->acs_ic, acs->acs_chans[rssimix])));
 
     bestix = rssimix;
 
@@ -2473,6 +2473,8 @@ static int ieee80211_acs_cancel(struct ieee80211vap *vap)
      /*Reset ACS in progress flag */
     atomic_set(&acs->acs_in_progress,false);
     acs->acs_ch_hopping.ch_hop_triggered = false;
+    acs->acs_scan_req_param.acs_scan_report_pending = false;
+    acs->acs_scan_req_param.acs_scan_report_active = false;
     return 1;
 }
 
@@ -2632,9 +2634,18 @@ void ieee80211_acs_stats_update(ieee80211_acs_t acs,
         }
 
         /* get final chan stats for the current channel*/
-        acs->acs_chan_load[ieee_chan_num] = chan_stats->chan_clr_cnt - acs->acs_chan_load[ieee_chan_num] ;
+        if(acs->acs_cycle_count[ieee_chan_num] > chan_stats->cycle_cnt) {
+                /* take care of wrap around case, after wrap around 
+                 * counters are right shifted by 1 */
+                acs->acs_chan_load[ieee_chan_num] = chan_stats->chan_clr_cnt - (acs->acs_chan_load[ieee_chan_num] >> 1);
 
-        acs->acs_cycle_count[ieee_chan_num] = chan_stats->cycle_cnt - acs->acs_cycle_count[ieee_chan_num] ;
+                acs->acs_cycle_count[ieee_chan_num] = (MAX_32BIT_UNSIGNED_VALUE - acs->acs_cycle_count[ieee_chan_num])
+                                                         + (chan_stats->cycle_cnt - (MAX_32BIT_UNSIGNED_VALUE >> 1));
+        } else {
+                acs->acs_chan_load[ieee_chan_num] = chan_stats->chan_clr_cnt - acs->acs_chan_load[ieee_chan_num] ;
+
+                acs->acs_cycle_count[ieee_chan_num] = chan_stats->cycle_cnt - acs->acs_cycle_count[ieee_chan_num] ;
+        }
 
         eacs_trace(EACS_DBG_CHLOAD ,("CH:%d End Clr cnt %u cycle cnt %u diff %u \n",
                     ieee_chan_num,chan_stats->chan_clr_cnt,chan_stats->cycle_cnt ,

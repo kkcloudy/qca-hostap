@@ -145,6 +145,9 @@ u_int8_t *ieee80211_add_opmode_notify(u_int8_t *frm, struct ieee80211_node *ni,
 int ieee80211_process_asresp_elements(struct ieee80211_node *ni,
                                   u_int8_t *frm,
                                   u_int32_t ie_len);
+#if ATH_BAND_STEERING
+void ieee80211_process_pwrcap(struct ieee80211_node *ni, u_int8_t *ie);
+#endif
 
 void ieee80211_prepare_qosnulldata(struct ieee80211_node *ni, wbuf_t wbuf, int ac);
 
@@ -440,7 +443,9 @@ void ieee80211_update_htinfo_cmn(struct ieee80211_ie_htinfo_cmn *ie, struct ieee
 void ieee80211_update_obss_scan(struct ieee80211_ie_obss_scan *, struct ieee80211_node *);
 u_int8_t *ieee80211_add_obss_scan(u_int8_t *, struct ieee80211_node *);
 u_int8_t *ieee80211_add_extcap(u_int8_t *, struct ieee80211_node *);
-
+#if ATH_SUPPORT_HS20
+u_int8_t *ieee80211_add_qosmapset(u_int8_t *frm, struct ieee80211_node *);
+#endif
 
 u_int8_t *ieee80211_setup_rsn_ie(struct ieee80211vap *vap, u_int8_t *ie);
 u_int8_t *ieee80211_setup_wpa_ie(struct ieee80211vap *vap, u_int8_t *ie);
@@ -498,6 +503,9 @@ ieee80211_add_vht_txpwr_envlp(u_int8_t *frm, struct ieee80211_node *ni,
 u_int8_t *
 ieee80211_add_chan_switch_wrp(u_int8_t *frm, struct ieee80211_node *ni,
                     struct ieee80211com *ic,  u_int8_t subtype, u_int8_t extchswitch);
+#if ATH_BAND_STEERING
+void ieee80211_process_pwrcap_ie(struct ieee80211_node *ni, u_int8_t *ie);
+#endif
 #if ATH_SUPPORT_CFEND
 wbuf_t ieee80211_cfend_alloc(struct ieee80211com *ic);
 #endif

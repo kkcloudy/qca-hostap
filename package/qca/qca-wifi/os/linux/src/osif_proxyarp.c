@@ -12,6 +12,13 @@
 
 #define OSIF_TO_NETDEV(_osif) (((osif_dev *)(_osif))->netdev)
 
+/*
+ * IS_MYNODE includes every nodes in the BSS, while IS_MYSTA
+ * doesn't include the BSS node itself.
+ */
+#define IS_MYNODE(_v, _n) (_n && (_n)->ni_vap == _v && (_n)->ni_associd)
+#define IS_MYSTA(_v, _n) (IS_MYNODE(_v, _n) && _n != (_v)->iv_bss)
+
 struct dhcp_packet {            /* BOOTP/DHCP packet format */
         struct iphdr iph;       /* IP header */
         struct udphdr udph;     /* UDP header */
@@ -94,6 +101,8 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
     struct ieee80211_node *ni;
     uint16_t ether_type;
     int linear_len;
+    uint8_t eth_ipv6_mcast_addr[] = { 0x33, 0x33, 0, 0, 0, 1 };
+    uint8_t eth_zero_addr[] = { 0, 0, 0, 0, 0, 0 };
 
     KASSERT(vap->iv_opmode == IEEE80211_M_HOSTAP, ("Proxy ARP in !AP mode"));
 
@@ -179,7 +188,7 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
                      */
                     struct ieee80211_node *ni1 = ieee80211_find_node(nt, sha);
 
-                    if (ni1 && ni1 != vap->iv_bss) {
+                    if (ni1 && ni1 != vap->iv_bss && ni1->ni_vap == vap) {
 #ifdef HOST_OFFLOAD
                         struct sk_buff *skb;
 
@@ -220,6 +229,8 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
             /* Suppress Gratuitous ARP reply within the BSS */
             if (IEEE80211_IS_BROADCAST(eh->ether_dhost))
                 goto drop;
+            else
+                goto pass;
         }
     } else if (ether_type == htons(ETHERTYPE_IP)) {
         struct dhcp_packet *dhcp = (struct dhcp_packet *)(eh + 1);
@@ -372,6 +383,7 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
             u8 *lladdr;
             int src_type, dst_type;
             int unsolicited;
+            int is_dad_transmit = 0;
 
             linear_len += sizeof(struct icmp6hdr);
             if (!pskb_may_pull(wbuf, linear_len))
@@ -391,27 +403,40 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
                 src_type = ipv6_addr_type(&ip6->saddr);
                 dst_type = ipv6_addr_type(&ip6->daddr);
                 if ((src_type == IPV6_ADDR_ANY) && (dst_type & IPV6_ADDR_MULTICAST)) {
+                    struct ieee80211_node *ni1;
+                    /* See if the addr is already in our neighbor cache */
                     ni = ieee80211_find_node(nt, eh->ether_shost);
-                    if (ni && ni->ni_vap == vap && ni->ni_associd) {
-                        struct ieee80211_node *ni1;
-
-                        /* See if the addr is already in our neighbor cache */
-                        ni1 = ieee80211_find_node_by_ipv6(nt, (u8 *)&msg->target);
-                        if (ni1 && (ni1 != ni)) {
-                            IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP, "NDP SC: "
-                                      "ipv6 %pI6 -> mac %pM ignored (DAD w/ %pM)\n",
-                                      &msg->target, ni1->ni_macaddr, ni->ni_macaddr);
+                    ni1 = ieee80211_find_node_by_ipv6(nt, (u8 *)&msg->target);
+                    if (ni1) {
+                        /* No interest in STA's own DAD transmit */
+                        if (ni1 == ni) {
                             ieee80211_free_node(ni1);
-                            /* We must pass this SC so that the DAD will work */
-                            goto pass_node;
+                            goto drop_node;
                         }
-                        if (ni1)
-                            ieee80211_free_node(ni1);
 
+                        IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP, "NDP SC: "
+                                  "ipv6 %pI6 -> mac %pM ignored (DAD w/ %pM)\n",
+                                  &msg->target, eh->ether_shost, ni1->ni_macaddr);
+
+                        ieee80211_free_node(ni1);
+                        if (ni)
+                            ieee80211_free_node(ni);
+                        /*
+                         * Reply DAD NA on behalf of the STA. lladdr points
+                         * to the ethernet IPv6 multicast address (33:33:0:0:0:1)
+                         * which corresponds to the IPv6 all nodes multicast
+                         * address (FF02::1).
+                         */
+                        is_dad_transmit = 1;
+                        lladdr = eth_ipv6_mcast_addr;
+                        goto send_na;
+                    }
+
+                    if (IS_MYNODE(vap, ni)) {
                         /* Learn from this SC if it is from our associated STA's */
                         if (ieee80211_node_add_ipv6(nt, ni, (u8 *)&msg->target)) {
                             printk("Maximum multiple IPv6 addresses exceeded "
-                                    "]%d]. Proxy ARP disabled. Consider to "
+                                    "[%d]. Proxy ARP disabled. Consider to "
                                     "increase IEEE80211_NODE_IPV6_MAX!\n",
                                     IEEE80211_NODE_IPV6_MAX);
                             ieee80211_vap_proxyarp_clear(vap);
@@ -421,27 +446,25 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
                         IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP, "NDP "
                                 "SC: mac %s -> ipv6 %pI6\n",
                                 ether_sprintf(eh->ether_shost), &msg->target);
-                        goto drop_node;
                     }
-                    if (ni)
-                        ieee80211_free_node(ni);
+                    /* always suppress DupAddrDetectTransmits */
+                    goto drop_node;
                 }
-
-                /* The normal Neighbor Solicitation must have the ICMPv6 Option */
+                /*
+                * Normal Neighbor Solicitation (vs DupAddrDetectTransmits)
+                * handling begins here. It must have the ICMPv6 Option.
+                */
                 lladdr = ipv6_ndisc_opt_lladdr(msg->opt, optlen, 1);
                 if (!lladdr)
                         goto drop;
 
+send_na:
                 ni = ieee80211_find_node_by_ipv6(nt, (u8 *)&msg->target);
-                if (ni && ni->ni_vap == vap &&
-                    ni->ni_associd &&
-                    ni != vap->iv_bss)
-                {
+                if (IS_MYSTA(vap, ni)) {
                     struct sk_buff *skb;
                     struct ipv6hdr *nip6;
                     struct nd_msg *nmsg;
                     struct ieee80211_node *ni1;
-
                     skb = alloc_skb(
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,3,0)
                                     LL_RESERVED_SPACE(dev) +
@@ -480,13 +503,24 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
                     nip6->payload_len = htons(sizeof(struct nd_msg) + 8);
                     nip6->nexthdr = IPPROTO_ICMPV6;
                     nip6->hop_limit = 0xff;
-                    nip6->daddr = ip6->saddr;
+		    if (is_dad_transmit) {
+			    /* IPv6 dest addr is all nodes multicast addr for DAD NA */
+			    ipv6_addr_set(&nip6->daddr, htonl(0xFF020000), 0, 0,
+					    htonl(0x00000001));
+		    } else {
+			    nip6->daddr = ip6->saddr;
+		    }
                     nip6->saddr = msg->target;
 
                     /* build ICMPv6 NDP NA packet */
                     memset(&nmsg->icmph, 0, sizeof(struct icmp6hdr));
                     nmsg->icmph.icmp6_type = NDISC_NEIGHBOUR_ADVERTISEMENT;
-                    nmsg->icmph.icmp6_solicited = 1;
+		    if (is_dad_transmit) {
+                        nmsg->icmph.icmp6_override = 1;
+                    } else {
+                        nmsg->icmph.icmp6_solicited = 1;
+                    }
+
                     nmsg->target = msg->target;
                     /* ICMPv6 Option */
                     nmsg->opt[0] = ND_OPT_TARGET_LL_ADDR;
@@ -497,31 +531,51 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
                                 &nip6->daddr, sizeof(*nmsg) + 8, IPPROTO_ICMPV6,
                                 csum_partial(&nmsg->icmph, sizeof(*nmsg) + 8, 0));
 
-                    ni1 = ieee80211_find_node(nt, lladdr);
-                    if (ni1 && ni1->ni_vap == vap &&
-                        ni1->ni_associd && ni1 != vap->iv_bss)
-                    {
-                        ieee80211_free_node(ni1);
-                        /* Send it to the STA */
-#ifdef HOST_OFFLOAD
-                        atd_proxy_arp_send(skb);
-#else                        
+                    if (is_dad_transmit) {
+                        /*
+                         * DAD reply is required to send multicast NA to
+                         * both STA's and the bridge. As we don't know
+                         * where it is originated at this point.
+                         */
+                        struct sk_buff *skb1 = skb_clone(skb, GFP_ATOMIC);
                         dev_queue_xmit(skb);
-#endif
-                    } else {
-                        if (ni1) {
-                            ieee80211_free_node(ni1);
-                            ni1 = NULL;
-                        }
-                        /* Deliver it to the bridge */
-                        __osif_deliver_data(vap->iv_ifp, skb);
-                    }
 
-                    IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP, "send NDP "
-                                      "NA for ip %pI6 -> mac %pM to %pM %s\n",
-                                      &msg->target, ni->ni_macaddr,
-                                      &eh->ether_shost,
-                                      ni1 ? "over the air" : "via local stack");
+                        if (!skb1) {
+                            IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP,
+                                "%s: skb_clone failed\n");
+                            goto drop_node;
+                        }
+                        __osif_deliver_data(vap->iv_ifp, skb1);
+                        IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP, "send DAD NDP "
+                                          "NA for ip %pI6 -> mac %pM to %pM both "
+                                          "over the air and via local stack\n",
+                                          &msg->target, ni->ni_macaddr, lladdr);
+                    } else {
+                        /* Send unicast NA for normal SC */
+                        ni1 = ieee80211_find_node(nt, lladdr);
+                        if (IS_MYSTA(vap, ni1)) {
+                            ieee80211_free_node(ni1);
+                            /* Send it to the STA */
+#ifdef HOST_OFFLOAD
+                            atd_proxy_arp_send(skb);
+#else
+                            dev_queue_xmit(skb);
+#endif
+                        } else {
+                            if (ni1) {
+                                ieee80211_free_node(ni1);
+                                ni1 = NULL;
+                            }
+                            /* Deliver it to the bridge */
+                            __osif_deliver_data(vap->iv_ifp, skb);
+                        }
+
+                        IEEE80211_DPRINTF(vap, IEEE80211_MSG_PROXYARP, "send NDP "
+                                          "NA for ip %pI6 -> mac %pM to %pM %s\n",
+                                          &msg->target, ni->ni_macaddr,
+                                          &eh->ether_shost,
+                                          ni1 ? "over the air" : "via local stack");
+                    }
 
                     /* Suppress NDP NS within the BSS */
                     goto drop_node;
@@ -534,7 +588,6 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
 
             case NDISC_NEIGHBOUR_ADVERTISEMENT:
                 if (msg->icmph.icmp6_solicited && ipv6_addr_is_multicast(&msg->target))
-                    printf("ERROR: both solicited and multicast is set!\n");
 
                 unsolicited = !msg->icmph.icmp6_solicited ||
                               ipv6_addr_is_multicast(&msg->target);
@@ -564,12 +617,12 @@ int wlan_proxy_arp(wlan_if_t vap, wbuf_t wbuf)
                 if (ni)
                     ieee80211_free_node(ni);
 
-                /* Suppress non-solicited NA within the BSS */
-                if (unsolicited)
+                /* Suppress non-solicited and non-override NA within the BSS */
+                if (unsolicited && !msg->icmph.icmp6_override)
                     goto drop;
 #if 0
                 ni = ieee80211_find_node(nt, lladdr);
-                if (!ni || ni->ni_vap != vap || !ni->ni_associd) {
+                if (!IS_MYNODE(vap, ni)) {
                     /*
                      * In this case we are not interested in this NA packet.
                      * Forward it within the BSS if it is solicited or

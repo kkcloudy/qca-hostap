@@ -227,6 +227,12 @@ wmi_get_event_str(WMI_EVT_ID event_id)
 
       RETURN_STRING(WMI_PDEV_UTF_EVENTID);
 
+      RETURN_STRING(WMI_PDEV_BSS_CHAN_INFO_EVENT);
+
+#if QCA_AIRTIME_FAIRNESS
+      RETURN_STRING(WMI_TX_DATA_TRAFFIC_CTRL_EVENTID);
+#endif
+
       default:
         return NULL;
    }
@@ -491,6 +497,7 @@ wmi_get_cmd_str(WMI_CMD_ID cmd_id)
       RETURN_STRING(WMI_PDEV_RATEPWR_TABLE_CMDID);
       /** En/disable the rate power and chain mask table in FW*/
       RETURN_STRING(WMI_PDEV_RATEPWR_CHAINMSK_TABLE_CMDID);
+      RETURN_STRING(WMI_PDEV_BSS_CHAN_INFO_REQUEST);
 
       /* add new CMDIDs here */
 

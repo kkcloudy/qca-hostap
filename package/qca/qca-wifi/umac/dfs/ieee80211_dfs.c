@@ -106,7 +106,7 @@ ieee80211_get_cac_timeout(struct ieee80211com *ic,
         int i;
         ic->ic_get_ext_chan_info (ic, &chan_info);
         for (i = 0; i < chan_info.cl_nchans; i++) {    
-            if((NULL != chan_info.cl_channels[i])&&(IEEE80211_IS_CHAN_WEATHER_RADAR(chan_info.cl_channels[i]))) {
+            if((NULL != chan_info.cl_channels[i])&&(ieee80211_check_weather_radar_channel(chan_info.cl_channels[i]))) {
                 return (ieee80211_cac_weather_timeout);
             }
         }
@@ -266,10 +266,27 @@ ieee80211_dfs_cac_cancel(struct ieee80211com *ic)
 	if (vap->iv_state_info.iv_state != IEEE80211_S_DFS_WAIT) {
 		continue;
         }
-        ieee80211_dfs_cac_stop(vap);
+        ieee80211_dfs_cac_stop(vap, 1);
     }
     return 0;
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+int
+ieee80211_dfs_stacac_cancel(struct ieee80211com *ic)
+{
+
+	struct ieee80211vap *vap;
+
+	TAILQ_FOREACH(vap, &ic->ic_vaps, iv_next) {
+        if (vap->iv_opmode == IEEE80211_M_STA && ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS)) {
+            ieee80211_dfs_stacac_stop(vap);
+            break;
+        }
+    }
+    return 0;
+}
+#endif
 
 static int
 ieee80211_dfs_send_dfs_wait(struct ieee80211com *ic)
@@ -311,6 +328,30 @@ ieee80211_dfs_send_dfs_wait(struct ieee80211com *ic)
     return set_dfs_wait_mesg;
 }
 
+/* Get VAPS in DFS_WAIT state */
+static int
+ieee80211_vaps_in_dfs_wait(struct ieee80211com *ic, struct ieee80211vap *curr_vap)
+{
+
+    struct ieee80211vap *vap;
+    int dfs_wait_cnt = 0;
+    IEEE80211_COMM_LOCK(ic);
+    TAILQ_FOREACH(vap, &ic->ic_vaps, iv_next) {
+        if(vap == curr_vap) {
+            continue;
+        }
+        if (vap->iv_opmode != IEEE80211_M_HOSTAP && vap->iv_opmode != IEEE80211_M_IBSS) {
+            continue;
+        }
+
+        if (vap->iv_state_info.iv_state == IEEE80211_S_DFS_WAIT) {
+            dfs_wait_cnt++;
+        }
+    }
+    IEEE80211_COMM_UNLOCK(ic);
+    return dfs_wait_cnt;
+}
+
 /*
  * Initiate the CAC timer.  The driver is responsible
  * for setting up the hardware to scan for radar on the
@@ -328,6 +369,14 @@ ieee80211_dfs_cac_start(struct ieee80211com *ic)
 		ieee80211_dfs_proc_cac(ic);
 		return 1;
 	}
+
+    /* If any VAP is in active and running, then no need to start cac
+     * timer as all the VAPs will be using same channel and currently
+     * running VAP has already done cac and actively monitoring channel */
+    if(ieee80211_vap_is_any_running(ic)) {
+        return 1;
+    }
+
 	if (ic->ic_dfs_state.ignore_dfs) {
 		printk("%s ignore dfs by user %d \n",
 			__func__, ic->ic_dfs_state.ignore_dfs);
@@ -362,12 +411,18 @@ ieee80211_dfs_cac_start(struct ieee80211com *ic)
  * Clear the CAC timer.
  */
 void
-ieee80211_dfs_cac_stop(struct ieee80211vap *vap)
+ieee80211_dfs_cac_stop(struct ieee80211vap *vap, int force)
 {
 	struct ieee80211com *ic = vap->iv_ic;
 	struct ieee80211_dfs_state *dfs = &ic->ic_dfs_state;
-        u_int32_t phyerr;
-        ic->ic_dfs_debug(ic, 0, (void *)&phyerr);
+    u_int32_t phyerr;
+
+    if(!force &&
+      (!dfs->cac_timer_running || ieee80211_vaps_in_dfs_wait(ic, vap))) {
+        return;
+    }
+
+    ic->ic_dfs_debug(ic, 0, (void *)&phyerr);
 
        IEEE80211_DPRINTF_IC(ic,
                IEEE80211_VERBOSE_NORMAL,
@@ -378,6 +433,31 @@ ieee80211_dfs_cac_stop(struct ieee80211vap *vap)
 	OS_CANCEL_TIMER(&dfs->cac_timer);
         dfs->cac_timer_running = 0;
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+/*
+ * Clear the STA CAC timer.
+ */
+void
+ieee80211_dfs_stacac_stop(struct ieee80211vap *vap)
+{
+	struct ieee80211com *ic = vap->iv_ic;
+	u_int32_t phyerr;
+
+	ic->ic_dfs_debug(ic, 0, (void *)&phyerr);
+
+    IEEE80211_DPRINTF_IC(ic,
+               IEEE80211_VERBOSE_NORMAL,
+               IEEE80211_MSG_DFS,"%s[%d] Stopping STA CAC Timer %d procphyerr 0x%08x\n",
+               __func__, __LINE__, ic->ic_curchan->ic_freq, phyerr);
+
+    mlme_cancel_stacac_timer(vap);
+    mlme_reset_mlme_req(vap);
+    mlme_set_stacac_running(vap,0);
+    mlme_set_stacac_valid(vap,1);
+
+}
+#endif
 
 /*
  * Unmark all channels whose frequencies match 'chan'.
@@ -593,6 +673,14 @@ ieee80211_dfs_cac_cancel(struct ieee80211com *ic)
 	return 1; /* NON DFS mode */
 }
 
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+int
+ieee80211_dfs_stacac_cancel(struct ieee80211com *ic)
+{
+	return 1; /* NON DFS mode */
+}
+#endif
+
 int
 ieee80211_dfs_cac_start(struct ieee80211com *ic)
 {
@@ -601,9 +689,16 @@ ieee80211_dfs_cac_start(struct ieee80211com *ic)
 }
 
 void
-ieee80211_dfs_cac_stop(struct ieee80211vap *vap)
+ieee80211_dfs_cac_stop(struct ieee80211vap *vap, int force)
 {
 }
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void
+ieee80211_dfs_stacac_stop(struct ieee80211vap *vap)
+{
+}
+#endif
 
 void
 ieee80211_unmark_radar(struct ieee80211com *ic, struct ieee80211_channel *chan)
@@ -611,5 +706,4 @@ ieee80211_unmark_radar(struct ieee80211com *ic, struct ieee80211_channel *chan)
 
 	/* XXX nothing to do here */
 }
-
 #endif /* ATH_SUPPORT_DFS */

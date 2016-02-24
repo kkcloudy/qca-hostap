@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2010, Atheros Communications Inc. 
+ * Copyright (c) 2008-2010, Atheros Communications Inc.
  * All Rights Reserved.
  * 
  * Copyright (c) 2011 Qualcomm Atheros, Inc.
@@ -102,7 +102,10 @@ ar9300_proc_rx_desc_fast(struct ath_hal *ah, struct ath_desc *ds,
 #endif    
     rxs->rs_isapsd = (rxsp->status11 & AR_apsd_trig) ? 1 : 0;
     rxs->rs_flags  = (rxsp->status4 & AR_gi) ? HAL_RX_GI : 0;
-    rxs->rs_flags  |= (rxsp->status4 & AR_2040) ? HAL_RX_2040 : 0;
+    if (!((rxsp->status11 & AR_rx_aggr) && ((rxsp->status11 & AR_rx_first_aggr) || rxsp->status11 & AR_rx_more_aggr)))
+    {
+        rxs->rs_flags |= (rxsp->status4 & AR_2040) ? HAL_RX_2040 : 0;
+    }
 
 #ifdef ATH_SUPPORT_TxBF
     rxs->rx_hw_upload_data = (rxsp->status2 & AR_hw_upload_data) ? 1 : 0;

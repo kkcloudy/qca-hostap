@@ -59,7 +59,7 @@
 
 #include "os/linux/include/ieee80211_external.h"
 
-#define	streq(a,b)	(strncasecmp(a,b,sizeof(b)-1) == 0)
+#define	streq(a,b)	((strlen(a) == strlen(b)) && (strncasecmp(a,b,sizeof(b)-1) == 0))
 
 #define TSPECTOTIME(tspec,tmval,buffer)                           \
     tzset();                                                      \
@@ -73,11 +73,12 @@ usage(void)
 {
 	fprintf(stderr, "usage: wifitool athX cmd args\n");
 	fprintf(stderr, "cmd: [sendaddba senddelba setaddbaresp getaddbastats  sendaddts senddelts  \n");
-    fprintf(stderr, "cmd: [sendtsmrpt sendneigrpt sendlmreq sendbstmreq  sendbcnrpt ] \n");
+    fprintf(stderr, "cmd: [sendtsmrpt sendneigrpt sendlmreq sendbstmreq sendbstmreq_target sendbcnrpt ] \n");
     fprintf(stderr, "cmd: [sendstastats sendchload sendnhist sendlcireq rrmstats bcnrpt setchanlist getchanlist] \n");
     fprintf(stderr, "cmd: [block_acs_channel] \n");
     fprintf(stderr, "cmd: [rrm_sta_list] \n");
     fprintf(stderr, "cmd: [mu_scan lteu_cfg ap_scan] \n");
+    fprintf(stderr, "cmd: [atf_debug_size atf_dump_debug] \n");
     fprintf(stderr, "cmd: [tr069_chanhist] \n");
     fprintf(stderr, "cmd: [tr069_chan_inuse] \n");
     fprintf(stderr, "cmd: [tr069_set_oper_rate] \n");
@@ -85,10 +86,22 @@ usage(void)
     fprintf(stderr, "cmd: [tr069_get_posiblrate] \n");
     fprintf(stderr, "cmd: [bsteer_getparams bsteer_setparams] \n");
     fprintf(stderr, "cmd: [bsteer_getdbgparams bsteer_setdbgparams] \n");
-    fprintf(stderr, "cmd: [bsteer_enable] \n");
+    fprintf(stderr, "cmd: [bsteer_enable] [bsteer_enable_events]\n");
     fprintf(stderr, "cmd: [bsteer_getoverload bsteer_setoverload] \n");
     fprintf(stderr, "cmd: [bsteer_getrssi] \n");
     fprintf(stderr, "cmd: [bsteer_setproberespwh bsteer_getproberespwh] \n");
+    fprintf(stderr, "cmd: [tr069_get_vap_stats] \n");
+    fprintf(stderr, "cmd: [tr069_get_fail_retrans] \n");
+    fprintf(stderr, "cmd: [tr069_get_success_retrans] \n");
+    fprintf(stderr, "cmd: [tr069_get_success_mul_retrans] \n");
+    fprintf(stderr, "cmd: [tr069_get_ack_failures] \n");
+    fprintf(stderr, "cmd: [tr069_get_retrans] \n");
+    fprintf(stderr, "cmd: [tr069_get_aggr_pkts] \n");
+    fprintf(stderr, "cmd: [tr069_get_sta_stats] [STA MAC] \n");
+    fprintf(stderr, "cmd: [tr069_get_sta_bytes_sent] [STA MAC] \n");
+    fprintf(stderr, "cmd: [tr069_get_sta_bytes_rcvd] [STA MAC] \n");
+    fprintf(stderr, "cmd: [getrssi] \n");
+    fprintf(stderr, "cmd: [bsteer_getdatarateinfo] \n");
 	exit(-1);
 }
 
@@ -215,7 +228,7 @@ usage_sendbcnrpt(void)
    fprintf(stderr, "usage: wifitool athX sendbcnrpt <dstmac> <regclass> <channum> \n");
    fprintf(stderr, "       <rand_ivl> <duration> <mode> \n");
    fprintf(stderr, "       <req_ssid> <rep_cond> <rpt_detail>\n");
-   fprintf(stderr, "       <req_ie> <chanrpt_mode> \n");
+   fprintf(stderr, "       <req_ie> <chanrpt_mode> [chanrpt_channum...]\n");
    fprintf(stderr, "       req_ssid = 1 for ssid, 2 for wildcard ssid \n");
    exit(-1);
 }
@@ -248,6 +261,13 @@ usage_sendbstmreq(void)
 {
    fprintf(stderr, "usage: wifitool athX sendbstmreq <mac_addr> <candidate_list> <disassoc> <validityItrv>\n");
    exit(-1);
+}
+
+static void
+usage_sendbstmreq_target(void)
+{
+    fprintf(stderr, "usage: wifitool athX sendbstmreq_target <mac_addr>\n[<candidate_bssid> <candidate channel> <candidate_preference>...]\n");
+    exit(-1);
 }
 
 static void
@@ -363,9 +383,14 @@ usage_bsteer_setparams(void)
     fprintf(stderr, "usage: wifitool athX bsteer_setparams <inact_normal> "
                     "<inact_overload> <util_sample_period> "
                     "<util_average_num_samples> "
-                    "<rssi_crossing_threshold> "
-                    "<inactive_rssi_crossing_threshold> "
-                    "<inact_check_period>\n");
+                    "<inactive_rssi_xing_high_threshold> "
+                    "<inactive_rssi_xing_low_threshold> "
+                    "<low_rssi_crossing_threshold> "
+                    "<inact_check_period> "
+                    "<tx_rate_low_crossing_threshold> "
+                    "<tx_rate_high_crossing_threshold> "
+                    "<rssi_rate_low_crossing_threshold> "
+                    "<rssi_rate_high_crossing_threshold>\n");
 }
 
 static void
@@ -379,13 +404,19 @@ usage_bsteer_setdbgparams(void)
 {
     fprintf(stderr, "usage: wifitool athX bsteer_setdbgparams "
                     "<raw_chan_util_log_enable> "
-                    "<raw_rssi_log_enable>\n");
+                    "<raw_rssi_log_enable> <raw_tx_rate_log_enable>\n");
 }
 
 static void
 usage_bsteer_enable(void)
 {
     fprintf(stderr, "Usage: wifitool athX bsteer_enable <enable_flag>\n");
+}
+
+static void
+usage_bsteer_enable_events(void)
+{
+    fprintf(stderr, "Usage: wifitool athX bsteer_enable_events <enable_flag>\n");
 }
 
 static void
@@ -531,57 +562,89 @@ usage_bsteer_getproberespwh(void)
     fprintf(stderr, "Usage: wifitool athX bsteer_getproberespwh <dstmac>\n");
 }
 
+static void
+usage_bsteer_getdatarateinfo(void)
+{
+    fprintf(stderr, "Usage: wifitool athX bsteer_getdatarateinfo <dstmac>\n");
+}
+
 /*
  * Input an arbitrary length MAC address and convert to binary.
  * Return address size.
  */
-int
-wifitool_mac_aton(const char *  orig,
-            unsigned char *     mac,
-            int                 macmax)
+typedef unsigned char uint8_t;
+
+uint8_t delim_unix = ':';
+uint8_t delim_win = '-';
+
+#define IS_VALID(s)         (((s >= '0') && (s <= '9')) || ((s >= 'A') && (s <= 'F')) || ((s >= 'a') && (s <= 'f')))
+#define TO_UPPER(s)         (((s >= 'a') && (s <= 'z')) ? (s - 32) : s)
+#define IS_NUM(c)           ((c >= '0') && (c <= '9'))
+#define CHAR_TO_HEX_INT(c)  (IS_NUM(c) ? (c - '0') : (TO_UPPER(c) - 55))
+
+/* returns 0 for fail else len if success */
+
+    int
+wifitool_mac_aton(const char *str,
+        unsigned char *     out,
+        int                 len)
 {
-  const char *  p = orig;
-  int           maclen = 0;
+    int index = 0;
+    const uint8_t *tmp = NULL;
+    int plen = 0;
+    uint8_t delim;
+    int num = 0;
+    int flag_num_valid = 0;
+    int ccnt = 0;
 
-  /* Loop on all bytes of the string */
-  while(*p != '\0')
-    {
-      int       temph;
-      int       templ;
-      int       count;
-      /* Extract one byte as two chars */
-      count = sscanf(p, "%1X%1X", &temph, &templ);
-      if(count != 2)
-        break;                  /* Error -> non-hex chars */
-      /* Output two chars as one byte */
-      templ |= temph << 4;
-      mac[maclen++] = (unsigned char) (templ & 0xFF);
-
-      /* Check end of string */
-      p += 2;
-      if(*p == '\0')
-        {
-          return(maclen);               /* Normal exit */
-        }
-
-      /* Check overflow */
-      if(maclen >= macmax)
-        {
-          fprintf(stderr, "maclen overflow \n");
-          return(0);                    /* Error -> overflow */
-        }
-
-      /* Check separator */
-      if(*p != ':')
-        break;
-      p++;
+    while((*str == ' ') || (*str == '\t') || (*str == '\n')) {
+        ++str;
     }
 
-  /* Error... */
-  fprintf(stderr, "Invlaid macstring %s \n", orig);
-  return(0);
-}
+    tmp = (uint8_t *) str;
 
+    while ((*tmp != delim_unix) && (*tmp != delim_win)) {
+        ++tmp;
+    }
+
+    delim = *tmp;
+
+    tmp = (uint8_t *)str;
+
+    while (*tmp != '\0') {
+
+        if (IS_VALID(*tmp) && (++ccnt < 3)) {
+            num = (num * 16) + CHAR_TO_HEX_INT(*tmp);
+            flag_num_valid = 1;
+        } else if ((*tmp == delim) && (flag_num_valid)) {
+            *out = num;
+            out++;
+            num = 0;
+            plen++;
+            ccnt = 0;
+            flag_num_valid = 0;
+
+            if (plen > len) {
+                return 0;
+            }
+        } else {
+            return 0;
+        }
+        tmp++;
+    }
+
+    if (*tmp == '\0') {
+        *out = num;
+        plen++;
+    }
+
+    if (plen == len) {
+        return len;
+    } else {
+        return 0;
+    }
+
+}
 
 static void
 send_addba(const char *ifname, int argc, char *argv[])
@@ -717,7 +780,121 @@ get_addbastats(const char *ifname, int argc, char *argv[])
     return;
 }
 
-    static void
+/**
+ * @brief Parse the command and append AP channel report subelements
+ *        to the beacon report.
+ *
+ * This is only valid for US Operating classes.
+ *
+ * @param [out] bcnrpt  the beacon report to be filled with AP channel
+ *                      report subelements
+ * @param [in] argc  total number of command line arguments
+ * @param [in] argv  command line arguments
+ * @param [in] offset  the start of channel number arguments
+ *
+ * @return -1 if any channel number provided is invalid; otherwise
+ *         return 0 on success
+ */
+static int
+bcnrpt_append_chan_report(ieee80211_rrm_beaconreq_info_t* bcnrpt,
+                          int argc, char *argv[], int offset) {
+    /* For now only consider Operating class 1,2,3,4 and 12,
+       as defined in Table E-1 in 802.11-REVmb/D12, November 2011 */
+#define MAX_CHANNUM_PER_REGCLASS 11
+    typedef enum {
+        REGCLASS_1 = 1,
+        REGCLASS_2 = 2,
+        REGCLASS_3 = 3,
+        REGCLASS_4 = 4,
+        REGCLASS_12 = 12,
+
+        REGCLASS_MAX
+    } regclass_e;
+
+    int num_chanrep = 0;
+    regclass_e regclassnum = REGCLASS_MAX;
+    struct {
+        int numchans;
+        int channum[MAX_CHANNUM_PER_REGCLASS];
+    } regclass[REGCLASS_MAX] = {{0}};
+
+    while (offset < argc) {
+        int channum = atoi(argv[offset++]);
+        switch (channum) {
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+            case 5:
+            case 6:
+            case 7:
+            case 8:
+            case 9:
+            case 10:
+            case 11:
+                regclassnum = REGCLASS_12;
+                break;
+            case 36:
+            case 40:
+            case 44:
+            case 48:
+                regclassnum = REGCLASS_1;
+                break;
+            case 52:
+            case 56:
+            case 60:
+            case 64:
+                regclassnum = REGCLASS_2;
+                break;
+            case 149:
+            case 153:
+            case 157:
+            case 161:
+                regclassnum = REGCLASS_3;
+                break;
+            case 100:
+            case 104:
+            case 108:
+            case 112:
+            case 116:
+            case 120:
+            case 124:
+            case 128:
+            case 132:
+            case 136:
+            case 140:
+                regclassnum = REGCLASS_4;
+                break;
+            default:
+                return -1;
+        }
+
+        if (regclass[regclassnum].numchans >= MAX_CHANNUM_PER_REGCLASS) {
+            /* Must have duplicated entries, raise error to user */
+            return -1;
+        }
+
+        regclass[regclassnum].channum[regclass[regclassnum].numchans] = channum;
+        ++regclass[regclassnum].numchans;
+    }
+
+    for (regclassnum = REGCLASS_1; regclassnum < REGCLASS_MAX; regclassnum++) {
+        if (regclass[regclassnum].numchans > 0) {
+            bcnrpt->apchanrep[num_chanrep].regclass = regclassnum;
+            bcnrpt->apchanrep[num_chanrep].numchans = regclass[regclassnum].numchans;
+            int i;
+            for (i = 0; i < regclass[regclassnum].numchans; i++) {
+                bcnrpt->apchanrep[num_chanrep].channum[i] = regclass[regclassnum].channum[i];
+            }
+            ++num_chanrep;
+        }
+    }
+
+    bcnrpt->num_chanrep = num_chanrep;
+    return 0;
+}
+
+static void
 send_bcnrpt(const char *ifname, int argc, char *argv[])
 {
     struct iwreq iwr;
@@ -757,8 +934,8 @@ send_bcnrpt(const char *ifname, int argc, char *argv[])
         chan_rptmode = atoi(argv[13]);
         if (!chan_rptmode) {
             bcnrpt->num_chanrep = 0;
-        }
-        else {
+        } else if (argc == 14) {
+            /* If no channel is provided, use pre-canned channel values */
             bcnrpt->num_chanrep = 2;
             bcnrpt->apchanrep[0].regclass = 12;
             bcnrpt->apchanrep[0].numchans = 2;
@@ -768,6 +945,9 @@ send_bcnrpt(const char *ifname, int argc, char *argv[])
             bcnrpt->apchanrep[1].numchans = 2;
             bcnrpt->apchanrep[1].channum[0] = 36;
             bcnrpt->apchanrep[1].channum[1] = 48;
+        } else if (bcnrpt_append_chan_report(bcnrpt, argc, argv, 14) < 0) {
+            errx(1, "Invalid AP Channel Report channel number(s)");
+            usage_sendbcnrpt();
         }
         iwr.u.data.pointer = (void *) &req;
         iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
@@ -839,7 +1019,7 @@ send_neigrpt(const char *ifname, int argc, char *argv[])
             return;
         }
         strncpy((char *)neigrpt->ssid, argv[4],sizeof(neigrpt->ssid));
-        neigrpt->ssid_len = strlen((char *)neigrpt->ssid);
+        neigrpt->ssid_len = strnlen((char *)neigrpt->ssid,sizeof(neigrpt->ssid));
         neigrpt->dialogtoken = atoi(argv[5]);
         iwr.u.data.pointer = (void *) &req;
         iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
@@ -907,6 +1087,72 @@ send_bstmreq(const char *ifname, int argc, char *argv[])
         if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
             errx(1, "IEEE80211_IOCTL_DBGREQ: IEEE80211_DBGREQ_SENDBSTMREQ failed");
         }
+    }
+    return;
+}
+
+static void
+send_bstmreq_target(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s, len, i;
+    struct ieee80211req_athdbg req;
+    struct ieee80211_bstm_reqinfo_target* reqinfo = &req.data.bstmreq_target;
+
+    /* constants for convenient checking of arguments */
+    static const u_int32_t fixed_length_args = 4;
+    static const u_int32_t per_candidate_args = 3;
+
+    if (argc < fixed_length_args) {
+        usage_sendbstmreq_target();
+    }
+    else {
+        memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+        
+        (void) memset(&iwr, 0, sizeof(iwr));
+        (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+        req.cmd = IEEE80211_DBGREQ_SENDBSTMREQ_TARGET;
+        if (!wifitool_mac_aton(argv[3], req.dstmac, MAC_ADDR_LEN)) {
+            errx(1, "Invalid destination mac address");
+            return;
+        }
+        reqinfo->dialogtoken = 1;
+        
+        /* check the number of arguments is appropriate to have the full complement
+           of parameters for the command */
+        if ((argc - fixed_length_args) % per_candidate_args) {
+            usage_sendbstmreq_target();
+            return;
+        }
+
+        reqinfo->num_candidates = (argc - fixed_length_args) / per_candidate_args;
+
+        /* make sure the maximum number of candidates is not exceeded */
+        if (reqinfo->num_candidates > ieee80211_bstm_req_max_candidates) {
+            errx(1, "Invalid number of candidates: %d, maximum is %d", 
+                 reqinfo->num_candidates, ieee80211_bstm_req_max_candidates);
+            return;
+        }
+
+        /* read the candidates */
+        for (i = 0; i < reqinfo->num_candidates; i++) {
+            if (!wifitool_mac_aton(argv[fixed_length_args + i * per_candidate_args], 
+                                   reqinfo->candidates[i].bssid, MAC_ADDR_LEN)) {
+                errx(1, "Candidate entry %d: Invalid BSSID", i);
+                return;
+            }
+            reqinfo->candidates[i].channel_number = atoi(argv[fixed_length_args + i * per_candidate_args + 1]);
+            reqinfo->candidates[i].preference = atoi(argv[fixed_length_args + i * per_candidate_args + 2]);
+        }
+
+        s = socket(AF_INET, SOCK_DGRAM, 0);
+        iwr.u.data.pointer = (void *) &req;
+        iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+        if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+            errx(1, "IEEE80211_IOCTL_DBGREQ: IEEE80211_DBGREQ_SENDBSTMREQ_TARGET failed");
+        }
+
+        close(s);
     }
     return;
 }
@@ -1217,7 +1463,6 @@ static void get_rssi(const char *ifname, int argc, char *argv[])
       errx(1, "IEEE80211_IOCTL_DBGREQ: IEEE80211_DBGREQ_RRMSTATSREQ failed");
   	}
 }
-
 
 static void channel_loading_channel_list_set(const char *ifname, int argc, char *argv[])
 {
@@ -1616,6 +1861,95 @@ static void lteu_cfg(const char *ifname, int argc, char *argv[])
         perror("ioctl:\n");
     }
 
+    close(sock);
+}
+
+/*
+ * Dump the history logged of ATF stats
+ */
+static void atf_dump_debug(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int sock;
+    struct ieee80211req_athdbg req;
+    int ret;
+
+    if (argc < 4) {
+        printf("usage: wifitool athX atf_dump_debug <mac addr>\n");
+        return;
+    }
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("open:\n");
+        return;
+    }
+
+    memset(&iwr, 0, sizeof(iwr));
+    strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    iwr.u.data.pointer = (void *)&req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_ATF_DUMP_DEBUG;
+    if (!wifitool_mac_aton(argv[3], req.dstmac, sizeof(req.dstmac))) {
+        printf("invalid mac address\n");
+        close(sock);
+        return;
+    }
+
+    ret = ioctl(sock, IEEE80211_IOCTL_DBGREQ, &iwr);
+    if (ret < 0) {
+        perror("ioctl:\n");
+        close(sock);
+        return;
+    }
+
+    printf("debug history dumped\n");
+    close(sock);
+}
+
+/*
+ * Change the ATF log buffer size.
+ */
+static void atf_debug_size(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int sock;
+    struct ieee80211req_athdbg req;
+    int ret;
+
+    if (argc < 5) {
+        printf("usage: wifitool athX atf_debug_size <mac addr> <size>\n");
+        return;
+    }
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("open:\n");
+        return;
+    }
+
+    memset(&iwr, 0, sizeof(iwr));
+    strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    iwr.u.data.pointer = (void *)&req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_ATF_DEBUG_SIZE;
+    if (!wifitool_mac_aton(argv[3], req.dstmac, sizeof(req.dstmac))) {
+        printf("invalid mac address\n");
+        close(sock);
+        return;
+    }
+    req.data.param[0] = strtoul(argv[4], NULL, 10);
+
+    ret = ioctl(sock, IEEE80211_IOCTL_DBGREQ, &iwr);
+    if (ret < 0) {
+        perror("ioctl:\n");
+        close(sock);
+        return;
+    }
+
+    printf("log size changed\n");
     close(sock);
 }
 
@@ -3267,6 +3601,337 @@ tr069_get_bsrate(const char *ifname, int argc, char *argv[])
     close(s);
     return;
 }
+
+static void
+tr069_get_fail_retrans(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t failretrans;
+
+    if(argc != 3) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_fail_retrans");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &failretrans;
+    req.data.tr069_req.cmdid = TR069_GET_FAIL_RETRANS_CNT;
+    req.data.tr069_req.data_size = sizeof(failretrans);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Fail Retrasmit count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%d\n", failretrans);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_success_retrans(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t succretrans;
+
+    if(argc != 3) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_success_retrans");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &succretrans;
+    req.data.tr069_req.cmdid = TR069_GET_RETRY_CNT;
+    req.data.tr069_req.data_size = sizeof(succretrans);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Successful Retrasmit count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%lu\n", succretrans);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_success_mul_retrans(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t succretrans;
+
+    if(argc != 3) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_success_retrans");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &succretrans;
+    req.data.tr069_req.cmdid = TR069_GET_MUL_RETRY_CNT;
+    req.data.tr069_req.data_size = sizeof(succretrans);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Successful Multiple Retrasmit count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%lu\n", succretrans);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_ack_failures(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t ackfailures;
+
+    if(argc != 3) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_ack_failures");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &ackfailures;
+    req.data.tr069_req.cmdid = TR069_GET_ACK_FAIL_CNT;
+    req.data.tr069_req.data_size = sizeof(ackfailures);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," ACK Failures \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%d\n", ackfailures);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_retrans(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t retrans;
+
+    if(argc != 3) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_retrans");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &retrans;
+    req.data.tr069_req.cmdid = TR069_GET_RETRANS_CNT;
+    req.data.tr069_req.data_size = sizeof(retrans);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Retrasmit count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%d\n", retrans);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_aggr_pkts(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t aggrpkts;
+
+    if(argc != 3) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_aggr_pkts");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &aggrpkts;
+    req.data.tr069_req.cmdid = TR069_GET_AGGR_PKT_CNT;
+    req.data.tr069_req.data_size = sizeof(aggrpkts);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Aggregated packet count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%d\n", aggrpkts);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_sta_bytes_sent(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t bytessent;
+
+    if(argc != 4) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_sta_bytes_sent <STA MAC>");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    if (!wifitool_mac_aton(argv[3], &req.dstmac[0], 6)) {
+        fprintf(stderr, "Invalid mac address");
+        return;
+    }
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &bytessent;
+    req.data.tr069_req.cmdid = TR069_GET_STA_BYTES_SENT;
+    req.data.tr069_req.data_size = sizeof(bytessent);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Station bytes sent count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%d\n", bytessent);
+
+    close(s);
+    return;
+}
+
+static void
+tr069_get_sta_bytes_rcvd(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr;
+    int s,i;
+    struct ieee80211req_athdbg req;
+    u_int32_t bytesrcvd;
+
+    if(argc != 4) {
+        fprintf(stderr, "usage: wifitool athX tr069_get_sta_bytes_rcvd <STA MAC>");
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    if (!wifitool_mac_aton(argv[3], &req.dstmac[0], 6)) {
+        fprintf(stderr, "Invalid mac address");
+        return;
+    }
+
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    req.cmd = IEEE80211_DBGREQ_TR069;
+
+    req.data.tr069_req.data_addr = &bytesrcvd;
+    req.data.tr069_req.cmdid = TR069_GET_STA_BYTES_RCVD;
+    req.data.tr069_req.data_size = sizeof(bytesrcvd);
+
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:IEEE80211_DBGREQ_TR069 failed");
+        printf("error in ioctl \n");
+        close(s);
+        return;
+    }
+
+    fprintf(stdout," Station bytes received count \n");
+    fprintf(stdout,"-----------------\n");
+    fprintf(stdout,"%d\n", bytesrcvd);
+
+    close(s);
+    return;
+}
+
 static void
 bsteer_setparams(const char *ifname, int argc, char *argv[])
 {
@@ -3274,7 +3939,7 @@ bsteer_setparams(const char *ifname, int argc, char *argv[])
     struct ieee80211req_athdbg req = { 0 };
     int s = 0, value;
     char *state = NULL;
-    if (argc != 10) {
+    if (argc != 15) {
         usage_bsteer_setparams();
         return;
     }
@@ -3287,9 +3952,14 @@ bsteer_setparams(const char *ifname, int argc, char *argv[])
     req.data.bsteering_param.inactivity_timeout_overload = atoi(argv[4]);
     req.data.bsteering_param.utilization_sample_period = atoi(argv[5]);
     req.data.bsteering_param.utilization_average_num_samples = atoi(argv[6]);
-    req.data.bsteering_param.inactive_rssi_crossing_threshold = atoi(argv[7]);
-    req.data.bsteering_param.low_rssi_crossing_threshold = atoi(argv[8]);
-    req.data.bsteering_param.inactivity_check_period = atoi(argv[9]);
+    req.data.bsteering_param.inactive_rssi_xing_high_threshold = atoi(argv[7]);
+    req.data.bsteering_param.inactive_rssi_xing_low_threshold = atoi(argv[8]);
+    req.data.bsteering_param.low_rssi_crossing_threshold = atoi(argv[9]);
+    req.data.bsteering_param.inactivity_check_period = atoi(argv[10]);
+    req.data.bsteering_param.low_tx_rate_crossing_threshold = atoi(argv[11]);
+    req.data.bsteering_param.high_tx_rate_crossing_threshold = atoi(argv[12]);
+    req.data.bsteering_param.low_rate_rssi_crossing_threshold = atoi(argv[13]);
+    req.data.bsteering_param.high_rate_rssi_crossing_threshold = atoi(argv[14]);
 
     req.cmd = IEEE80211_DBGREQ_BSTEERING_SET_PARAMS;
     iwr.u.data.pointer = (void *) &req;
@@ -3337,12 +4007,22 @@ bsteer_getparams(const char *ifname, int argc, char *argv[])
            req.data.bsteering_param.utilization_sample_period);
     printf("Utilization num samples to average: %u\n",
            req.data.bsteering_param.utilization_average_num_samples);
-    printf("Inactive RSSI crossing threshold: %u dB\n",
-           req.data.bsteering_param.inactive_rssi_crossing_threshold);
+    printf("Inactive RSSI crossing high threshold: %u dB\n",
+           req.data.bsteering_param.inactive_rssi_xing_high_threshold);
+    printf("Inactive RSSI crossing low threshold: %u dB\n",
+           req.data.bsteering_param.inactive_rssi_xing_low_threshold);
     printf("Low RSSI crossing threshold: %u dB\n",
            req.data.bsteering_param.low_rssi_crossing_threshold);
     printf("Inactivity check interval: %u s\n",
            req.data.bsteering_param.inactivity_check_period);
+    printf("Low Tx rate crossing threshold: %u Mbps\n",
+           req.data.bsteering_param.low_tx_rate_crossing_threshold);
+    printf("High Tx rate crossing threshold: %u Mbps\n",
+           req.data.bsteering_param.high_tx_rate_crossing_threshold);
+    printf("Low rate RSSI crossing threshold: %u dB\n",
+           req.data.bsteering_param.low_rate_rssi_crossing_threshold);
+    printf("High rate RSSI crossing threshold: %u dB\n",
+           req.data.bsteering_param.high_rate_rssi_crossing_threshold);
 
     close(s);
     return;
@@ -3355,7 +4035,7 @@ bsteer_setdbgparams(const char *ifname, int argc, char *argv[])
     struct ieee80211req_athdbg req = { 0 };
     int s = 0, value;
     char *state = NULL;
-    if (argc != 5) {
+    if (argc != 6) {
         usage_bsteer_setdbgparams();
         return;
     }
@@ -3366,6 +4046,7 @@ bsteer_setdbgparams(const char *ifname, int argc, char *argv[])
 
     req.data.bsteering_dbg_param.raw_chan_util_log_enable = atoi(argv[3]);
     req.data.bsteering_dbg_param.raw_rssi_log_enable = atoi(argv[4]);
+    req.data.bsteering_dbg_param.raw_tx_rate_log_enable = atoi(argv[5]);
 
     req.cmd = IEEE80211_DBGREQ_BSTEERING_SET_DBG_PARAMS;
     iwr.u.data.pointer = (void *) &req;
@@ -3440,6 +4121,35 @@ bsteer_enable(const char *ifname, int argc, char *argv[])
     if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
         errx(1, "IEEE80211_IOCTL_DBGREQ:"
              "IEEE80211_DBGREQ_BSTEERING_ENABLE failed");
+    }
+
+    close(s);
+    return;
+}
+
+static void
+bsteer_enable_events(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr = { 0 };
+    struct ieee80211req_athdbg req = { 0 };
+    int s = 0, value;
+    char *state = NULL;
+    if (argc != 4) {
+        usage_bsteer_enable_events();
+        return;
+    }
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    req.data.bsteering_enable = atoi(argv[3]);
+    req.cmd = IEEE80211_DBGREQ_BSTEERING_ENABLE_EVENTS;
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:"
+             "IEEE80211_DBGREQ_BSTEERING_ENABLE_EVENTS failed");
     }
 
     close(s);
@@ -3601,6 +4311,45 @@ bsteer_getproberespwh(const char *ifname, int argc, char *argv[])
 
     printf("Probe responses withheld for %s on %s: %s\n", argv[3], ifname,
            req.data.bsteering_probe_resp_wh ? "yes" : "no");
+}
+
+static void
+bsteer_getdatarateinfo(const char *ifname, int argc, char *argv[])
+{
+    struct iwreq iwr = { 0 };
+    struct ieee80211req_athdbg req = { 0 };
+    int s = 0;
+    if (argc != 4) {
+        usage_bsteer_getdatarateinfo();
+        return;
+    }
+
+    memset(&req, 0, sizeof(struct ieee80211req_athdbg));
+    s = socket(AF_INET, SOCK_DGRAM, 0);
+    (void) memset(&iwr, 0, sizeof(iwr));
+    (void) strncpy(iwr.ifr_name, ifname, sizeof(iwr.ifr_name));
+
+    req.cmd = IEEE80211_DBGREQ_BSTEERING_GET_DATARATE_INFO;
+    if (!wifitool_mac_aton(argv[3], &req.dstmac[0], 6)) {
+        errx(1, "Invalid mac address");
+        return;
+    }
+    iwr.u.data.pointer = (void *) &req;
+    iwr.u.data.length = (sizeof(struct ieee80211req_athdbg));
+    if (ioctl(s, IEEE80211_IOCTL_DBGREQ, &iwr) < 0) {
+        errx(1, "IEEE80211_IOCTL_DBGREQ:"
+                "IEEE80211_DBGREQ_BSTEERING_GET_DATARATE_INFO failed");
+        close(s);
+        return;
+    }
+
+    printf("Data rate info for %s on %s: Max Bandwidth: %u, Num streams: %u, "
+           "PHY mode: %u, Max MCS: %u, Max TX power: %u\n",
+           argv[3], ifname, req.data.bsteering_datarate_info.max_chwidth,
+           req.data.bsteering_datarate_info.num_streams,
+           req.data.bsteering_datarate_info.phymode,
+           req.data.bsteering_datarate_info.max_MCS,
+           req.data.bsteering_datarate_info.max_txpower);
 }
 
 #if QCA_NSS_PLATFORM
@@ -3839,6 +4588,8 @@ main(int argc, char *argv[])
             send_lmreq(ifname, argc, argv);
 	} else if (streq(cmd, "sendbstmreq")) {
             send_bstmreq(ifname, argc, argv);
+        } else if (streq(cmd, "sendbstmreq_target")) {
+            send_bstmreq_target(ifname, argc, argv);
 	} else if (streq(cmd, "senddelts")) {
             send_delts(ifname, argc, argv);
 	} else if (streq(cmd, "sendaddts")) {
@@ -3919,6 +4670,8 @@ main(int argc, char *argv[])
         bsteer_setdbgparams(ifname, argc, argv);
     } else if (streq(cmd, "bsteer_enable")) {
         bsteer_enable(ifname, argc, argv);
+    } else if (streq(cmd, "bsteer_enable_events")) {
+        bsteer_enable_events(ifname, argc, argv);
     } else if (streq(cmd, "bsteer_setoverload")) {
         bsteer_setoverload(ifname, argc, argv);
     } else if (streq(cmd, "bsteer_getoverload")) {
@@ -3937,6 +4690,38 @@ main(int argc, char *argv[])
         lteu_cfg(ifname, argc, argv);
     } else if (streq(cmd, "ap_scan")) {
         ap_scan(ifname, argc, argv);
+    } else if (streq(cmd, "atf_debug_size")) {
+        atf_debug_size(ifname, argc, argv);
+    } else if (streq(cmd, "atf_dump_debug")) {
+        atf_dump_debug(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_vap_stats")) {
+        tr069_get_aggr_pkts(ifname, argc, argv);
+        tr069_get_retrans(ifname, argc, argv);
+        tr069_get_success_retrans(ifname, argc, argv);
+        tr069_get_success_mul_retrans(ifname, argc, argv);
+        tr069_get_ack_failures(ifname, argc, argv);
+        tr069_get_fail_retrans(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_fail_retrans")) {
+        tr069_get_fail_retrans(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_success_retrans")) {
+        tr069_get_success_retrans(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_success_mul_retrans")) {
+        tr069_get_success_mul_retrans(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_ack_failures")) {
+        tr069_get_ack_failures(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_retrans")) {
+        tr069_get_retrans(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_aggr_pkts")) {
+        tr069_get_aggr_pkts(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_sta_stats")) {
+        tr069_get_sta_bytes_sent(ifname, argc, argv);
+        tr069_get_sta_bytes_rcvd(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_sta_bytes_sent")) {
+        tr069_get_sta_bytes_sent(ifname, argc, argv);
+    } else if (streq(cmd, "tr069_get_sta_bytes_rcvd")) {
+        tr069_get_sta_bytes_rcvd(ifname, argc, argv);
+    } else if (streq(cmd, "bsteer_getdatarateinfo")) {
+        bsteer_getdatarateinfo(ifname, argc, argv);
     } else {
         usage();
     }

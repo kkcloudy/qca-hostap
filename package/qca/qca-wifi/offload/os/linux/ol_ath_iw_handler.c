@@ -61,7 +61,7 @@ static int ol_ath_iw_node_debug_param(struct net_device *dev, struct iw_request_
 #if ATH_SUPPORT_DSCP_OVERRIDE
 int ol_ath_set_vap_dscp_tid_map(struct ieee80211vap *ic);
 #endif
-
+int ol_ath_net80211_get_vap_stats(struct ieee80211vap *vap);
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
 extern int ieee80211_ioctl_ald_getStatistics(struct net_device *dev, struct iw_request_info *info, void *w, char *extra);
 #endif
@@ -606,7 +606,47 @@ static const struct iw_priv_args ol_ath_iw_priv_args[] = {
 #if QCA_AIRTIME_FAIRNESS
     { OL_ATH_PARAM_ATF_STRICT_SCHED | OL_ATH_PARAM_SHIFT, 
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfstrictsched" },
+    { OL_ATH_PARAM_ATF_STRICT_SCHED | OL_ATH_PARAM_SHIFT,0,
+               IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "gatfstrictsched" },
+    { OL_ATH_PARAM_ATF_OBSS_SCHED | OL_ATH_PARAM_SHIFT, 
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfobsssched" },
+    { OL_ATH_PARAM_ATF_OBSS_SCHED | OL_ATH_PARAM_SHIFT,0,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "g_atfobsssched" },
+    { OL_ATH_PARAM_ATF_OBSS_SCALE | OL_ATH_PARAM_SHIFT, 
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfobssscale" },
+    { OL_ATH_PARAM_ATF_GROUP_POLICY | OL_ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "atfgrouppolicy" },
+    { OL_ATH_PARAM_ATF_GROUP_POLICY | OL_ATH_PARAM_SHIFT,0,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "gatfgrouppolicy" },
 #endif
+
+    { OL_ATH_PARAM_ENABLE_TR069 | OL_ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "enable_tr069" },
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+    { OL_ATH_PARAM_STADFS_ENABLE | ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0, "staDFSEn" },
+    { OL_ATH_PARAM_STADFS_ENABLE | OL_ATH_PARAM_SHIFT,0,
+       IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, "get_staDFSEn" },
+#endif
+
+    { OL_ATH_PARAM_DISABLE_STA_VAP_AMSDU | OL_ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0,    "st_ht_noamsdu" },
+    { OL_ATH_PARAM_DISABLE_STA_VAP_AMSDU | OL_ATH_PARAM_SHIFT,  0,
+       IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,       "g_st_ht_noamsdu" },
+    { OL_ATH_PARAM_BATCHMODE | OL_ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0,    "batch_mode" },
+    { OL_ATH_PARAM_PACK_AGGR_DELAY | OL_ATH_PARAM_SHIFT,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1, 0,    "packaggrdelay" },
+    { OL_ATH_PARAM_PHY_OFDM_ERR | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_phyofdmerr" },
+    { OL_ATH_PARAM_PHY_CCK_ERR | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_phycckerr" },
+    { OL_ATH_PARAM_FCS_ERR | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_fcserr" },
+    { OL_ATH_PARAM_CHAN_UTIL | ATH_PARAM_SHIFT,    0,
+     IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,"g_chanutil" },
+
 };
 
 

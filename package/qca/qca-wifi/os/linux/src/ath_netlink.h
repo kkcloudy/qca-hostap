@@ -38,11 +38,4 @@ int ath_adhoc_netlink_init(void);
 int ath_adhoc_netlink_delete(void);
 void ath_adhoc_netlink_send(ath_netlink_event_t *event, char *event_data, u_int32_t event_datalen);
 
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-int sync_netlink_init(void);
-int sync_netlink_delete(void);
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
 #endif /* _ATH_NETLINK_H_ */

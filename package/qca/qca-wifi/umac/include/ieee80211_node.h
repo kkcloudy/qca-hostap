@@ -16,20 +16,11 @@
 #include <ieee80211_admctl.h>
 
 
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-#include "at_sync_info.h"
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
 #include "ieee80211_scan.h"
 #include <ieee80211_smartantenna.h>
 #include <umac_lmac_common.h>
 #include <ieee80211_smart_ant_api.h>
 #include <ieee80211_ald.h>
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
 //#define IEEE80211_DEBUG_REFCNT
 //#define IEEE80211_DEBUG_NODELEAK
 
@@ -51,8 +42,6 @@ typedef spinlock_t ieee80211_node_state_lock_t;
 #define IEEE80211_NODE_STATE_UNLOCK_BH(_node)     spin_unlock_dpc(&(_node)->ni_state_lock)
 #define IEEE80211_NODE_STATE_PAUSE_LOCK(_node)         IEEE80211_NODE_STATE_LOCK(_node)
 #define IEEE80211_NODE_STATE_PAUSE_UNLOCK(_node)       IEEE80211_NODE_STATE_UNLOCK(_node)
-
-
 
 
 #else
@@ -142,6 +131,29 @@ struct  ieee80211_wnm_node {
     u_int8_t                        timbcast_dialogtoken;
     systime_t                       last_rcvpkt_tstamp;   /* to capture receive packet time */
 };
+
+#if QCA_AIRTIME_FAIRNESS
+struct atf_stats {
+    u_int32_t tokens;
+    u_int32_t act_tokens;
+    u_int32_t total;
+    u_int32_t contribution;
+    u_int32_t tot_contribution;
+    u_int32_t borrow;
+    u_int32_t unused;
+    u_int32_t pkt_drop_nobuf;
+    u_int16_t allowed_bufs;
+    u_int16_t max_num_buf_held;
+    u_int16_t min_num_buf_held;
+    u_int16_t num_tx_bufs;
+    u_int32_t num_tx_bytes;
+    u_int32_t tokens_common;
+    u_int32_t act_tokens_common;
+    adf_os_time_t timestamp;
+    u_int32_t weighted_unusedtokens_percent;
+    u_int32_t raw_tx_tokens;
+};
+#endif
 
 /*
  * Node information. A node could represents a BSS in infrastructure network,
@@ -332,6 +344,8 @@ typedef struct ieee80211_node {
     bool                    ni_bs_inact_flag; /* inactivity flag */
     u_int16_t               ni_bs_inact; /* inactivity mark count */
     u_int16_t               ni_bs_inact_reload; /* inactivity reload value */
+
+    u_int8_t                ni_max_txpower; /* maximum TX power the STA supports */
 #endif
 #define ATH_TX_MAX_CONSECUTIVE_XRETRIES     50 /* sta gets kicked out after this */
     /* kick out STA when excessive retries occur */
@@ -506,6 +520,10 @@ typedef struct ieee80211_node {
     u_int8_t	ni_rssi_class;
 #endif
 
+    /* first word of extended capabilities read from the association request frame */
+    /* Note: Next 2 bytes currently not used, so not copied into the node structure yet */
+    u_int32_t ni_ext_capabilities;
+
 #if UMAC_SUPPORT_WNM
     struct ieee80211_wnm_node       *ni_wnm;
 #endif
@@ -534,38 +552,33 @@ typedef struct ieee80211_node {
     u_int32_t   ni_inst_rssi;
     u_int32_t   ps_state;
     bool        ni_pspoll;
+#ifdef ATH_SUPPORT_QUICK_KICKOUT
+    bool        ni_kickout;
+#endif
     systime_t   ni_pspoll_time;      /* absolute system time; not TSF */
+#if ATH_SUPPORT_HS20
+    u_int8_t ni_qosmap_enabled;
+#endif
 #if QCA_AIRTIME_FAIRNESS
     u_int32_t atf_units;
-    u_int32_t tx_tokens;
-    u_int8_t ni_atfdata_logged;        /* data log(history) available */
-    u_int8_t ni_atfindex;              /* index to the data log */
+    u_int32_t tx_tokens;                /* final tx tokens based on user conf + channel avail + borrow */
+    u_int32_t shadow_tx_tokens;         /* copy of the tx_tokens */
+    u_int32_t raw_tx_tokens;            /* tx tokens based on user conf + channel availability */
+    u_int8_t  ni_atfdata_logged;        /* data log(history) available */
+    u_int8_t  ni_atfindex;              /* index to the data log */
     u_int32_t ni_borrowedtokens;        /* num tokens borrowed in the previous iteration */
-    u_int32_t ni_contributedtokens;  /* tokens contributed in the previous iteration */
+    u_int32_t ni_contributedtokens;     /* tokens contributed in the previous iteration */
     u_int32_t ni_unusedtokenpercent[5]; /* Unused tokens (percentage) for last 5 iterations */
     u_int32_t ni_atfborrow;             /* Flag to indicate that the node is looking to borrow tokens */
-#endif
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	u_int8_t    ni_tx_cur_rateCode;
-    u_int8_t    ni_tx_cur_dot11Rate;
-    
-    struct rate_count   ni_tx_rate_index[12];
-    u_int64_t   ni_tx_mcs_count[24];
-
-    struct rate_count   ni_rx_rate_index[12];
-    u_int64_t   ni_rx_mcs_count[24];  
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-	
-#if ATOPT_TRAFFIC_LIMIT
-    u_int32_t ni_tl_sp_enable;
-    u_int32_t ni_tl_ev_enable;
-    struct ieee80211_tl_srtcm ni_tl_up_srtcm_sp;
-    struct ieee80211_tl_srtcm ni_tl_down_srtcm_sp;
-    struct ieee80211_tl_srtcm ni_tl_up_srtcm_ev;
-    struct ieee80211_tl_srtcm ni_tl_down_srtcm_ev;
-    struct ieee80211_tl_cache_queue_rx ni_tl_up_cacheq;
-    struct ieee80211_tl_cache_queue_tx ni_tl_down_cacheq;
-#endif
+    struct atf_stats ni_atf_stats;      /* Statistics */
+    struct atf_stats *ni_atf_debug;     /* History of statistics */
+    u_int16_t ni_atf_debug_mask;        /* Size of the history of statistics */
+    u_int16_t ni_atf_debug_id;          /* Write index into the history of statics */
+    u_int8_t  ni_atfcapable;            /* atf capable client */
+    struct group_list *ni_atf_group;
+    u_int8_t  ni_block_tx_traffic;      /* Block data traffic tx for this node */
+#endif 
+    u_int32_t ni_peer_chain_rssi;
 } IEEE80211_NODE, *PIEEE80211_NODE;
 
 
@@ -1090,12 +1103,25 @@ ieee80211_node_get_pwrsaveq_len(struct ieee80211_node *ni)
 
 #define IEEE80211_NODE_USE_HT(_ni)          ((_ni)->ni_flags & IEEE80211_NODE_HT)
 #define IEEE80211_NODE_USEAMPDU(_ni)        ieee80211node_use_ampdu(_ni)
+#define IEEE80211_NODE_ISAMPDU(_ni)         ieee80211node_is_ampdu(_ni)
 
 #define IEEE80211_NODE_USE_VHT(_ni)          ((_ni)->ni_flags & IEEE80211_NODE_VHT)
+
+/* Function used in TX path */
 static INLINE int ieee80211node_use_ampdu(struct ieee80211_node *ni)
 {
     if (IEEE80211_NODE_USE_HT(ni) &&
         !(ni->ni_flags & IEEE80211_NODE_NOAMPDU) && !ni->ni_pspoll) {
+        return(1);  /* Supports AMPDU */
+    }
+    return(0);  /* Do not use AMPDU since non HT */
+}
+
+/* Function used in RX path */
+static INLINE int ieee80211node_is_ampdu(struct ieee80211_node *ni)
+{
+    if (IEEE80211_NODE_USE_HT(ni) &&
+        !(ni->ni_flags & IEEE80211_NODE_NOAMPDU)) {
         return(1);  /* Supports AMPDU */
     }
     return(0);  /* Do not use AMPDU since non HT */

@@ -61,10 +61,21 @@ void	ieee80211_dfs_reset(struct ieee80211com *);
 void 	ieee80211_dfs_cac_valid_reset(struct ieee80211com *ic);
 
 int	ieee80211_dfs_cac_start(struct ieee80211com *);
-void	ieee80211_dfs_cac_stop(struct ieee80211vap *);
+void	ieee80211_dfs_cac_stop(struct ieee80211vap *, int force);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+void	ieee80211_dfs_stacac_stop(struct ieee80211vap *);
+#endif
+
 void	ieee80211_dfs_cac_clear(struct ieee80211com *,
 		const struct ieee80211_channel *);
 int	ieee80211_dfs_cac_cancel(struct ieee80211com *);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+int	ieee80211_dfs_stacac_cancel(struct ieee80211com *);
+int	ieee80211_get_cac_timeout(struct ieee80211com *ic,
+        struct ieee80211_channel *chan);
+#endif
 
 void	ieee80211_dfs_notify_radar(struct ieee80211com *,
 		struct ieee80211_channel *);

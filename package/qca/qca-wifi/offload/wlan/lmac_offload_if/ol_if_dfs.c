@@ -304,10 +304,21 @@ ol_if_dfs_clist_update(struct ieee80211com *ic, int cmd,
 		 * Now that we know whether there's a NOL entry overlapping
 		 * this channel, let's set or clear the bits appropriately.
 		 */
-		if (nol_found)
+		if (nol_found) {
 			IEEE80211_CHAN_SET_RADAR(ichan);
-		else
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+			if(ic->ic_opmode == IEEE80211_M_STA &&
+			(ieee80211com_has_cap_ext(ic,IEEE80211_CEXT_STADFS))) {
+				/* The history information is permanent.
+				* Do not clear the channel radar
+				* history if "not_found" is false.
+				*/
+				IEEE80211_CHAN_SET_HISTORY_RADAR(ichan);
+			}
+#endif
+		} else {
 			IEEE80211_CHAN_CLR_RADAR(ichan);
+		}
 	}
 }
 
@@ -333,6 +344,11 @@ ol_if_dfs_setup(struct ieee80211com *ic)
 	/* NOL related hooks */
 	ic->ic_dfs_isdfsregdomain = ol_if_dfs_isdfsregdomain;
 	ic->ic_dfs_usenol = ol_if_dfs_usenol;
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+	ic->ic_dfs_print_nolhistory = ieee80211_print_nolhistory;
+#endif
+
 	ic->ic_dfs_clist_update = ol_if_dfs_clist_update;
 
 	/*

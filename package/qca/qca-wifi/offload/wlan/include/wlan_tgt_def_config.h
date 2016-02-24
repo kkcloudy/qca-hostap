@@ -70,6 +70,8 @@
 
 #define CFG_TGT_NUM_PEERS_MAX  128
 
+#define CFG_TGT_NUM_PEERS_SPECIAL 50 /*special case fw need 3000 descriptor for max  throughput with clients configured as less then 50 */
+
 /*
  * keys per peer node
  */
@@ -180,6 +182,8 @@
  */
 #define CFG_TGT_NUM_MSDU_DESC    (1024 + 400)
 
+#define CFG_TGT_NUM_MSDU_DESC_SPECIAL   (3000) /*special case for less client but more descriptors are required for goodput*/
+
 /*
  * Maximum number of descriptors to use in the target
  */
@@ -195,7 +199,9 @@
 /*
  * total number of peers per device
  */
- #define CFG_TGT_NUM_PEERS_ATF       32
+ #define CFG_TGT_NUM_PEERS_ATF       50
+
+ #define CFG_TGT_NUM_MSDU_DESC_ATF   2496
 
 /* 
  *No of WDS entries to support

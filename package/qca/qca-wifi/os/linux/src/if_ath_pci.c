@@ -265,9 +265,10 @@ ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     /*
      * Don't leave arp type as ARPHRD_ETHER as this is no eth device
      */
-	#if !ATOPT_THINAP
+#if !ATOPT_ORI_ATHEROS_BUG
     dev->type = ARPHRD_IEEE80211;
-    #endif
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
     SET_MODULE_OWNER(dev);
 #endif

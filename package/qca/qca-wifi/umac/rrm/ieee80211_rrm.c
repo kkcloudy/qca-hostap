@@ -112,6 +112,7 @@ int ieee80211_fill_nrinfo(void *arg, wlan_scan_entry_t se)
         chan = ieee80211_scan_entry_channel(se);
         ninfo.channum = chan->ic_ieee;
         ninfo.capinfo = ieee80211_scan_entry_capinfo(se);
+        ninfo.preference = cb_info->preference;
         cb_info->frm = ieee80211_add_nr_ie(cb_info->frm, &ninfo);
     }
     return EOK;

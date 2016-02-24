@@ -548,7 +548,12 @@ ol_acfg_handle_wifi_ioctl(struct net_device *dev, void *data, int *isvap_ioctl)
                 break;
             }
         }
-        if ((cmd_found == false) || (ol_acfgdispatchentry[i].cmd_handler == NULL)) {
+        if(cmd_found == false){
+            status = -1;
+            printk(" OL ACFG ioctl CMD %d failed \n",req->cmd);
+            goto done;
+        }
+        if (ol_acfgdispatchentry[i].cmd_handler == NULL) {
             status = -1;
             printk("OL ACFG ioctl CMD %d failed\n", ol_acfgdispatchentry[i].cmdid);
             goto done;

@@ -34,7 +34,8 @@ INCS += -I$(obj)/$(DEPTH)/include -I$(obj)/$(DEPTH)/umac/include \
         -I$(obj)/$(DEPTH)/umac/smart_ant \
         -I$(obj)/$(DEPTH)/umac/ald \
         -I$(obj)/$(DEPTH)/lmac/ath_pktlog \
-        -I$(obj)/$(DEPTH)/lmac/ratectrl
+        -I$(obj)/$(DEPTH)/lmac/ratectrl \
+        -I$(obj)/$(DEPTH)/ATOPT/include
 
 
 obj-m += umac.o
@@ -88,9 +89,6 @@ else
 OSDEP_OBJS := $(OSDEP_SRC)/ath_linux.o $(BUS_OBJ) $(OSDEP_SRC)/ieee80211_wireless.o $(OSDEP_SRC)/osif_umac.o $(OSDEP_SRC)/if_media.o
 endif
 
-ifeq ($(ATOPT_PROC_COMMAND), 1)
-OSDEP_OBJS +=$(DEPTH)/ATOPT/command/at_proc_command.o
-endif
 ifeq ($(QCA_NSS_PLATFORM), 1)
 OSDEP_OBJS +=$(OSDEP_SRC)/osif_nss.o
 endif
@@ -133,6 +131,9 @@ ifeq ($(ATH_SUPPORT_HYFI_ENHANCEMENTS), 1)
 OSDEP_OBJS += $(OSDEP_SRC)/ald_netlink.o
 endif
 
+ifeq ($(ATOPT_COMMAND), 1)
+OSDEP_OBJS += $(DEPTH)/ATOPT/command/han_command.o
+endif
 ifeq ($(QCA_THIRDPARTY), 1)
 PLTFRM_OBJS = $(DEPTH)/thirdparty/$(THIRDPARTY_VENDOR)/ath_carr_pltfrm.o
 endif
@@ -170,7 +171,8 @@ PERF_PWR_OFFLOAD_INC := -I$(PERF_PWR_OFFLOAD_DIR_PATH)/wlan/include \
 			-I$(PERF_PWR_OFFLOAD_DIR_PATH)/hif/pci/linux   \
 			-I$(PERF_PWR_OFFLOAD_DIR_PATH)/os/linux/include \
             		-I$(PERF_PWR_OFFLOAD_DIR_PATH)/wlan/regdmn \
-                        -I$(WLAN_TOP)/ATOPT/thinap
+            -I$(obj)/$(DEPTH)/ATOPT/include
+
 ifeq ($(ATH_TGT_TYPE),AR9888)
    EXTRA_CFLAGS += -DCONFIG_AR9888_SUPPORT
    EXTRA_CFLAGS += -DCONFIG_11AC_SUPPORT
@@ -220,7 +222,6 @@ INCS += $(PERF_PWR_OFFLOAD_INC)
 PERF_PWR_OFFLOAD_OBJS := $(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_ath.o \
 			        $(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_rates.o \
 				$(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_athutf.o \
-				$(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_autelan.o \
 				$(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_vap.o \
 				$(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_node.o \
 				$(PERF_PWR_OFFLOAD_SRC)/wlan/lmac_offload_if/ol_if_cwm.o \
@@ -357,9 +358,6 @@ TXRX_OBJS := $(PERF_PWR_OFFLOAD_SRC)/wlan/txrx/ol_rx.o  \
              $(PERF_PWR_OFFLOAD_SRC)/wlan/txrx/ol_ratectrl_11ac_if.o \
              $(PERF_PWR_OFFLOAD_SRC)/wlan/txrx/ol_ratetable.o
 
-ifeq (${ATOPT_THINAP},1)
-TXRX_OBJS += $(PERF_PWR_OFFLOAD_SRC)/../ATOPT/thinap/at_thinap_ol.o
-endif
 ifeq ($(QCA_SUPPORT_RAWMODE_PKT_SIMULATION),1)
 TXRX_OBJS += $(PERF_PWR_OFFLOAD_SRC)/wlan/txrx/ol_rawmode_sim.o
 endif
@@ -457,19 +455,6 @@ umac-objs := base/ieee80211_channel.o base/ieee80211_common.o base/ieee80211_con
              smart_ant/ieee80211_smart_ant_api.o \
              base/ieee80211_prdperfstats.o
 
-ifeq ($(ATOPT_TRAFFIC_LIMIT), 1)
-umac-objs += $(DEPTH)/ATOPT/traffic_limit/ieee80211_traffic_limit.o
-endif
-ifeq ($(ATOPT_THINAP), 1)
-umac-objs += $(DEPTH)/ATOPT/thinap/at_thinap.o
-endif
-
-ifeq ($(ATOPT_SYNC_INFO), 1)
-umac-objs += $(DEPTH)/ATOPT/sync_info/at_netlink.o \
-			 $(DEPTH)/ATOPT/sync_info/at_user_mgmt.o \
-			 $(DEPTH)/ATOPT/sync_info/at_sync_info.o \
-			 $(DEPTH)/ATOPT/sync_info/at_connect_ctl.o
-endif 
 ifeq ($(ATH_BAND_STEERING), 1)
 umac-objs +=band_steering/band_steering.o band_steering/band_steering_direct_attach.o
 endif
@@ -488,11 +473,6 @@ endif
 
 ifeq ($(ATH_SUPPORT_AOW), 1)
 umac-objs += aow/ieee80211_aow.o aow/ieee80211_aow_ctrl.o if_lmac/if_ath_aow.o
-endif
-
-ifeq ($(UMAC_SUPPORT_RRM), 1)
-umac-objs += rrm/ieee80211_rrm.o rrm/ieee80211_rrm_ie.o rrm/ieee80211_rrm_ap.o \
-	     rrm/ieee80211_rrm_sta.o rrm/ieee80211_rrm_misc.o 
 endif
 
 ifeq ($(UMAC_SUPPORT_QUIET), 1)

@@ -847,8 +847,12 @@ ol_ath_node_authorize(struct ieee80211_node *ni, u_int32_t authorize)
     struct ol_ath_softc_net80211 *scn = OL_ATH_SOFTC_NET80211(ic);
     struct ol_ath_vap_net80211 *avn = OL_ATH_VAP_NET80211(ni->ni_vap);
 
+    adf_os_spin_lock_bh(&scn->scn_lock);
+
     /* Authorize/unauthorize the peer */
     ol_txrx_peer_authorize((OL_ATH_NODE_NET80211(ni))->an_txrx_handle, authorize);
+
+    adf_os_spin_unlock_bh(&scn->scn_lock);
 
    /*FIXME Currently UMAC authorizes PAE on assoc and supplicant driver
     * interface fails to unauthorize before 4-way handshake and authorize
@@ -1022,12 +1026,10 @@ ol_ath_node_attach(struct ol_ath_softc_net80211 *scn, struct ieee80211com *ic)
 #if ATH_BAND_STEERING
     ic->ic_node_isinact = ol_ath_node_is_inact;
 #endif
-#if 0
 #ifdef ATH_SUPPORT_QUICK_KICKOUT
     /* register for STA kickout function */
     wmi_unified_register_event_handler(scn->wmi_handle, WMI_PEER_STA_KICKOUT_EVENTID, wmi_peer_sta_kickout_event_handler, NULL);
     wmi_unified_register_event_handler(scn->wmi_handle, WMI_PEER_STA_PS_STATECHG_EVENTID, wmi_peer_sta_ps_state_change_handler, NULL);
-#endif
 #endif
 }
 
@@ -1142,14 +1144,12 @@ ol_rx_intrabss_fwd_check(
     struct ieee80211vap *vap = NULL;
     struct ieee80211_node *ni;
     struct ol_ath_softc_net80211 *scn = (struct ol_ath_softc_net80211 *)pdev;
-    struct ieee80211com *ic;
     int result = 0;
 
     vap = ol_ath_vap_get(scn, vdev_id);
     if(!vap) {
         return 0;
     }
-    ic = vap->iv_ic;
     ni = ieee80211_vap_find_node(vap, peer_mac_addr);
 
     if(ni != NULL) {

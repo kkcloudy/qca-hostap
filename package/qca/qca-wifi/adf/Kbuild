@@ -59,8 +59,6 @@ ifeq ($(BUILD_ADF_IRQ_PVT),1)
 adf-objs += os/linux/adf_os_irq_pvt.o
 endif
 
-adf-objs += ../os/linux/src/ieee80211_extra_var.o
-
 ifeq ($(BUILD_ADF_PERF_PROFILING),1)
 adf-objs += os/linux/adf_os_perf_pvt.o
 ifeq ($(BUILD_ADF_MIPS_PERF_PROFILING),1)

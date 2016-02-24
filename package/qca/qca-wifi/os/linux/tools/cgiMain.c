@@ -1901,9 +1901,9 @@ int main(int argc,char **argv)
     ** Zero out the config structure, and read the parameter cache
     ** (or flash, depending on command)
     */
-
+#ifndef BUILD_X86
     errOut = fopen("/dev/ttyS0","w");
-
+#endif
     memset(&config,0,sizeof(config));
 
     f = fopen("/tmp/.apcfg","r");

@@ -305,6 +305,16 @@ htt_t2h_stats_pdev_stats_print(
     /* PPDU > txop duration  */
     adf_os_print("ppdu txop ovf     :\t%d\n",tx->txop_ovf);
     adf_os_print("mcast Drop        :\t%d\n",tx->mc_drop);
+    /* total transmitted bytes */
+    adf_os_print("tx_bytes          :\t%u\n",tx->tx_bytes);
+    /* HW BK queue length */
+    adf_os_print("hw_bk_queue_len   :\t%d\n",tx->hw_bk_queue_len);
+    /* HW BE queue length */
+    adf_os_print("hw_be_queue_len   :\t%d\n",tx->hw_be_queue_len);
+    /* HW VI queue length */
+    adf_os_print("hw_vi_queue_len   :\t%d\n",tx->hw_vi_queue_len);
+    /* HW VO queue length */
+    adf_os_print("hw_vo_queue_len   :\t%d\n",tx->hw_vo_queue_len);
 
     adf_os_print("\n### Rx ###\n");
     /* Cnts any change in ring routing mid-ppdu */
@@ -330,6 +340,8 @@ htt_t2h_stats_pdev_stats_print(
 	adf_os_print("phy_errs dropped  :\t%d\n",rx->phy_err_drop);
     /* Number of mpdu errors - FCS, MIC, ENC etc. */
 	adf_os_print("mpdu_errs         :\t%d\n",rx->mpdu_errs);
+    /* Number of bytes received over air */
+    adf_os_print("rx_bytes          :\t%u\n",rx->rx_bytes);
     /* Print he free space in iram and dram*/
         adf_os_print(" ############## Free memory###########\n");
 	adf_os_print("IRAM Remaining: \t%d\n",mem->iram_free_size);

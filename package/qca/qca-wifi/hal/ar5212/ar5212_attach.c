@@ -337,7 +337,6 @@ static const struct ath_hal_private ar5212hal = {
         ar5212Get11nRxClear,
         ar5212Set11nRxClear,
         ar5212GetMibCycleCountsPct,
-        AH_NULL,	/* AUTELAN-zhaoenjuan transplant (lisongbai) for get channel utility 2013-12-27 */
         ar5212DmaRegDump,
 
         /* ForcePPM specific functions (NOT applicable to ar5212) */

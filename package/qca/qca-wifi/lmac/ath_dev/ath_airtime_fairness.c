@@ -56,9 +56,53 @@ void ath_atf_sc_clear(struct ath_softc *sc, u_int32_t disable )
     sc->sc_atf_enable = 0;
 }
 
+/*
+ * Function     : ath_atf_sc_get_unused_txtoken
+ * Description  : get unused tokens
+ * Input        : Pointer to node, unused tokens
+ * Output       : Void
+ *
+ */
 void ath_atf_sc_get_unused_txtoken(struct ath_node *an, u_int32_t *unused_token )
 {
     *unused_token = an->an_atf_txtoken;
+}
+
+/*
+ * Function     : ath_atf_sc_node_resume
+ * Description  : Resume node, if paused
+ * Input        : Pointer to node
+ * Output       : Void
+ *
+ */
+void ath_atf_sc_node_resume(struct ath_node *an)
+{
+    /* Resume the node, if paused */
+    if (an->an_atf_nodepaused)
+    {
+        ath_tx_node_atf_resume(an->an_sc, an);
+        ATH_NODE_ATF_TOKEN_LOCK(an);
+        an->an_atf_nodepaused = 0;
+        ATH_NODE_ATF_TOKEN_UNLOCK(an);
+    }
+}
+
+void ath_atf_sc_tokens_unassigned(struct ath_softc *sc, u_int32_t tokens_unassigned)
+{
+    sc->sc_atf_tokens_unassigned = tokens_unassigned;
+}
+
+/*
+ * Function     : ath_atf_sc_capable_node
+ * Description  : Mark ATF Capable node,
+ *                Nodes for which there is an ATF table entry
+ * Input        : Pointer to node
+ * Output       : Void
+ *
+ */
+void ath_atf_sc_capable_node(struct ath_node *an, u_int8_t val)
+{
+    an->an_atf_capable = val;
 }
 
 /*
@@ -70,44 +114,77 @@ void ath_atf_sc_get_unused_txtoken(struct ath_node *an, u_int32_t *unused_token 
  * Output       : Void
  *
  */
-void ath_atf_sc_update_node_txtoken(struct ath_node *an, u_int32_t txtoken )
+void ath_atf_sc_update_node_txtoken(struct ath_node *an, u_int32_t txtoken, struct atf_stats *stats)
 {
+    struct ath_softc *sc = NULL;
+
     if(an == NULL)
     {
         return;
     }
 
+    sc = an->an_sc;
+
     ATH_NODE_ATF_TOKEN_LOCK(an);
 
-    if ( an->an_atf_less_consumed )
-    {
+    if (!an->an_atf_capable) {
+        txtoken = sc->sc_atf_tokens_unassigned;
+    }
+
+    if (an->an_atf_less_consumed) {
         /* TO DO - limit the number of such consecutive attempts.
            If not, the other nodes might not get its due airtime */
         txtoken += an->an_atf_less_consumed;
         an->an_atf_less_consumed = 0;
     }
 
-    if ( an->an_atf_excess_consumed )
-    {
-        if(an->an_atf_excess_consumed  <= txtoken)
-        {
+    if (an->an_atf_excess_consumed) {
+        if (an->an_atf_excess_consumed  <= txtoken) {
+            __11nstatsn(sc, tx_deducted_tokens, an->an_atf_excess_consumed);
             txtoken = txtoken - an->an_atf_excess_consumed;
             an->an_atf_excess_consumed = 0;
-        }
-        else
-        {
+        } else {
+            __11nstatsn(sc, tx_deducted_tokens, txtoken);
             an->an_atf_excess_consumed -= txtoken;
             txtoken = 0;
         }
-
     }
-    an->an_atf_txtoken = txtoken;
+
+    if (an->an_atf_capable) {
+        an->an_atf_txtoken = txtoken;
+    } else {
+        sc->sc_atf_tokens_unassigned = txtoken;
+    }
+
+    stats->max_num_buf_held = an->an_max_num_buf_held;
+    stats->min_num_buf_held = an->an_min_num_buf_held;
+    stats->pkt_drop_nobuf = an->an_pkt_drop_nobuf;
+    stats->allowed_bufs = an->an_allowed_bufs;
+    stats->act_tokens = an->an_shadow_atf_txtoken;
+    stats->act_tokens_common = sc->sc_atf_tokens_unassigned_adj;
+    stats->num_tx_bufs = an->an_num_bufs_sent;
+    stats->num_tx_bytes = an->an_num_bytes_sent;
+
+    if (an->an_atf_capable)
+        an->an_shadow_atf_txtoken = txtoken;
+    else
+        an->an_shadow_atf_txtoken = 0;
+    sc->sc_atf_tokens_unassigned_adj = sc->sc_atf_tokens_unassigned;
+
+    an->an_max_num_buf_held = an->an_min_num_buf_held = an->an_num_buf_held;
+    an->an_pkt_drop_nobuf = an->an_allowed_bufs =
+                            an->an_allowed_buf_updated =
+                            an->an_num_bufs_sent =
+                            an->an_num_bytes_sent = 0;
+
     ATH_NODE_ATF_TOKEN_UNLOCK(an);
 
+    an->an_tx_unusable_tokens_updated = 0;
+
     /* Resume the node, if paused */
-    if (an->an_atf_nodepaused && an->an_atf_txtoken)
+    if (an->an_atf_nodepaused && txtoken)
     {
-        ath_tx_node_resume(an->an_sc, an);
+        ath_tx_node_atf_resume(an->an_sc, an);
         ATH_NODE_ATF_TOKEN_LOCK(an);
         an->an_atf_nodepaused = 0;
         ATH_NODE_ATF_TOKEN_UNLOCK(an);
@@ -137,11 +214,24 @@ ath_atf_check_txtokens(struct ath_softc *sc, struct ath_buf *bf, ath_atx_tid_t *
     node = tid->an;
     ni = (struct ieee80211_node *)node->an_node;
 
-    // check token availability
-    if( (tid->tidno != WME_MGMT_TID)  && (ni != ni->ni_bss_node) )
+    bf->bf_tx_airtime = 0;
+
+    /* Check token availability
+       Exclude Management & high priority packets (EAPOL, ARP, DHCP) from
+       ATF scheduler
+    */
+    if( (tid->tidno != WME_MGMT_TID)  && (ni != ni->ni_bss_node) &&
+         !wbuf_is_highpriority(bf->bf_mpdu) )
     {
+
+        /* For ATF capable clients, tokens available in Node structure
+           For non-ATF clients, use unassigned tokens from the common pool */
         ATH_NODE_ATF_TOKEN_LOCK(tid->an);
-        txtokens = node->an_atf_txtoken;
+        if( node->an_atf_capable) {
+            txtokens = node->an_atf_txtoken;
+        } else {
+            txtokens = sc->sc_atf_tokens_unassigned;
+        }
         ATH_NODE_ATF_TOKEN_UNLOCK(tid->an);
         if( txtokens )
         {
@@ -174,13 +264,18 @@ ath_atf_check_txtokens(struct ath_softc *sc, struct ath_buf *bf, ath_atx_tid_t *
             pkt_overhead = OFDM_SIFS_TIME + (qi.tqi_aifs * OFDM_SLOT_TIME) + ((qi.tqi_cwmin/2) * OFDM_SLOT_TIME) + ack_duration;
             pkt_duration += pkt_overhead;
 
-            if(pkt_duration <= node->an_atf_txtoken)
+            if(pkt_duration <= txtokens)
             {
 
                 txtokens -= pkt_duration;
 
                 ATH_NODE_ATF_TOKEN_LOCK(tid->an);
-                node->an_atf_txtoken = txtokens;
+                if( node->an_atf_capable) {
+                    node->an_atf_txtoken = txtokens;
+                } else {
+                    sc->sc_atf_tokens_unassigned = txtokens;
+                    //printk("%s()#%d non-atf client - txtokens : %d \n\r",__func__, __LINE__, txtokens);
+                }
                 ATH_NODE_ATF_TOKEN_UNLOCK(tid->an);
 
                 /*  Update ath_buf with the estimated packet duration.
@@ -192,10 +287,14 @@ ath_atf_check_txtokens(struct ath_softc *sc, struct ath_buf *bf, ath_atx_tid_t *
             }
             else
             {
+                if (!tid->an->an_tx_unusable_tokens_updated) {
+                    __11nstatsn(sc, tx_unusable_tokens, txtokens);
+                    tid->an->an_tx_unusable_tokens_updated = 1;
+                }
                 /* Pause node & set atf falg */
                 if (!tid->an->an_atf_nodepaused)
                 {
-                    ath_tx_node_pause_nolock(sc, tid->an);
+                    ath_tx_node_atf_pause_nolock(sc, tid->an);
                     ATH_NODE_ATF_TOKEN_LOCK(tid->an);
                     tid->an->an_atf_nodepaused = 1;
                     ATH_NODE_ATF_TOKEN_UNLOCK(tid->an);
@@ -205,10 +304,10 @@ ath_atf_check_txtokens(struct ath_softc *sc, struct ath_buf *bf, ath_atx_tid_t *
         }
         else
         {
-            /* Pause node & set atf falg */
+            /* Pause node & set atf flag */
             if (!tid->an->an_atf_nodepaused)
             {
-                ath_tx_node_pause_nolock(sc, tid->an);
+                ath_tx_node_atf_pause_nolock(sc, tid->an);
                 ATH_NODE_ATF_TOKEN_LOCK(tid->an);
                 tid->an->an_atf_nodepaused = 1;
                 ATH_NODE_ATF_TOKEN_UNLOCK(tid->an);
@@ -231,20 +330,19 @@ ath_atf_check_txtokens(struct ath_softc *sc, struct ath_buf *bf, ath_atx_tid_t *
 void
 ath_atf_node_airtime_consumed( struct ath_softc *sc, struct ath_buf *bf, struct ath_tx_status *ts, int txok)
 {
-    u_int32_t nframes=0, actual_pkt_duration=0, duration_per_try = 0, ack_duration = 0, pkt_overhead = 0;
+    u_int32_t actual_pkt_duration=0, duration_per_try = 0, ack_duration = 0, pkt_overhead = 0;
     u_int32_t rateindex=0, tries = 0, totalretries = 0, backoff = 0, backoff_duration = 0;
-    int i=0;
-    u_int8_t rix = 0, cix = 0, rc;
+    int32_t i=0;
+    u_int8_t rix = 0, cix = 0;
     struct ieee80211_node *ni;
     struct ath_node *an = bf->bf_node;
     const HAL_RATE_TABLE    *rt = sc->sc_currates;
     HAL_TXQ_INFO qi;
+    u_int32_t txtoken;
 
     ni = (struct ieee80211_node *)an->an_node;
     if( (bf->bf_tidno != WME_MGMT_TID)  && (ni != ni->ni_bss_node) )// Hack to identify Data packet
     {
-        nframes = bf->bf_nframes;
-
         /* get the actual transmission rate & retries from the descriptor
            calculate packet duration
            Compare with the estimated packet duration
@@ -256,7 +354,6 @@ ath_atf_node_airtime_consumed( struct ath_softc *sc, struct ath_buf *bf, struct 
         for( ;i>=0 && i<4; i--)
         {
             rix = bf->bf_rcs[i].rix;
-            rc = rt->info[rix].rate_code;
             duration_per_try = ath_pkt_duration( sc, rix, bf,
                                         (bf->bf_rcs[i].flags & ATH_RC_CW40_FLAG) != 0,
                                         (bf->bf_rcs[i].flags & ATH_RC_SGI_FLAG),
@@ -304,11 +401,27 @@ ath_atf_node_airtime_consumed( struct ath_softc *sc, struct ath_buf *bf, struct 
         }
 
         ATH_NODE_ATF_TOKEN_LOCK(an);
-        if ( actual_pkt_duration > bf->bf_tx_airtime )
-        {
-            an->an_atf_excess_consumed += (actual_pkt_duration - bf->bf_tx_airtime );
+
+        if (an->an_atf_capable) {
+            txtoken = an->an_atf_txtoken;
+        } else {
+            txtoken = sc->sc_atf_tokens_unassigned;
         }
-        else if( actual_pkt_duration < bf->bf_tx_airtime )
+
+        if ( actual_pkt_duration > bf->bf_tx_airtime && bf->bf_tx_airtime )
+        {
+            if (txtoken > (actual_pkt_duration - bf->bf_tx_airtime)) {
+                txtoken -= (actual_pkt_duration - bf->bf_tx_airtime);
+                if (an->an_atf_capable) {
+                    an->an_atf_txtoken = txtoken;
+                } else {
+                    sc->sc_atf_tokens_unassigned = txtoken;
+                }
+            } else {
+                an->an_atf_excess_consumed += (actual_pkt_duration - bf->bf_tx_airtime );
+            }
+        }
+        else if( actual_pkt_duration < bf->bf_tx_airtime && bf->bf_tx_airtime )
         {
             an->an_atf_less_consumed += ( bf->bf_tx_airtime - actual_pkt_duration );
         }

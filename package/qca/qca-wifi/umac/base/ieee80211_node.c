@@ -17,11 +17,6 @@
 #endif
 #include <if_smart_ant.h>
 
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
-
-#include <osif_private.h>
 
 #ifdef IEEE80211_DEBUG_REFCNT
 #define node_reclaim(nt,ni)  _node_reclaim(nt,ni,__func__,__LINE__)
@@ -193,9 +188,6 @@ ieee80211_alloc_node(struct ieee80211_node_table *nt,
     ni->ni_bss_node = ni;
     OS_BEACON_WRITE_UNLOCK(&nt->nt_nodelock, &lock_state, flags);
     ieee80211_node_saveq_attach(ni);
-#if ATOPT_TRAFFIC_LIMIT
-    ieee80211_tl_node_init(vap, ni);
-#endif
 
     /* set default rate and channel */
     ieee80211_node_set_chan(ni);
@@ -214,6 +206,10 @@ ieee80211_alloc_node(struct ieee80211_node_table *nt,
         ni->ni_uapsd_dyn_trigena[ac] = -1;
         ni->ni_uapsd_dyn_delivena[ac] = -1;
     }
+
+#if QCA_AIRTIME_FAIRNESS
+    ni->ni_block_tx_traffic = 0;
+#endif
 
     ieee80211_admctl_init(ni);
     IEEE80211_NOTE(vap, IEEE80211_MSG_ASSOC, ni,
@@ -273,13 +269,6 @@ node_cleanup(struct ieee80211_node *ni)
         ieee80211_node_saveq_cleanup(ni);
     }
 
-#if ATOPT_TRAFFIC_LIMIT
-    if(ni->ni_tl_up_cacheq.cq_len > 0 || ni->ni_tl_down_cacheq.cq_len > 0)       
-	{
-        ieee80211_tl_node_cacheq_drain(ni);
-	}
-    ieee80211_tl_cleanup_vap_cache_of_node(ni);
-#endif
     /*
      * Preserve SSID, WPA, and WME ie's so the bss node is
      * reusable during a re-auth/re-assoc state transition.
@@ -315,23 +304,6 @@ node_free(struct ieee80211_node *ni)
     struct ieee80211vap *vap = ni->ni_vap;
     int i;
 #define       N(a)    (sizeof(a)/sizeof(a[0]))
-
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    if(memcmp(ni->ni_macaddr,vap->iv_myaddr,IEEE80211_ADDR_LEN) != 0)
-    {
-        struct userinfo_table *sta = NULL;
-        sta = get_user_information(ni->ni_macaddr);
-        if(sta != NULL)
-        {
-            sta->assoc = 0;
-    		if((sta->stamp_time - sta->prev_stamp_time) > inactive_time)
-    			sta->avg_mgmt_rssi = 0;
-    		send_sync_info_single(sta,SYNC_USER_INFO);		
-        }
-    }
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
 
     ic->ic_node_cleanup(ni);
 
@@ -396,10 +368,6 @@ node_free(struct ieee80211_node *ni)
         ieee80211_node_saveq_detach(ni);
     }
     ieee80211_admctl_deinit(ni);
-#if ATOPT_TRAFFIC_LIMIT
-	ieee80211_tl_cacheq_detach(ni);
-    ieee80211_tl_cleanup_vap_cache_of_node(ni);
-#endif
 #undef N
     if (vap) {
         vap->node_del_cnt++;
@@ -442,6 +410,13 @@ _ieee80211_free_node(struct ieee80211_node *ni)
         TAILQ_REMOVE(&ni->ni_ic->ic_nodes, ni, ni_alloc_list);
         OS_RWLOCK_WRITE_UNLOCK(&ni->ni_ic->ic_nodelock,&lock_state);
     } while(0);
+#endif
+
+#if QCA_AIRTIME_FAIRNESS
+    if (ni->ni_atf_debug) {
+        OS_FREE(ni->ni_atf_debug);
+        ni->ni_atf_debug = NULL;
+    }
 #endif
 
     IEEE80211_NOTE(vap, IEEE80211_MSG_ASSOC, ni,
@@ -886,23 +861,9 @@ ieee80211_node_authorize(struct ieee80211_node *ni)
 {
     struct ieee80211com *ic = ni->ni_ic;
 
-/*AUTELAN-Begin:Added by zhouke for sync info.2015-02-06*/
-#if ATOPT_SYNC_INFO
-    struct userinfo_table *  sta = NULL;
-    sta = get_user_information(ni->ni_macaddr);
-    if(sta != NULL)
-    {
-        sta->assoc = 1;
-        sta->assoc_cnt++;
-    }
-    send_sync_info_single(sta,SYNC_USER_INFO);
-#endif
-/* AUTELAN-End: Added by zhouke for sync info.2015-02-06*/
-
     ni->ni_flags |= IEEE80211_NODE_AUTH;
-
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
-#if 0
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if !ATOPT_ORI_ATHEROS_BUG
     ni->ni_inact_reload = ni->ni_vap->iv_inact_run;
 #else
 	if(!ic->ic_is_mode_offload(ic)){
@@ -911,7 +872,7 @@ ieee80211_node_authorize(struct ieee80211_node *ni)
 	   ni->ni_inact_reload = (ni->ni_vap->iv_inact_run / IEEE80211_INACT_WAIT);
 	}
 #endif
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+/*Added-End:pengdecai for 11ac station timeout*/
 
     if (ni->ni_inact > ni->ni_inact_reload)
         ni->ni_inact = ni->ni_inact_reload;
@@ -924,21 +885,6 @@ ieee80211_node_authorize(struct ieee80211_node *ni)
     ni->ni_bs_inact_reload = ni->ni_ic->ic_bs_inact;
     ni->ni_bs_inact = ni->ni_bs_inact_reload;
 #endif
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	memset(&ni->ni_stats, 0, sizeof(struct ieee80211_nodestats));
-	{
-        u_int8_t dot11Rate[] = {
-                 2,  4,  11, 22, 12,
-                 18, 24, 36, 48, 72,
-                 96, 108
-        };
-        int m = 0;
-        for (m = 0; m < 12; m ++) {
-		    ni->ni_stats.ns_tx_rate_index[m].dot11Rate = dot11Rate[m];
-		    ni->ni_stats.ns_rx_rate_index[m].dot11Rate = dot11Rate[m];
-        }
-    }
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 }
 
 void
@@ -1009,9 +955,9 @@ void
 ieee80211_timeout_stations(struct ieee80211_node_table *nt)
 {
     struct ieee80211_node *ni;
-//#if ATH_SUPPORT_TIDSTUCK_WAR || ATH_SUPPORT_KEYPLUMB_WAR
+#if ATH_SUPPORT_TIDSTUCK_WAR || ATH_SUPPORT_KEYPLUMB_WAR || ATOPT_ORI_ATHEROS_BUG
     struct ieee80211com *ic = nt->nt_ic;
-//#endif
+#endif
 #if ATH_SUPPORT_KEYPLUMB_WAR
     struct ieee80211_key    *k;    /* unicast key */
 #endif
@@ -1019,8 +965,8 @@ ieee80211_timeout_stations(struct ieee80211_node_table *nt)
     rwlock_state_t lock_state;
     OS_BEACON_DECLARE_AND_RESET_VAR(flags);
 
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
-#if 0
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if !ATOPT_ORI_ATHEROS_BUG
     ieee80211_timeout_node_saveq_age(nt);
 #else
 	struct net_device *dev;
@@ -1033,8 +979,7 @@ ieee80211_timeout_stations(struct ieee80211_node_table *nt)
       ieee80211_timeout_node_saveq_age(nt);
 	}
 #endif
-/*Autelan-Added-End:pengdecai for 11ac station timeout */
-
+/*Added-End:pengdecai for 11ac station timeout */
     gen = nt->nt_scangen++;
 restart:
     OS_BEACON_WRITE_LOCK(&nt->nt_nodelock, &lock_state, flags);
@@ -1066,6 +1011,19 @@ restart:
                               "%s:TDLS node is being removed:%s, refcnt:%d\n",
                               __FUNCTION__, ether_sprintf(ni->ni_macaddr), ni->ni_refcnt);
 
+#ifdef ATH_SUPPORT_QUICK_KICKOUT
+        if ((ni->ni_vap->iv_opmode == IEEE80211_M_HOSTAP) && ni->ni_kickout) {
+            IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_INACT, ni,
+                           "station kicked out as it stayed in powersave for a long time (refcnt %u) associd %d\n",
+                           ieee80211_node_refcnt(ni), IEEE80211_AID(ni->ni_associd));
+            ni->ni_kickout = false;
+            ieee80211_ref_node(ni);
+            OS_BEACON_WRITE_UNLOCK(&nt->nt_nodelock, &lock_state, flags);
+            ieee80211_kick_node(ni);
+            ieee80211_free_node(ni);
+            goto restart;
+        }
+#endif
 
         ni->ni_inact--;
 #if UMAC_SUPPORT_NAWDS
@@ -1087,10 +1045,7 @@ restart:
 #if ATH_SUPPORT_KEYPLUMB_WAR
             struct ieee80211vap * tmp_vap = ni->ni_vap;
             int i;
-            /*
-            *pengdecai : for 11ac station timeout,when security,
-            *the sta down line right now(only one station on the vap).
-            */
+
             k = &(ni->ni_ucastkey);
             if ((k) && (k->wk_cipher) && (k->wk_valid) &&
                     ((k->wk_cipher->ic_cipher == IEEE80211_CIPHER_AES_CCM) ||
@@ -1113,13 +1068,13 @@ restart:
 #endif
 #if ATH_SUPPORT_TIDSTUCK_WAR
 			/* Before Probing the station, clear RX TID stuck by sending DELBA */
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
-#if 0
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if !ATOPT_ORI_ATHEROS_BUG
             if (ni->ni_inact > ni->ni_vap->iv_inact_probe) {
 #else
             if ((!is_11ac) && (ni->ni_inact > ni->ni_vap->iv_inact_probe)) {
 #endif
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+/*Added-End:pengdecai for 11ac station timeout*/
                 /*
                  * Grab a reference before unlocking the table
                  * so the node cannot be reclaimed before we
@@ -1137,13 +1092,13 @@ restart:
 				goto restart;
 			}
 #endif
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
-#if 0
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if !ATOPT_ORI_ATHEROS_BUG
             if ((0 < ni->ni_inact) && (ni->ni_inact <= ni->ni_vap->iv_inact_probe)) {
 #else
             if ((!is_11ac)&&(0 < ni->ni_inact) && (ni->ni_inact <= ni->ni_vap->iv_inact_probe)) {
 #endif
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+/*Added-End:pengdecai for 11ac station timeout*/
 
                 IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_INACT, ni,
                                "probe station due to inactivity, inact %u \n",
@@ -1196,28 +1151,7 @@ restart:
                  */
                 IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, timeout stations reason %d\n",
                         __func__, ether_sprintf(ni->ni_macaddr), IEEE80211_REASON_AUTH_EXPIRE);
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
-#if ATOPT_MGMT_DEBUG
-				IEEE80211_NOTE_MGMT_DEBUG(ni->ni_vap, ni, 
-		  	        " <SEND> [Step 05 - SEND DEAUTH] %s: reason: stations expire time (%d)\n", 
-		  	        __func__, IEEE80211_REASON_AUTH_EXPIRE);
-#endif
-/*AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
                 wlan_mlme_deauth_request(ni->ni_vap,ni->ni_macaddr,IEEE80211_REASON_AUTH_EXPIRE);
-
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
-				dev = OSIF_TO_NETDEV(ni->ni_vap->iv_ifp);
-				memset(&wreq, 0, sizeof(wreq));
-				IEEE80211_ADDR_COPY(wreq.addr.sa_data, ni->ni_macaddr);
-				wreq.addr.sa_family = ARPHRD_ETHER;
-				wireless_send_event(dev, IWEVTIMEOUT, &wreq, NULL);
-#if AUTELAN_SOLUTION2
-				ni->ni_maintype = 3;
-				ni->ni_subtype = 3;
-				ieee80211_sta_leave_send_event(ni);
-#endif 
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
-
                 /* we need to send deauth indication to hostapd as indication
                    sent in wlan_mlme_deauth_request is in custom event and not
                    interpreted by hostpad */
@@ -1254,49 +1188,6 @@ ieee80211_node_set_chan(struct ieee80211_node *ni)
     ni->ni_chan = chan;
     ieee80211_init_node_rates(ni, chan);
 }
-
-/*suzhaoyu add for sta leave report*/
-#if AUTELAN_SOLUTION2
-void ieee80211_sta_leave_send_event(struct ieee80211_node *ni)
-{
-	struct ieee80211vap *vap = ni->ni_vap;
-	struct net_device *dev = OSIF_TO_NETDEV(vap->iv_ifp);
-	union iwreq_data wreq;
-	u_int8_t buf[52]= {0};
-	u_int8_t radioID = 0;
-	u_int8_t wlanID = 0;
-	u_int32_t frame_sum = 0;
-	int i;
-
-	//if(!(ni->ni_flags & IEEE80211_NODE_AUTH)) //peiwh modified at 20140818 refer to wbs yunnan
-	if(ni == vap->iv_bss)
-		return;
-	radioID = dev->name[4] - 48;
-	for(i=6; i<16 && dev->name[i]!= '\0'; i++)
-		wlanID = wlanID*10 + dev->name[i] - 48;
-	
-	memcpy(buf, &radioID, 1);
-	memcpy(buf+1, &wlanID, 1);
-	buf[2] = 0x01;
-	memcpy(buf+3, &(ni->ni_maintype), 1);
-	memcpy(buf+4, &(ni->ni_subtype), 2);
-	memcpy(buf+6, &(ni->ni_macaddr), 6);
-	memcpy(buf+12, &(ni->ni_stats.ns_rx_bytes), 8);
-	memcpy(buf+20, &(ni->ni_stats.ns_tx_bytes), 8);
-	memcpy(buf+28, &(ni->ni_stats.ns_rx_data), 4);
-	memcpy(buf+32, &(ni->ni_stats.ns_tx_data), 4);
-	frame_sum = ni->ni_stats.ns_rx_data + ni->ni_stats.ns_rx_mgmt + ni->ni_stats.ns_rx_ctrl;
-	memcpy(buf+36, &frame_sum, 4);
-	frame_sum = ni->ni_stats.ns_tx_data + ni->ni_stats.ns_tx_mgmt + ni->ni_stats.ns_tx_ctrl;
-	memcpy(buf+40, &frame_sum, 4);
-	memcpy(buf+44, &(ni->ni_stats.ns_rx_frag), 4);
-	memcpy(buf+48, &(ni->ni_stats.ns_tx_frag), 4);
-
-	wreq.data.length = 52;
-	wireless_send_event(dev, IWEVSTALV, &wreq, buf);
-}
-#endif
-/*suzhaoyu add end*/
 
 void
 ieee80211_iterate_node(struct ieee80211com *ic, ieee80211_iter_func *func, void *arg)
@@ -1357,9 +1248,11 @@ ieee80211_sta_leave(struct ieee80211_node *ni)
                        ieee80211_node_refcnt(ni)-1);
 #endif
         KASSERT((ni->ni_table == nt),("unexpected node table "));
-	/* remove wds entries using that node */
-	ieee80211_remove_wds_addr(nt, ni->ni_macaddr,IEEE80211_NODE_F_WDS_BEHIND | IEEE80211_NODE_F_WDS_REMOTE);
-	ieee80211_del_wds_node(nt, ni);
+        /* remove wds entries using that node */
+        ieee80211_remove_wds_addr(nt, ni->ni_macaddr,IEEE80211_NODE_F_WDS_BEHIND | IEEE80211_NODE_F_WDS_REMOTE);
+        ieee80211_del_wds_node(nt, ni);
+        /* Refer the node for cleanup below */
+        ieee80211_ref_node(ni);
         /* reclaim the node to remove it from node table */
         node_reclaim(nt, ni);
         node_reclaimed=true;
@@ -1369,6 +1262,8 @@ ieee80211_sta_leave(struct ieee80211_node *ni)
     if (node_reclaimed) {
         IEEE80211_DELETE_NODE_TARGET(ni, ic, ni->ni_vap, 0);
         ic->ic_node_cleanup(ni);
+        /* free the node */
+        ieee80211_free_node(ni);
     }
 
     return node_reclaimed;
@@ -1921,8 +1816,10 @@ ieee80211_reset_bss(struct ieee80211vap *vap)
     /* here layer violation has happened. This will be fixed in next  */
     /* immediate checkin as there is a time constraint  */
     /* going ahead with checkin */
-    if(ic->ic_is_mode_offload(ic) && vap->iv_bss)
-        ol_if_mgmt_drain(vap->iv_bss);
+    if(ic->ic_is_mode_offload(ic) && vap->iv_bss) {
+        if(ic->ic_if_mgmt_drain)
+            ic->ic_if_mgmt_drain (vap->iv_bss);
+    }
 
     ieee80211_node_table_reset(&ic->ic_sta, vap);
 
@@ -1955,6 +1852,8 @@ ieee80211_reset_bss(struct ieee80211vap *vap)
         /* Do we really need obss info?? */
         ieee80211_copy_bss(ni, obss);
         ni->ni_intval = obss->ni_intval;
+        /* Cleanup the old BSS node */
+        ic->ic_node_cleanup(obss);
         IEEE80211_DELETE_NODE_TARGET(obss, ic, vap, 1);
         ieee80211_free_node(obss);
     }
@@ -2011,7 +1910,11 @@ ieee80211_node_table_reset(struct ieee80211_node_table *nt, struct ieee80211vap 
             if (vap->iv_aid_bitmap != NULL)
                 IEEE80211_AID_CLR(vap, ni->ni_associd);
         }
-
+        /* Remove WDS entries on node table reset.*/
+#if UMAC_SUPPORT_WDS                                                                                        
+        ieee80211_remove_wds_addr(nt, ni->ni_macaddr,IEEE80211_NODE_F_WDS_BEHIND | IEEE80211_NODE_F_WDS_REMOTE);
+        ieee80211_del_wds_node(nt, ni);
+#endif /* UMAC_SUPPORT_WDS */
         node_reclaim(nt, ni);
     }
     OS_BEACON_WRITE_UNLOCK(&nt->nt_nodelock, &lock_state, flags);
@@ -2184,6 +2087,11 @@ wlan_dump_alloc_nodes(wlan_dev_t devhandle)
 u_int16_t wlan_node_getcapinfo(wlan_node_t node)
 {
     return node->ni_capinfo;
+}
+
+u_int32_t wlan_node_get_extended_capabilities(wlan_node_t node)
+{
+    return node->ni_ext_capabilities;
 }
 
 int  wlan_node_getwpaie(wlan_if_t vap, u_int8_t *macaddr, u_int8_t *ie, u_int16_t *len)
@@ -2395,6 +2303,12 @@ int32_t wlan_iterate_station_list(wlan_if_t vap,ieee80211_sta_iter_func iter_fun
                                        IEEE80211_NODE_ITER_F_ASSOC_STA);
 }
 
+int32_t wlan_iterate_unassoc_sta_list(wlan_if_t vap,ieee80211_sta_iter_func iter_func,void *arg)
+{
+    return ieee80211_iterate_node_list(vap, iter_func, arg,
+                                       IEEE80211_NODE_ITER_F_UNASSOC_STA);
+}
+
 int wlan_node_txrate_info(wlan_node_t node, ieee80211_rate_info *rinfo)
 {
     u_int8_t rc;
@@ -2423,6 +2337,7 @@ int wlan_node_getrssi(wlan_node_t node,wlan_rssi_info *rssi_info,  wlan_rssi_typ
 {
 
     int chain_ix;
+    int8_t avg_rssi = 0;
     u_int8_t flags=0;
     struct ieee80211_node *ni = node;
     struct ieee80211vap *vap = ni->ni_vap;
@@ -2443,7 +2358,8 @@ int wlan_node_getrssi(wlan_node_t node,wlan_rssi_info *rssi_info,  wlan_rssi_typ
         rssi_info->valid_mask = ic->ic_rx_chainmask;
     }
 
-    rssi_info->avg_rssi = ic->ic_node_getrssi(ni,-1,flags);
+    avg_rssi = ic->ic_node_getrssi(ni,-1,flags);
+    rssi_info->avg_rssi = (avg_rssi == -1) ? 0 : avg_rssi;
     for(chain_ix=0;chain_ix<MAX_CHAINS; ++chain_ix) {
         rssi_info->rssi_ctrl[chain_ix] = ic->ic_node_getrssi(ni, chain_ix ,flags);
     }
@@ -2592,8 +2508,8 @@ u_int16_t wlan_node_get_inact(wlan_node_t node)
 
     /* NB: leave all cases in case we relax ni_associd == 0 check */
     if (ieee80211_node_is_authorized(ni)) {
-/*Autelan-Added-Begin:pengdecai for 11ac station timeout*/
-#if 0
+/*Added-Begin:pengdecai for 11ac station timeout*/
+#if !ATOPT_ORI_ATHEROS_BUG
         inact_time = ni->ni_vap->iv_inact_run;
 #else
 		struct ieee80211com *ic = ni->ni_ic;
@@ -2603,7 +2519,7 @@ u_int16_t wlan_node_get_inact(wlan_node_t node)
 			inact_time = ni->ni_vap->iv_inact_run;
 		}
 #endif
-/*Autelan-Added-End:pengdecai for 11ac station timeout*/
+/*Added-End:pengdecai for 11ac station timeout*/
     } else if (ni->ni_associd != 0) {
         inact_time = ni->ni_vap->iv_inact_auth;
     } else {
@@ -2753,4 +2669,3 @@ int wlan_send_rssi(struct ieee80211vap *vap, u_int8_t *macaddr)
         ic->ic_ath_send_rssi(ic, macaddr, vap);
     return 0;
 }
-

@@ -19,9 +19,6 @@
 #include <ieee80211_crypto.h>
 #include <ieee80211_node.h>
 
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#endif
 
 extern void ieee80211_cts_done(bool txok);
 
@@ -55,9 +52,9 @@ ieee80211_update_stats_additional(struct ieee80211vap *vap,
     struct ieee80211_phy_stats *phy_stats;
     struct ieee80211_mac_stats *mac_stats;
     int is_mcast;
-
+#if UMAC_SUPPORT_TXDATAPATH_NODESTATS
     struct ieee80211_node *ni = wbuf_get_node(wbuf);
-
+#endif /* UMAC_SUPPORT_TXDATAPATH_NODESTATS */
 
     is_mcast = IEEE80211_IS_MULTICAST(wh->i_addr1) ? 1 : 0;
     phy_stats = &ic->ic_phy_stats[vap->iv_cur_mode];
@@ -101,14 +98,8 @@ ieee80211_update_stats_additional(struct ieee80211vap *vap,
             phy_stats->ips_tx_xretries++;
         }
         else {
-			/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-			if (type == IEEE80211_FC0_TYPE_DATA) {
-				mac_stats->ims_tx_discard++;
-				if (ni)	{
-					IEEE80211_NODE_STAT(ni, tx_discard);
-			   }
-	        }
-			/* Autelan-Emd: zhaoyang1 transplants statistics 2015-01-27 */
+            mac_stats->ims_tx_discard++;
+
 #if UMAC_SUPPORT_TXDATAPATH_NODESTATS
             if (!is_mcast && likely(ni != NULL)) {
                 IEEE80211_NODE_STAT(ni, tx_discard); 
@@ -118,107 +109,6 @@ ieee80211_update_stats_additional(struct ieee80211vap *vap,
     }
 }
 #endif /* not ATH_SUPPORT_STATS_APONLY */
-
-static int
-ieee80211_node_tx_rate_statistics(struct ieee80211_node *ni,
-									struct ieee80211_tx_status *ts)
-{
-    u_int8_t    rateCode = ts->ts_ratecode;
-	u_int32_t   rateMbps = ts->ts_rateKbps / 1000;
-
-	
-#ifndef HT_RATE_CODE
-#define HT_RATE_CODE 0x80
-#endif
-    if (rateCode & HT_RATE_CODE) {
-		if (!(ts->ts_txbfstatus & TxBF_STATUS_Sounding_Complete)) {
-	        ni->ni_stats.ns_tx_mcs_count[rateCode & ~HT_RATE_CODE]++;
-		}
-    } else if (1 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[0].count++;
-    } else if (2 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[1].count++;
-    } else if (5 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[2].count++;
-    } else if (11 == rateMbps) {
-    	ni->ni_stats.ns_tx_rate_index[3].count++;
-    } else if (6 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[4].count++;
-    } else if (9 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[5].count++;
-    } else if (12 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[6].count++;
-    } else if (18 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[7].count++;
-    } else if (24 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[8].count++;
-    } else if (36 == rateMbps) {
-        ni->ni_stats.ns_tx_rate_index[9].count++;
-    } else if (48 == rateMbps){
-        ni->ni_stats.ns_tx_rate_index[10].count++;
-    } else if (54 == rateMbps){
-        ni->ni_stats.ns_tx_rate_index[11].count++;
-    } else if (0 != rateMbps){
-        printk("%s: %d Mbps %d Kbps is not found\n", __func__, rateMbps, ts->ts_rateKbps);
-		return -1;
-	}
-     
-    return 0;
-#ifdef HT_RATE_CODE
-#undef HT_RATE_CODE
-#endif
-}
-
-static int
-ieee80211_vap_tx_rate_statistics(struct ieee80211vap *vap, 
-									struct ieee80211_tx_status *ts)
-{
-    u_int8_t    rateCode = ts->ts_ratecode;
-	u_int32_t   rateMbps = ts->ts_rateKbps / 1000;
-
-	
-#ifndef HT_RATE_CODE
-#define HT_RATE_CODE 0x80
-#endif
-    if (rateCode & HT_RATE_CODE) {
-		if (!(ts->ts_txbfstatus & TxBF_STATUS_Sounding_Complete)) {
-			vap->iv_stats.is_tx_mcs_count[rateCode & ~HT_RATE_CODE]++;
-	}
-    } else if (1 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[0].count++;
-    } else if (2 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[1].count++;
-    } else if (5 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[2].count++;
-    } else if (11 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[3].count++;
-    } else if (6 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[4].count++;
-    } else if (9 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[5].count++;
-    } else if (12 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[6].count++;
-    } else if (18 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[7].count++;
-    } else if (24 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[8].count++;
-    } else if (36 == rateMbps) {
-		vap->iv_stats.is_tx_rate_index[9].count++;
-    } else if (48 == rateMbps){
-		vap->iv_stats.is_tx_rate_index[10].count++;
-    } else if (54 == rateMbps){
-		vap->iv_stats.is_tx_rate_index[11].count++;
-    } else if (0 != rateMbps){
-        printk("%s: %d Mbps %d Kbps is not found\n", __func__, rateMbps, ts->ts_rateKbps);
-		return -1;
-	}
-     
-    return 0;
-#ifdef HT_RATE_CODE
-#undef HT_RATE_CODE
-#endif
-}
-
 
 void
 ieee80211_update_stats(struct ieee80211vap *vap,
@@ -233,7 +123,9 @@ ieee80211_update_stats(struct ieee80211vap *vap,
     u_int8_t crypto_field_bytes = 0;
     u_int16_t hdrsize = 0;
     struct ieee80211_key *key = NULL;
+#if UMAC_SUPPORT_TXDATAPATH_NODESTATS
     struct ieee80211_node *ni = wbuf_get_node(wbuf);
+#endif /* UMAC_SUPPORT_TXDATAPATH_NODESTATS */
 
     is_mcast = IEEE80211_IS_MULTICAST(wh->i_addr1) ? 1 : 0;
     mac_stats = is_mcast ? &vap->iv_multicast_stats : &vap->iv_unicast_stats;
@@ -254,24 +146,7 @@ ieee80211_update_stats(struct ieee80211vap *vap,
         }
 
         if (type == IEEE80211_FC0_TYPE_DATA) {
-			/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-			mac_stats->ims_tx_packets++;
-			mac_stats->ims_tx_bytes += wbuf_get_pktlen(wbuf);
-			
-			if (ni) {
-				IEEE80211_NODE_STAT(ni, tx_data);
-			    if (is_mcast) {
-			        IEEE80211_NODE_STAT(ni, tx_mcast);
-					IEEE80211_NODE_STAT_ADD(ni, tx_mcast_bytes, wbuf_get_pktlen(wbuf));
-			    } else {
-			        IEEE80211_NODE_STAT(ni, tx_ucast);
-					IEEE80211_NODE_STAT_ADD(ni, tx_ucast_bytes, wbuf_get_pktlen(wbuf));
-			    }
-			    IEEE80211_NODE_STAT_ADD(ni, tx_bytes, wbuf_get_pktlen(wbuf));
-				ieee80211_node_tx_rate_statistics(ni, ts);
-			}
-			ieee80211_vap_tx_rate_statistics(vap, ts);
-            /* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
+            
             data_bytes = wbuf_get_pktlen(wbuf) + IEEE80211_CRC_LEN;
             
             /* Account for padding */
@@ -534,7 +409,11 @@ ieee80211_release_wbuf_internal(struct ieee80211_node *ni, wbuf_t wbuf, struct i
 
 void ieee80211_kick_node(struct ieee80211_node *ni)
 {
-    struct ieee80211com *ic = ni->ni_ic;
+    struct ieee80211com *ic;
+    if (!ni){
+        return;
+    }
+    ic = ni->ni_ic;
 
     /* follow what timeout_station() does */
     IEEE80211_NOTE(ni->ni_vap, IEEE80211_MSG_INACT, ni,
@@ -546,14 +425,6 @@ void ieee80211_kick_node(struct ieee80211_node *ni)
     }
 
    if (ni->ni_associd != 0) {
-/*AUTELAN-Begin:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1 */
-#if ATOPT_MGMT_DEBUG
-   		IEEE80211_NOTE_MGMT_DEBUG(ni->ni_vap, ni, 
-		  	        " <SEND> [Step 05 - SEND DEAUTH] %s: reason: station kicked out due to excessive retries (%d)\n", 
-		  	        __func__, IEEE80211_REASON_AUTH_EXPIRE);
-#endif
-/* AUTELAN-End:Added by duanmingzhe for for mgmt debug. 2015-01-27, transplant by zhaoyang1  */
-        ni->ni_vap->iv_stats.is_deauth_excessive_retries++; //zhaoyang1 transplants statistics 2015-01-27
        if(!ic->ic_is_mode_offload(ic))
            ni->ni_flags|=IEEE80211_NODE_KICK_OUT_DEAUTH;
        else {
@@ -571,6 +442,7 @@ void ieee80211_kick_node(struct ieee80211_node *ni)
 
     if(ic->ic_is_mode_offload(ic))
         IEEE80211_DELIVER_EVENT_MLME_DEAUTH_INDICATION(ni->ni_vap, ni->ni_macaddr, IEEE80211_REASON_AUTH_EXPIRE);
+
 }
 
 #endif
@@ -619,7 +491,7 @@ ieee80211_complete_wbuf(wbuf_t wbuf, struct ieee80211_tx_status *ts )
 #endif /* UMAC_SUPPORT_TDLS */
 
     ieee80211_release_wbuf_internal(ni,wbuf,ts);
-#if 0
+
 #if defined(ATH_SUPPORT_QUICK_KICKOUT) || UMAC_SUPPORT_NAWDS
     /* if not bss node, check the successive tx failed counts */
     if ((ni->ni_vap) && 
@@ -627,20 +499,17 @@ ieee80211_complete_wbuf(wbuf_t wbuf, struct ieee80211_tx_status *ts )
         (ni != ni->ni_vap->iv_bss)) {
         if (ts->ts_flags & IEEE80211_TX_XRETRY) {
             ni->ni_consecutive_xretries++;
-#if 0
 #ifdef ATH_SUPPORT_QUICK_KICKOUT
             /* if the node is not a NAWDS repeater and failed count reaches 
              * a pre-defined limit, kick out the node 
              */
             if (((ni->ni_flags & IEEE80211_NODE_NAWDS) == 0) &&
-                (ni->ni_consecutive_xretries >= ni->ni_vap->iv_sko_th) && 
-				(!ieee80211_vap_wnm_is_set(ni->ni_vap))) {
+                    (ni->ni_consecutive_xretries >= ni->ni_vap->iv_sko_th)) {
                 if (ni->ni_vap->iv_sko_th != 0) {				
                     ni->ni_consecutive_xretries = 0;
-                   ieee80211_kick_node(ni);
+                    ieee80211_kick_node(ni);
                 }
             }
-#endif
 #endif
             /* 
              * Force decrease the inactivity mark count of NAWDS node if 
@@ -680,7 +549,6 @@ ieee80211_complete_wbuf(wbuf_t wbuf, struct ieee80211_tx_status *ts )
         }
     }
 #endif  /* defined(ATH_SUPPORT_QUICK_KICKOUT) || UMAC_SUPPORT_NAWDS */
-#endif
 #ifdef IEEE80211_DEBUG_REFCNT
     ieee80211_note(ni->ni_vap,"%s ,line %u: decrease node %p refcnt to %d, wbuf=%p\n",
            __func__, __LINE__, ni,
@@ -703,7 +571,7 @@ ieee80211_complete_wbuf(wbuf_t wbuf, struct ieee80211_tx_status *ts )
         }
     }
 #endif
-#if 0
+
 #ifdef ATH_SUPPORT_QUICK_KICKOUT
 		if ((ni->ni_vap) && (ni->ni_flags & IEEE80211_NODE_KICK_OUT_DEAUTH) 
                 && ieee80211_node_refcnt(ni)==1)
@@ -723,7 +591,6 @@ ieee80211_complete_wbuf(wbuf_t wbuf, struct ieee80211_tx_status *ts )
                         IEEE80211_REASON_AUTH_EXPIRE);
             }
         }
-#endif
 #endif
     ieee80211_free_node(ni);
 }
@@ -944,11 +811,6 @@ wlan_vap_send(wlan_if_t vap, wbuf_t wbuf)
     u_int8_t *daddr;
     int is_data,retval;
 
-#if ATOPT_TRAFFIC_LIMIT
-    struct ieee80211_frame *wh = (struct ieee80211_frame *)wbuf_header(wbuf);
-    int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
-    struct ieee80211com *ic = vap->iv_ic;
-#endif
     /* 
      * Find the node for the destination so we can do
      * things like power save and fast frames aggregation.
@@ -969,18 +831,12 @@ wlan_vap_send(wlan_if_t vap, wbuf_t wbuf)
          */
         type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
         is_data = (type == IEEE80211_FC0_TYPE_DATA) ? 1 : 0;
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
     } else {
         struct ether_header *eh;
 
         eh = (struct ether_header *)wbuf_header(wbuf);
         daddr = eh->ether_dhost;
         is_data = 1;            /* ethernet frame */
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_3_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL0);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
 
 
         /*
@@ -1099,9 +955,6 @@ wlan_vap_send(wlan_if_t vap, wbuf_t wbuf)
 #ifdef ATH_SUPPORT_WAPI
             && !wbuf_is_wai(wbuf)
 #endif
-#if ATOPT_THINAP
-            && !thinap
-#endif
             ) {
             /*
              * Destination is not authenticated
@@ -1155,42 +1008,6 @@ wlan_vap_send(wlan_if_t vap, wbuf_t wbuf)
     if (ieee80211_vap_smps_is_set(vap))
         wbuf_set_smpsframe(wbuf);
 
-#if ATOPT_TRAFFIC_LIMIT
-    if (!(type == IEEE80211_FC0_TYPE_MGT))
-    {   
-        int ret = 0;
-        if((IEEE80211_TL_ENABLE == vap->vap_tl_vap_enable) &&          // Vap
-           (vap->vap_tl_down_srtcm_vap.sr_cir > 0))
-        {
-            ret = ieee80211_tl_vap_cache_enqueue_tx(vap, wbuf, ic);
-            if(ret == IEEE80211_TL_ENQUEUE_OK)
-            {
-                ieee80211_free_node(ni);
-                return 0;
-            }
-            else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-            {
-                goto bad;
-            }
-        } 
-        else if((IEEE80211_TL_ENABLE == ni->ni_tl_sp_enable && ni->ni_tl_down_srtcm_sp.sr_cir > 0) ||    // Specific node 
-                (IEEE80211_TL_ENABLE == ni->ni_tl_ev_enable && ni->ni_tl_down_srtcm_ev.sr_cir > 0))      // Everynode
-        {   
-                ieee80211node_pause(ni);  
-                ret = ieee80211_tl_node_cache_enqueue_tx(ni, wbuf, ic);               
-                ieee80211node_unpause(ni); 
-                if(ret == IEEE80211_TL_ENQUEUE_OK)
-                {
-                    ieee80211_free_node(ni);
-                    return 0;
-                }
-                else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL)
-                {
-                    goto bad;
-                }
-        } 
-    }
-#endif
     /* notify the sta PM module about xmit queue start to synchronize its network sleep operation */
     ieee80211_sta_power_tx_start(vap);
 
@@ -1227,12 +1044,11 @@ wlan_vap_send(wlan_if_t vap, wbuf_t wbuf)
 #endif
         ieee80211_node_saveq_queue(ni, wbuf, (is_data ? IEEE80211_FC0_TYPE_DATA : IEEE80211_FC0_TYPE_MGT));
         ieee80211node_unpause(ni); /* unpause it if we are the last one, the frame will be flushed out */  
+#if !LMAC_SUPPORT_POWERSAVE_QUEUE
         ieee80211_free_node(ni);
+#endif
         ieee80211_sta_power_tx_end(vap);
-#if LMAC_SUPPORT_POWERSAVE_QUEUE
-        /* the node ref count will be reduced in tx_complete */
-        ieee80211_ref_node(ni);
-#else
+#if !LMAC_SUPPORT_POWERSAVE_QUEUE
         return 0;
 #endif
     }
@@ -1256,10 +1072,8 @@ bad:
         }
     }
 
-    if (ni != NULL) {
-	    IEEE80211_NODE_STAT(ni, tx_discard);
-        ieee80211_free_node(ni); //zhaoyang1 transplants statistics 2015-01-27
-	}
+    if (ni != NULL)
+        ieee80211_free_node(ni);
 
     /* NB: callee's responsibilty to complete the packet */
     wbuf_set_status(wbuf, WB_STATUS_TX_ERROR);
@@ -1355,10 +1169,6 @@ ieee80211_send_wbuf(struct ieee80211vap *vap, struct ieee80211_node *ni, wbuf_t 
         evt.type = IEEE80211_VAP_OUTPUT_EVENT_DATA;
         ieee80211_vap_txrx_deliver_event(vap,&evt);
     }
-	
-#if ATOPT_PACKET_TRACE
-   PACKET_TRACE(IEEE802_11_FRAME_MODE,wbuf,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace	   
-#endif
    wbuf_set_node(wbuf, ieee80211_ref_node(ni));
    return ieee80211_send_wbuf_internal(vap,wbuf);
 }

@@ -107,8 +107,6 @@ typedef struct ieee80211_tx_status {
 #define IEEE80211_TX_FLOWMAC_DONE           0x01
 #endif
     u_int32_t    ts_rateKbps;
-	u_int8_t     ts_ratecode; //zhaoyang1 transplants statistics 2015-01-27
-
 } ieee80211_xmit_status;
 
 #ifndef EXTERNAL_USE_ONLY
@@ -215,7 +213,8 @@ typedef struct ieee80211_rx_status {
 typedef enum _ieee80211_dev_vap_event {
     IEEE80211_VAP_CREATED = 1,
     IEEE80211_VAP_STOPPED,
-    IEEE80211_VAP_DELETED
+    IEEE80211_VAP_DELETED,
+    IEEE80211_VAP_STOP_ERROR
 } ieee80211_dev_vap_event;
 
 typedef struct _wlan_dev_event_handler_table {
@@ -308,8 +307,11 @@ typedef struct _wlan_misc_event_handler_table {
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS 
     void (*wlan_buffull)(os_handle_t);
 #endif
+#if ATH_SUPPORT_MGMT_TX_STATUS
+    void (*wlan_mgmt_tx_status)(os_handle_t, IEEE80211_STATUS, wbuf_t wbuf);
+#endif
 #if ATH_BAND_STEERING
-    void (*bsteering_event) (os_handle_t, ATH_BSTEERING_EVENT, uint32_t eventlen, const char *data, uint32_t band_index);
+    void (*bsteering_event) (os_handle_t, ATH_BSTEERING_EVENT, uint32_t eventlen, const char *data);
 #endif
     void (*wlan_ch_hop_channel_change) (os_handle_t, u_int8_t channel);
 } wlan_misc_event_handler_table;
@@ -638,6 +640,7 @@ typedef struct _ieee80211_scan_info {
     IEEE80211_SCAN_ID                  scan_id;                     /* Specific ID of the scan reporting the event */
     IEEE80211_SCAN_PRIORITY            priority;                    /* Requested priority level (low/medium/high) */
     ieee80211_scan_request_status      scheduling_status;           /* Queued/running/preempted/completed */
+    ieee80211_scan_completion_reason   completion_reason;           /* scan completion reason*/
     int                                min_dwell_time_active;       /* min time in msec on active channels */
     int                                max_dwell_time_active;       /* max time in msec on active channel (if no response) */
     int                                min_dwell_time_passive;      /* min time in msec on passive channels */
@@ -714,17 +717,6 @@ typedef enum _ieee80211_node_param_type {
     IEEE80211_NODE_PARAM_CAP_INFO,  /* auth mode */
 } ieee80211_node_param_type;
 
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-struct rate_count{
-    u_int64_t   count;
-    u_int8_t    dot11Rate;
-};
-
-struct rssi_stats{
-  u_int64_t   ns_rx_data;
-};
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-
 /*
  * Per/node (station) statistics available when operating as an AP.
  */
@@ -788,6 +780,8 @@ struct ieee80211_nodestats {
     u_int32_t    ns_uapsd_triggerenabled; /* uapsd duplicate triggers */
     u_int32_t    ns_last_tx_rate;
     u_int32_t    ns_last_rx_rate;
+    u_int32_t    ns_dot11_tx_bytes;
+    u_int32_t    ns_dot11_rx_bytes;
     u_int32_t    ns_is_tx_nobuf;
 
     /* MIB-related state */
@@ -805,38 +799,6 @@ struct ieee80211_nodestats {
 #ifdef ATH_SUPPORT_IQUE
 	u_int32_t	ns_tx_dropblock;	/* tx discard 'cuz headline block */
 #endif
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	u_int64_t    ns_rx_ucast_bytes;
-    u_int64_t    ns_rx_mcast_bytes;
-    u_int32_t    ns_rx_fcserr;
-	u_int32_t    ns_rx_tkipreplay;      /* rx seq# violation (TKIP) */
-	u_int32_t    ns_rx_tkipformat;      /* rx format bad (TKIP) */
-	u_int32_t    ns_rx_ccmpformat;      /* rx format bad (CCMP) */
-	u_int32_t    ns_rx_ccmpreplay;      /* rx seq# violation (CCMP) */
-	u_int32_t    ns_rx_wpireplay;       /* rx seq# violation (WPI) */
-	u_int32_t    ns_rx_discard;         /* rx dropped by NIC */
-	u_int32_t    ns_rx_badkeyid;           /* rx w/ incorrect keyid */
-	u_int32_t    ns_tx_mcast_bytes;
-    u_int32_t    ns_tx_ucast_bytes;
-	u_int32_t 	 ns_re_wpi;
-	u_int32_t 	 ns_wpi_mic;  
-	u_int32_t 	 ns_wpi_no_key_error;
-
-	
-	u_int32_t 	 ns_tx_retry_packets;
-	u_int64_t 	 ns_tx_retry_bytes;
-	u_int32_t 	 ns_rx_retry_packets;
-	u_int64_t 	 ns_rx_retry_bytes;
-
-#ifndef RSSI_RANGE_NUM
-#define RSSI_RANGE_NUM  17
-#endif
-	struct rssi_stats ns_rssi_stats[RSSI_RANGE_NUM];
-    struct rate_count   ns_rx_rate_index[12];
-    u_int64_t   ns_rx_mcs_count[24];
-	struct rate_count   ns_tx_rate_index[12];
-    u_int64_t   ns_tx_mcs_count[24];
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
 };
 
 /*
@@ -1083,6 +1045,8 @@ typedef enum _ieee80211_param {
     IEEE80211_RUN_INACT_TIMEOUT,              /* inactivity time when fully authed*/ 
     IEEE80211_PROBE_INACT_TIMEOUT,            /* inactivity counter value below which starts probing */
     IEEE80211_QBSS_LOAD,
+    IEEE80211_HC_BSSLOAD,
+    IEEE80211_OSEN,
     IEEE80211_WNM_CAP,
     IEEE80211_WNM_BSS_CAP,
     IEEE80211_WNM_TFS_CAP,
@@ -1233,8 +1197,11 @@ typedef enum _ieee80211_param {
 #endif /* QCA_SUPPORT_RAWMODE_PKT_SIMULATION */
 #endif /* ATH_PERF_PWR_OFFLOAD*/
 #if QCA_AIRTIME_FAIRNESS
-    IEEE80211_ATF_OPT,                        /* Enable/Disable AirTime feature */
+    IEEE80211_ATF_OPT,                        /* Commit ATF configuration changes */
     IEEE80211_ATF_PER_UNIT,                   /* Set percentage unit either 100 or 1000 */    
+    IEEE80211_ATF_DYNAMIC_ENABLE,             /* Enable/Disable ATF */
+    IEEE80211_ATF_GROUPING,
+    IEEE80211_ATF_PEER_REQUEST,
 #endif
     IEEE80211_WIFI_TX_POWER,
 } ieee80211_param;
@@ -1288,14 +1255,20 @@ typedef enum _ieee80211_auth_mode {
  * with applications like wpa_supplicant and hostapd.
  */
 typedef enum _ieee80211_cipher_type {
-    IEEE80211_CIPHER_WEP        = 0,
-    IEEE80211_CIPHER_TKIP       = 1,
-    IEEE80211_CIPHER_AES_OCB    = 2,
-    IEEE80211_CIPHER_AES_CCM    = 3,
-    IEEE80211_CIPHER_WAPI       = 4,
-    IEEE80211_CIPHER_CKIP       = 5,
-    IEEE80211_CIPHER_AES_CMAC   = 6,
-    IEEE80211_CIPHER_NONE       = 7,
+    IEEE80211_CIPHER_WEP          = 0,
+    IEEE80211_CIPHER_TKIP         = 1,
+    IEEE80211_CIPHER_AES_OCB      = 2,
+    IEEE80211_CIPHER_AES_CCM      = 3,
+    IEEE80211_CIPHER_WAPI         = 4,
+    IEEE80211_CIPHER_CKIP         = 5,
+    IEEE80211_CIPHER_AES_CMAC     = 6,
+    IEEE80211_CIPHER_AES_CCM_256  = 7,
+    IEEE80211_CIPHER_AES_CMAC_256 = 8,
+    IEEE80211_CIPHER_AES_GCM      = 9,
+    IEEE80211_CIPHER_AES_GCM_256  = 10,
+    IEEE80211_CIPHER_AES_GMAC     = 11,
+    IEEE80211_CIPHER_AES_GMAC_256 = 12,
+    IEEE80211_CIPHER_NONE         = 13,
 } ieee80211_cipher_type;
 
 #define IEEE80211_CIPHER_MAX    (IEEE80211_CIPHER_NONE+1)
@@ -1556,12 +1529,7 @@ struct ieee80211_mac_stats {
     /* Other Tx/Rx errors */
     u_int64_t   ims_tx_discard;     /* tx dropped by NIC */
     u_int64_t   ims_rx_discard;     /* rx dropped by NIC */
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	u_int64_t	ims_rx_retry_packets;
-	u_int64_t	ims_rx_retry_bytes;
-	u_int64_t	ims_tx_retry_packets;
-	u_int64_t	ims_tx_retry_bytes;
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
+
     u_int64_t   ims_rx_countermeasure; /* rx TKIP countermeasure activation count */
     u_int64_t   ims_last_tx_rate;
     u_int64_t   ims_last_tx_rate_mcs;
@@ -1595,17 +1563,10 @@ struct ieee80211_stats {
     u_int32_t   is_rx_auth_fail;           /* rx sta auth failure */
     u_int32_t   is_rx_auth_countermeasures;/* rx auth discard 'cuz CM */
     u_int32_t   is_rx_assoc_bss;           /* rx assoc from wrong bssid */
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	u_int32_t	is_rx_reassoc_bss;			/* rx reassoc from wrong bssid */
     u_int32_t   is_rx_assoc_notauth;       /* rx assoc w/o auth */
-	u_int32_t	is_rx_reassoc_notauth;		/* rx reassoc w/o auth */
     u_int32_t   is_rx_assoc_capmismatch;   /* rx assoc w/ cap mismatch */
-	u_int32_t 	is_rx_reassoc_capmismatch;	/* rx reassoc w/ cap mismatch */
     u_int32_t   is_rx_assoc_norate;        /* rx assoc w/ no rate match */
-	u_int32_t	is_rx_reassoc_norate;		/* rx reassoc w/ no rate match */
     u_int32_t   is_rx_assoc_badwpaie;      /* rx assoc w/ bad WPA IE */
-	u_int32_t	is_rx_reassoc_badwpaie;		/* rx reassoc w/ bad WPA IE */
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
     u_int32_t   is_rx_deauth;              /* rx deauthentication */
     u_int32_t   is_rx_disassoc;            /* rx disassociation */
     u_int32_t   is_rx_action;              /* rx action mgt */
@@ -1653,40 +1614,6 @@ struct ieee80211_stats {
     u_int32_t   is_ps_unassoc;             /* ps-poll for unassoc. sta */
     u_int32_t   is_ps_badaid;              /* ps-poll w/ incorrect aid */
     u_int32_t   is_ps_qempty;              /* ps-poll w/ nothing to send */
-	/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-	u_int32_t   is_rx_assoc_puren_mismatch;
-	u_int32_t   is_rx_reassoc_puren_mismatch;
-	u_int32_t   is_rx_assoc_traffic_balance_too_many_stations;
-	u_int32_t   is_rx_reassoc_traffic_balance_too_many_stations;
-	u_int32_t   is_deauth_not_authed;
-	u_int32_t   is_deauth_excessive_retries;
-	u_int32_t   is_deauth_ioctl_kicknode;
-	u_int32_t   is_deauth_data_lower_rssi;
-	u_int32_t   is_tx_disassoc_not_assoc;
-	u_int32_t   is_tx_disassoc_ioctl_kicknode;
-	u_int32_t   is_tx_disassoc_bss_stop;
-	u_int32_t   is_tx_auth_failed;
-	u_int32_t  is_rx_probereq;
-    u_int32_t  is_tx_proberesp;
-    u_int32_t  is_tx_assocresp;
-    u_int32_t  is_tx_reassocresp;
-    u_int32_t  is_tx_authresp;
-	u_int32_t	is_rx_reassoc_success;
-	u_int32_t	is_rx_assoc_success;
-	u_int32_t	is_rx_reassoc_badscie;
-	u_int32_t	is_deauth_expire;
-#ifndef RSSI_RANGE_NUM
-#define RSSI_RANGE_NUM  17
-#endif
-	struct rssi_stats is_rssi_stats[RSSI_RANGE_NUM];
-
-    struct rate_count   is_tx_rate_index[12];
-    u_int64_t   is_tx_mcs_count[24];
-    struct rate_count   is_rx_rate_index[12];
-    u_int64_t   is_rx_mcs_count[24];
-	/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-	u_int32_t	is_client_access_totally_cnt;
-	u_int32_t	is_client_access_successfully_cnt; // zhaoyang1 modifies for client access statistics 2015-03-27
 };
 
 typedef enum _ieee80211_send_frame_type {
@@ -1768,6 +1695,28 @@ enum _ieee80211_qos_frame_direction {
     IEEE80211_TX_COMPLETE_QOS_FRAME = 2
 };
 
+#define IEEE80211_MAX_QOS_UP_RANGE       8
+#define IEEE80211_MAX_QOS_DSCP_EXCEPT    21
+
+struct ieee80211_dscp_range {
+    u_int8_t low;
+    u_int8_t high;
+};
+
+struct ieee80211_dscp_exception {
+    u_int8_t dscp;
+    u_int8_t up;
+};
+
+struct ieee80211_qos_map {
+    struct ieee80211_dscp_range
+        up[IEEE80211_MAX_QOS_UP_RANGE];                 /* user priority map fields */
+    u_int16_t valid;
+    u_int16_t num_dscp_except;                          /* count of dscp exception fields */
+    struct ieee80211_dscp_exception
+        dscp_exception[IEEE80211_MAX_QOS_DSCP_EXCEPT];  /* dscp exception fields */
+};
+
 typedef struct ieee80211_vap_opmode_count {
     int    total_vaps;
     int    ibss_count;
@@ -1815,5 +1764,39 @@ enum {
 };
 
 #define IEEE80211_CHAN_MAXHIST    32
+
+enum {
+    IEEE80211_TR069_CHANHIST           = 1,
+    IEEE80211_TR069_TXPOWER            = 2,
+    IEEE80211_TR069_GETTXPOWER         = 3,
+    IEEE80211_TR069_GUARDINTV          = 4,
+    IEEE80211_TR069_GET_GUARDINTV      = 5,
+    IEEE80211_TR069_GETASSOCSTA_CNT    = 6,
+    IEEE80211_TR069_GETTIMESTAMP       = 7,
+    IEEE80211_TR069_GETDIAGNOSTICSTATE = 8,
+    IEEE80211_TR069_GETNUMBEROFENTRIES = 9,
+    IEEE80211_TR069_GET11HSUPPORTED    = 10,
+    IEEE80211_TR069_GETPOWERRANGE      = 11,
+    IEEE80211_TR069_SET_OPER_RATE      = 12,
+    IEEE80211_TR069_GET_OPER_RATE      = 13,
+    IEEE80211_TR069_GET_POSIBLRATE     = 14,
+    IEEE80211_TR069_SET_BSRATE         = 15,
+    IEEE80211_TR069_GET_BSRATE         = 16,
+    IEEE80211_TR069_GETSUPPORTEDFREQUENCY  = 17,
+    IEEE80211_TR069_GET_PLCP_ERR_CNT   = 18,
+    IEEE80211_TR069_GET_FCS_ERR_CNT    = 19,
+    IEEE80211_TR069_GET_PKTS_OTHER_RCVD = 20,
+    IEEE80211_TR069_GET_FAIL_RETRANS_CNT = 21,
+    IEEE80211_TR069_GET_RETRY_CNT      = 22,
+    IEEE80211_TR069_GET_MUL_RETRY_CNT  = 23,
+    IEEE80211_TR069_GET_ACK_FAIL_CNT   = 24,
+    IEEE80211_TR069_GET_AGGR_PKT_CNT   = 25,
+    IEEE80211_TR069_GET_STA_BYTES_SENT = 26,
+    IEEE80211_TR069_GET_STA_BYTES_RCVD = 27,
+    IEEE80211_TR069_GET_DATA_SENT_ACK  = 28,
+    IEEE80211_TR069_GET_DATA_SENT_NOACK = 29,
+    IEEE80211_TR069_GET_CHAN_UTIL      = 30,
+    IEEE80211_TR069_GET_RETRANS_CNT    = 31,
+};
 
 #endif

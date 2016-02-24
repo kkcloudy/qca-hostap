@@ -466,49 +466,6 @@ ar9300_calc_tx_airtime(struct ath_hal *ah, void *ds, struct ath_tx_status *ts,
 
 }
 
-/* Autelan-Begin: zhaoyang1 transplants statistics 2015-01-27 */
-/*
- * Calculate the retry packets from txc
- */
-u_int32_t
-ar9300CalcTxRetryCount(struct ath_hal *ah, void *ds, struct ath_tx_status *ts)
-{
-    struct ar9300_txc *ads = AR9300TXC(ds);
-    int finalindex_tries;
-
-    /*
-     * Number of attempts made on the final index
-     * Note: If no BA was recv, then the data_fail_cnt is the number of tries
-     * made on the final index.  If BA was recv, then add 1 to account for the
-     * successful attempt.
-     */
-    finalindex_tries = ts->ts_longretry;
-   
-    switch (ts->ts_rateindex) {
-    case 0:
-        return  finalindex_tries;
-    case 1:
-        return
-            finalindex_tries +
-            MS(ads->ds_ctl13, AR_xmit_data_tries0);
-    case 2:
-        return
-            finalindex_tries +
-            MS(ads->ds_ctl13, AR_xmit_data_tries1) +
-            MS(ads->ds_ctl13, AR_xmit_data_tries0);
-    case 3:
-        return
-            finalindex_tries +
-            MS(ads->ds_ctl13, AR_xmit_data_tries2) +
-            MS(ads->ds_ctl13, AR_xmit_data_tries1) +
-            MS(ads->ds_ctl13, AR_xmit_data_tries0);
-    default:
-        HALASSERT(0);
-        return 0;
-    }
-}
-/* Autelan-End: zhaoyang1 transplants statistics 2015-01-27 */
-
 #ifdef AH_PRIVATE_DIAG
 void
 ar9300__cont_tx_mode(struct ath_hal *ah, void *ds, int mode)

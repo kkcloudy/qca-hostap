@@ -156,16 +156,17 @@ typedef struct eth_icmp6_lladdr eth_icmp6_lladdr_t;
  */
 int ath_wrap_mat_tx(struct ieee80211vap *out_vap, wbuf_t buf)
 {
-    struct ath_vap_net80211 *avn;
     struct ath_softc_net80211 *scn;
     struct ieee80211com *ic;
     struct ether_header *eh;
     uint16_t ether_type;
     int contig_len = sizeof(struct ether_header);
     int pktlen = wbuf_get_pktlen(buf);
-    uint8_t *src_mac,*des_mac,*p,ismcast;
+    uint8_t *src_mac,*p;
+#ifdef ATH_MAT_TEST
+    uint8_t *des_mac;
+#endif
     uint8_t *arp_smac = NULL;
-    uint8_t *arp_dmac = NULL;
     struct eth_arphdr *parp = NULL;
 
 	if(!(ATH_VAP_NET80211(out_vap)->av_use_mat))
@@ -179,10 +180,9 @@ int ath_wrap_mat_tx(struct ieee80211vap *out_vap, wbuf_t buf)
 
     ether_type = eh->ether_type;
     src_mac = eh->ether_shost;
-    des_mac = eh->ether_dhost;
-    ismcast = IEEE80211_IS_MULTICAST(des_mac);
-
 #ifdef ATH_MAT_TEST 
+    des_mac = eh->ether_dhost;
+
 	printk(KERN_ERR "%s: src %s type 0x%x",__func__,ether_sprintf(src_mac),ether_type);
 	printk(KERN_ERR "des %s\n",ether_sprintf(des_mac));
 #endif
@@ -199,13 +199,11 @@ int ath_wrap_mat_tx(struct ieee80211vap *out_vap, wbuf_t buf)
 			
 			if(parp->ar_hln == ETH_ALEN && parp->ar_pro == htons(ETH_P_IP)) {
 				arp_smac = parp->ar_sha;
-				arp_dmac = parp->ar_tha;
 			} else {
 				parp = NULL;
 			}
 	}
 
-	avn = ATH_VAP_NET80211(out_vap);
 	ic = out_vap->iv_ic;
 	scn = ATH_SOFTC_NET80211(ic);
 	if(parp){
@@ -233,16 +231,17 @@ int ath_wrap_mat_tx(struct ieee80211vap *out_vap, wbuf_t buf)
 		/* If Proto is UDP */
 		if (p_ip->protocol == IPPROTO_UDP) {
 			struct udphdr *p_udp = (struct udphdr *) (((uint8_t *)p_ip) + ip_hlen);
-			uint16_t udplen;
-
+#ifdef ATH_DEBUG_MAT
+        uint16_t udplen;
+#endif
 
 			contig_len += sizeof(struct udphdr);
 			if ((pktlen < contig_len))
     				return -EINVAL;
 
-			udplen = p_ip->tot_len - (p_ip->ihl * 4);
 #ifdef ATH_DEBUG_MAT
-			printk(KERN_ERR "%s:%d sport %d dport %d\n",__func__,__LINE__,p_udp->source,p_udp->dest);
+            udplen = p_ip->tot_len - (p_ip->ihl * 4);
+            printk(KERN_ERR "%s:%d sport %d dport %d\n",__func__,__LINE__,p_udp->source,p_udp->dest);
 #endif
 			/*
 			* DHCP request UDP Client SP = 68 (bootpc), DP = 67 (bootps).
@@ -390,7 +389,6 @@ int ath_wrap_mat_rx(struct ieee80211vap *in_vap, wbuf_t buf)
     int contig_len = sizeof(struct ether_header);
     int pktlen = wbuf_get_pktlen(buf);
     uint8_t *src_mac,*des_mac,*p,ismcast;
-    uint8_t *arp_smac = NULL;
     uint8_t *arp_dmac = NULL;
     struct eth_arphdr *parp = NULL;
     struct ath_vap_net80211 *avn = ATH_VAP_NET80211(in_vap);
@@ -435,7 +433,6 @@ int ath_wrap_mat_rx(struct ieee80211vap *in_vap, wbuf_t buf)
         		return -EINVAL;
 			
 			if(parp->ar_hln == ETH_ALEN && parp->ar_pro == htons(ETH_P_IP)) {
-				arp_smac = parp->ar_sha;
 				arp_dmac = parp->ar_tha;
 			} else {
 				parp = NULL;

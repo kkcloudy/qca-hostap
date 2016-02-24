@@ -316,6 +316,9 @@ acfg_acfg2ieee(a_uint16_t param)
         case ACFG_PARAM_BEACON_INTERVAL:
             value = IEEE80211_PARAM_BEACON_INTERVAL;
             break;
+        case ACFG_PARAM_DTIM_PERIOD:
+            value = IEEE80211_PARAM_DTIM_PERIOD;
+            break;
         case ACFG_PARAM_PUREG:
             value = IEEE80211_PARAM_PUREG;
             break;
@@ -454,6 +457,21 @@ acfg_acfg2ieee(a_uint16_t param)
 #if QCA_AIRTIME_FAIRNESS
         case ACFG_PARAM_ATF_OPT:
             value = IEEE80211_PARAM_ATF_OPT;
+            break;
+        case ACFG_PARAM_ATF_TXBUF_SHARE:
+            value = IEEE80211_PARAM_ATF_TXBUF_SHARE;
+            break;
+        case ACFG_PARAM_ATF_TXBUF_MAX:
+            value = IEEE80211_PARAM_ATF_TXBUF_MAX;
+            break;
+        case ACFG_PARAM_ATF_TXBUF_MIN:
+            value = IEEE80211_PARAM_ATF_TXBUF_MIN;
+            break;
+        case  ACFG_PARAM_ATF_PER_UNIT:
+            value = IEEE80211_PARAM_ATF_PER_UNIT;
+            break;
+        case  ACFG_PARAM_ATF_MAX_CLIENT:
+            value = IEEE80211_PARAM_ATF_MAX_CLIENT;
             break;
 #endif
 
@@ -1525,6 +1543,9 @@ acfg_set_vap_param(void *ctx, a_uint16_t cmdid,
     case IEEE80211_PARAM_VAP_IND:
         retv = wlan_set_param(vap, IEEE80211_FEATURE_VAP_IND, value);
         break;
+    case IEEE80211_PARAM_VAP_ENHIND:
+        retv = wlan_set_param(vap, IEEE80211_FEATURE_VAP_ENHIND, value);
+        break;
     case IEEE80211_PARAM_BLOCKDFSCHAN:
         retv = wlan_set_device_param(ic, IEEE80211_DEVICE_BLKDFSCHAN, value);
         if (retv == EOK) {
@@ -2519,8 +2540,35 @@ case IEEE80211_PARAM_RRM_CAP:
        break;
 #if QCA_AIRTIME_FAIRNESS
    case IEEE80211_PARAM_ATF_OPT:
-    wlan_set_param(vap, IEEE80211_ATF_OPT, value);
+    retv = wlan_set_param(vap, IEEE80211_ATF_OPT, value);
+    if(retv == -ENETRESET) {
+        wlan_if_t tmpvap;
+        TAILQ_FOREACH(tmpvap, &ic->ic_vaps, iv_next) {
+            struct net_device *tmpdev = ((osif_dev *)tmpvap->iv_ifp)->netdev;
+            retv = IS_UP(tmpdev) ? -osif_vap_init(tmpdev, RESCAN) : 0;
+            tmpvap->iv_max_aid = ic->ic_num_clients;
+        }
+    }
     break;
+    case  IEEE80211_PARAM_ATF_PER_UNIT:
+        ic->atfcfg_set.percentage_unit = PER_UNIT_1000;
+        break;
+    case  IEEE80211_PARAM_ATF_MAX_CLIENT:
+        {
+            wlan_if_t tmpvap;
+            ic->ic_atf_maxclient = !!value;
+            if(ic->ic_atf_maxclient)
+                {
+                    ic->ic_num_clients = IEEE80211_AID_DEF;
+                } else {
+                ic->ic_num_clients = IEEE80211_ATF_AID_DEF;
+            }
+            TAILQ_FOREACH(tmpvap, &ic->ic_vaps, iv_next) {
+                struct net_device *tmpdev = ((osif_dev *)tmpvap->iv_ifp)->netdev;
+                retv = IS_UP(tmpdev) ? -osif_vap_init(tmpdev, RESCAN) : 0;
+            }
+        }
+        break;
 #endif
   
     default:
@@ -2718,7 +2766,10 @@ acfg_get_vap_param(void *ctx, a_uint16_t cmdid,
         break;
     case IEEE80211_PARAM_VAP_IND:
         value = wlan_get_param(vap, IEEE80211_FEATURE_VAP_IND);
-        break; 
+        break;
+    case IEEE80211_PARAM_VAP_ENHIND:
+        value = wlan_get_param(vap, IEEE80211_FEATURE_VAP_ENHIND);
+        break;
     case IEEE80211_IOCTL_GREEN_AP_PS_ENABLE: 
         value = (wlan_get_device_param(ic, IEEE80211_DEVICE_GREEN_AP_PS_ENABLE) ? 1:0);
         break;
@@ -3167,6 +3218,26 @@ acfg_get_vap_param(void *ctx, a_uint16_t cmdid,
     case IEEE80211_PARAM_ROAMING:
         value = ic->ic_roaming;
         break;
+#if QCA_AIRTIME_FAIRNESS
+    case IEEE80211_PARAM_ATF_TXBUF_SHARE:
+        value = vap->iv_ic->atf_txbuf_share;
+        break;
+    case IEEE80211_PARAM_ATF_TXBUF_MAX:
+        value = vap->iv_ic->atf_txbuf_max;
+        break;
+    case IEEE80211_PARAM_ATF_TXBUF_MIN:
+        value = vap->iv_ic->atf_txbuf_min;
+        break;
+    case  IEEE80211_PARAM_ATF_OPT:
+        value = wlan_get_param(vap, IEEE80211_ATF_OPT);
+        break;
+    case  IEEE80211_PARAM_ATF_PER_UNIT:
+        value = ic->atfcfg_set.percentage_unit;
+        break;
+    case  IEEE80211_PARAM_ATF_MAX_CLIENT:
+        value = ic->ic_atf_maxclient;
+        break;
+#endif
     default:
 #if ATHEROS_LINUX_P2P_DRIVER
         retv = ieee80211_ioctl_getp2p(dev, info, w, extra);
@@ -3569,6 +3640,9 @@ acfg_get_rssi(void *ctx, a_uint16_t cmdid,
     memset(&req, 0, sizeof(struct iwreq));
     results = kzalloc(sizeof(acfg_vendor_t)+sizeof(acfg_rssi_t), GFP_KERNEL);
 
+    if(!results)
+        return ENOMEM;
+
     vendor = (acfg_vendor_t *)results;
     vendor->cmd = IOCTL_GET_MASK | IEEE80211_IOCTL_RSSI;
 
@@ -3612,7 +3686,9 @@ acfg_set_testmode(void *ctx, a_uint16_t cmdid,
     memset(&req, 0, sizeof(req));
     results = kzalloc(sizeof(acfg_vendor_t) + sizeof(acfg_testmode_t),
                       GFP_KERNEL);
-
+    
+    if(!results)
+        return ENOMEM;
     vendor = (acfg_vendor_t  *)results;
     vendor->cmd = IOCTL_SET_MASK | IEEE80211_IOCTL_TESTMODE;
 
@@ -3661,6 +3737,8 @@ acfg_get_testmode(void *ctx, a_uint16_t cmdid,
     memset(&req, 0, sizeof(req));
     results = kzalloc(sizeof(acfg_vendor_t) + sizeof(acfg_testmode_t),
                       GFP_KERNEL);
+    if (!results) 
+        return ENOMEM;
 
     vendor = (acfg_vendor_t  *)results;
     vendor->cmd = IOCTL_GET_MASK | IEEE80211_IOCTL_TESTMODE;
@@ -3711,6 +3789,8 @@ acfg_get_custdata(void *ctx, a_uint16_t cmdid,
     memset(&req, 0, sizeof(req));
     results = kzalloc(sizeof(acfg_vendor_t) + sizeof(acfg_custdata_t),
                       GFP_KERNEL);
+    if (!results)
+        return ENOMEM;
 
     vendor = (acfg_vendor_t *)results;
     vendor->cmd = IOCTL_GET_MASK | IEEE80211_IOCTL_CUSTDATA;
@@ -3903,7 +3983,6 @@ acfg_vap_atf_addssid(void *ctx, a_uint16_t cmdid,
     int rc = 0;
 #if QCA_AIRTIME_FAIRNESS
     struct net_device *dev = (struct net_device *) ctx;
-    osif_dev *osifp = ath_netdev_priv(dev);
     acfg_os_req_t *req;
     struct iwreq iwr;
 
@@ -3924,7 +4003,6 @@ acfg_vap_atf_delssid(void *ctx, a_uint16_t cmdid,
     int rc = 0;
 #if QCA_AIRTIME_FAIRNESS
     struct net_device *dev = (struct net_device *) ctx;
-    osif_dev *osifp = ath_netdev_priv(dev);
     acfg_os_req_t *req;
     struct iwreq iwr;
 
@@ -3945,7 +4023,6 @@ acfg_vap_atf_addsta(void *ctx, a_uint16_t cmdid,
     int rc = 0;
 #if QCA_AIRTIME_FAIRNESS
     struct net_device *dev = (struct net_device *) ctx;
-    osif_dev *osifp = ath_netdev_priv(dev);
     acfg_os_req_t *req;
     struct iwreq iwr;
 
@@ -3966,7 +4043,6 @@ acfg_vap_atf_delsta(void *ctx, a_uint16_t cmdid,
     int rc = 0;
 #if QCA_AIRTIME_FAIRNESS
     struct net_device *dev = (struct net_device *) ctx;
-    osif_dev *osifp = ath_netdev_priv(dev);
     acfg_os_req_t *req;
     struct iwreq iwr;
 
@@ -4141,11 +4217,19 @@ acfg_handle_ioctl(struct net_device *dev, void *data)
             break;
        }
     }
-    if ((cmd_found == false) || (acfgdispatchentry[i].cmd_handler == NULL)) {
+    
+    if(cmd_found == false){
+        status = -1;
+        printk("ACFG ioctl CMD %d failed \n",req->cmd);
+        goto done;
+    }
+
+    if (acfgdispatchentry[i].cmd_handler == NULL) {
         status = -1;
         printk("ACFG ioctl CMD %d failed\n", acfgdispatchentry[i].cmdid);
         goto done;
     }
+
     status = acfgdispatchentry[i].cmd_handler(dev,
                     req->cmd, (uint8_t *)req, req_len);
     if(copy_to_user(data, req, req_len)) {

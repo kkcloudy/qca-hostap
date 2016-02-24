@@ -63,11 +63,6 @@ ath_dev-objs := ath_beacon.o ath_desc.o ath_led.o \
         ath_hwtimer.o ath_vap_info.o ath_paprd.o
 endif        
 
-ifeq ($(strip ${ATOPT_DRV_MONITOR}),1)
-ath_dev-objs += $(DEPTH)/ATOPT/drv_monitor/drv_monitor.o
-ath_dev-objs += $(DEPTH)/ATOPT/drv_monitor/drv_monitor_debug.o
-endif
-
 ifeq ($(strip ${ATH_SUPPORT_PAPRD}),1)
 EXTRA_CFLAGS+= -DATH_SUPPORT_PAPRD=1
 endif

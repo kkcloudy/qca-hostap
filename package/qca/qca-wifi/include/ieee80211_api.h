@@ -1846,6 +1846,13 @@ u_int8_t *wlan_node_getbssid(wlan_node_t node);
 u_int16_t wlan_node_getcapinfo(wlan_node_t node);
 
 /**
+ * get extended capabilities of a node/station
+ * @param node : node handle.
+ * @return extended capabilities field.
+ */
+u_int32_t wlan_node_get_extended_capabilities(wlan_node_t node);
+
+/**
  * get tx rate info for the node.
  * @param    node        : node handle.
  * @returntx rate info for the node.
@@ -2098,7 +2105,14 @@ typedef void (* ieee80211_sta_iter_func) (void *, wlan_node_t);
  * for IBSS mode VAP this API iters through the list of neighbors in the IBSS network.
  */
 int32_t wlan_iterate_station_list(wlan_if_t vaphandle,ieee80211_sta_iter_func iter_func,void *arg);
+/**
+ * This API iters through the list of all stations.
+ */
 int32_t wlan_iterate_all_sta_list(wlan_if_t vaphandle,ieee80211_sta_iter_func iter_func,void *arg);
+/**
+ * This API iters through the list of unassociated stations.
+ */
+int32_t wlan_iterate_unassoc_sta_list(wlan_if_t vap,ieee80211_sta_iter_func iter_func,void *arg);
 
 /**
  * handler of manual ADDBA/DELBA operations request to the node/station
@@ -2107,6 +2121,14 @@ int32_t wlan_iterate_all_sta_list(wlan_if_t vaphandle,ieee80211_sta_iter_func it
  * @return none.
  */
 void wlan_addba_request_handler(void *arg, wlan_node_t node);
+
+/**
+ * handler of manual DELBA operations request to the node/station
+ * @param arg            : pointer of stucture of ieee80211_delba_request.
+ * @param node           : node handle.
+ * @return none.
+ */
+void wlan_delba_request_handler(void *arg, wlan_node_t node);
 
 /**
  * set auth mode.
@@ -2724,6 +2746,24 @@ int wlan_mlme_join_adhoc(wlan_if_t vaphandle,  wlan_scan_entry_t bss_entry, u_in
  * @return      IEEE80211 status code
  */
 int wlan_mlme_start_bss(wlan_if_t vaphandle);
+
+#if ATH_SUPPORT_DFS && ATH_SUPPORT_STA_DFS
+/**
+ * MLME is STA CAC running
+
+ * @param vaphandle     : handle to the vap.
+ * @return      IEEE80211 status code
+ */
+bool wlan_mlme_is_stacac_running(wlan_if_t vaphandle);
+
+/**
+ * MLME set STA CAC running
+ *
+ * @param vaphandle     : handle to the vap.
+ * @return      IEEE80211 status code
+ */
+void wlan_mlme_set_stacac_running(wlan_if_t vaphandle, u_int8_t set);
+#endif
 
 /**
  * Determine if HT40 coex is enabled (AP/IBSS)
@@ -4110,6 +4150,16 @@ int wlan_send_link_measreq(wlan_if_t vap, u_int8_t *macaddr);
 #endif
 
 int wlan_send_bstmreq(wlan_if_t vap, u_int8_t *macaddr,struct ieee80211_bstm_reqinfo *bstmreq);
+
+/**
+ * send bss transition management request requesting the STA 
+ * transition to a BSS on the provided candidate transition list
+ * @param vap       :  handle to the vap
+ * @param macaddr   : macaddress of the station
+ * @param bstmreq  : pointer to bstm request info target
+ *                    struct (includes candidate list)
+ */
+int wlan_send_bstmreq_target(wlan_if_t vap, u_int8_t *macaddr,struct ieee80211_bstm_reqinfo_target *bstmreq);
 
 /**
  * Add traffic stream

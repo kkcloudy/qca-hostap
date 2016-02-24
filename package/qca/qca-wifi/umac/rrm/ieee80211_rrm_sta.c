@@ -48,7 +48,7 @@ int rrm_send_reject(ieee80211_rrm_t rrm,
     params->rm_dialogtoken = rm_req->dialogtoken;
     params->rep_dialogtoken = req->token ; 
     params->reject_type = req->reqtype; 
-    params->reject_mode = BIT_REFUSED;
+    params->reject_mode = IEEE80211_RRM_MEASRPT_MODE_BIT_REFUSED;
 
     ieee80211_rrm_set_report_pending(rrm->rrm_vap,IEEE80211_MEASREQ_OTHER,(void *)params);
 

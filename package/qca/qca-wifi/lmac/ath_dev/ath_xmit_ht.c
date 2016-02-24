@@ -158,8 +158,9 @@ ath_aggr_check(ath_dev_t dev, ath_node_t node, u_int8_t tidno)
     /* ADDBA exchange must be completed before sending aggregates */
     tid = ATH_AN_2_TID(an, tidno);
 
-    if (tid->cleanup_inprogress)
+    if (tid->cleanup_inprogress || (an->an_flags & ATH_NODE_CLEAN)) {
         return 0;
+    }
     
     if (!tid->addba_exchangecomplete) {
         if (!tid->addba_exchangeinprogress &&
@@ -193,13 +194,6 @@ ath_addba_timer(void *arg)
     if (cmpxchg(&tid->addba_exchangeinprogress, 1, 0) == 1) {
         /* ADDBA exchange timed out, schedule pending frames */
         ath_vap_pause_txq_use_inc(sc);
-#if ATOPT_DRV_MONITOR
-		/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-		tid->add_paused_trace[tid->add_trace_index] = 1;
-		tid->add_trace_index ++;
-		if(tid->add_trace_index > 7)
-			tid->add_trace_index = 0;
-#endif
         ATH_TX_RESUME_TID(sc, tid);
         ath_vap_pause_txq_use_dec(sc);
     }
@@ -240,14 +234,7 @@ ath_addba_requestsetup(
         if (!ath_timer_is_active(&tid->addba_requesttimer))
             ath_start_timer(&tid->addba_requesttimer);
     }
-	
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-	tid->sub_paused_trace[tid->sub_trace_index] = 4;
-	tid->sub_trace_index ++;
-	if(tid->sub_trace_index > 7)
-	tid->sub_trace_index = 0;
-#endif
+
     ATH_TX_PAUSE_TID(ATH_DEV_TO_SC(dev), tid);
 }
 
@@ -300,14 +287,7 @@ ath_addba_responseprocess(
 
         if (resume) {
             struct ath_softc *sc = ATH_DEV_TO_SC(dev);
-            ath_vap_pause_txq_use_inc(sc);		
-#if ATOPT_DRV_MONITOR
-		/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->add_paused_trace[tid->add_trace_index] = 2;
-			tid->add_trace_index ++;
-			if(tid->add_trace_index > 7)
-				tid->add_trace_index = 0;
-#endif
+            ath_vap_pause_txq_use_inc(sc);
             ATH_TX_RESUME_TID(sc, tid);
             ath_vap_pause_txq_use_dec(sc);
         }
@@ -316,13 +296,6 @@ ath_addba_responseprocess(
         if (resume) {
             struct ath_softc *sc = ATH_DEV_TO_SC(dev);
             ath_vap_pause_txq_use_inc(sc);
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->add_paused_trace[tid->add_trace_index] = 3;
-			tid->add_trace_index ++;
-			if(tid->add_trace_index > 7)
-				tid->add_trace_index = 0;
-#endif
             ATH_TX_RESUME_TID(sc, tid);
             ath_vap_pause_txq_use_dec(sc);
         }
@@ -468,13 +441,7 @@ void
 ath_bar_tx(struct ath_softc *sc, struct ath_node *an, struct ath_atx_tid *tid)
 {
     __11nstats(sc, tx_bars);
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-	tid->sub_paused_trace[tid->sub_trace_index] = 5;
-	tid->sub_trace_index ++;
-	if(tid->sub_trace_index > 7)
-		tid->sub_trace_index = 0;
-#endif
+
     if (sc->sc_ieee_ops->send_bar) {
         /* pause TID until BAR completes */
         tid->bar_paused++;
@@ -482,13 +449,6 @@ ath_bar_tx(struct ath_softc *sc, struct ath_node *an, struct ath_atx_tid *tid)
 
         if (sc->sc_ieee_ops->send_bar(an->an_node, tid->tidno, tid->seq_start)) {
             /* resume tid if send bar failed. */
-#if ATOPT_DRV_MONITOR
-		/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->add_paused_trace[tid->add_trace_index] = 4;	
-			tid->add_trace_index ++;
-			if(tid->add_trace_index > 7)
-			tid->add_trace_index = 0;			
-#endif	
             tid->bar_paused--;
             ATH_TX_RESUME_TID(sc, tid);
         }
@@ -510,11 +470,7 @@ ath_tx_pause_tid(struct ath_softc *sc, struct ath_atx_tid *tid)
     ATH_TXQ_LOCK(txq);   
 
     tid->paused++;
-#if ATOPT_DRV_MONITOR
-	/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-        if(tid->paused == 1)
-        do_gettimeofday(&(tid->last_time));
-#endif		
+    
     DPRINTF(sc, ATH_DEBUG_ANY,"ath_tx_pause_tid: tid->tidno = %d, tid->paused (after increment) = %d \n", 
             tid->tidno, tid->paused);
 
@@ -546,11 +502,7 @@ void
 ath_tx_resume_tid(struct ath_softc *sc, struct ath_atx_tid *tid)
 {
     struct ath_txq *txq = &sc->sc_txq[tid->ac->qnum];
-	
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-    struct timeval time_adjust_end;
-#endif
+
 #ifdef ATH_SWRETRY
     /*if STA leave and receive the power save of do not do the tid->pause--*/
     if ((tid->an->an_flags & ATH_NODE_LEAVE)!=ATH_NODE_LEAVE)
@@ -568,18 +520,6 @@ ath_tx_resume_tid(struct ath_softc *sc, struct ath_atx_tid *tid)
             ATH_TXQ_UNLOCK(txq);
             return;
         }
-		
-#if ATOPT_DRV_MONITOR
-	   /*AUTELAN-Begin:zhaoenjuan transplant for drv monitor tid trace*/
-	   	do_gettimeofday(&time_adjust_end);
-	   	if(time_adjust_end.tv_usec > tid->last_time.tv_usec)
-       		tid->paused_period_us = time_adjust_end.tv_usec - tid->last_time.tv_usec;
-  	  	else
-	   		tid->paused_period_us = 1000000 - tid->last_time.tv_usec + time_adjust_end.tv_usec;
-
-	   tid->paused_period_sec = time_adjust_end.tv_sec - tid->last_time.tv_sec;	
-	   /*AUTELAN-End:zhaoenjuan transplant for drv monitor tid trace*/
-#endif
 #ifdef ATH_SWRETRY		
     }
     else
@@ -630,14 +570,7 @@ ath_tx_aggr_teardown(struct ath_softc *sc, struct ath_node *an, u_int8_t tidno)
         tid->addba_exchangestatuscode = IEEE80211_STATUS_UNSPECIFIED;
         return;
     }
-	
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-		tid->sub_paused_trace[tid->sub_trace_index] = 6;
-		tid->sub_trace_index ++;
-		if(tid->sub_trace_index > 7)
-			tid->sub_trace_index = 0;
-#endif
+
     /* TID must be paused first */
     ATH_TX_PAUSE_TID(sc, tid);
     
@@ -684,14 +617,7 @@ ath_tx_aggr_teardown(struct ath_softc *sc, struct ath_node *an, u_int8_t tidno)
 
         ath_wmi_aggr_enable((ath_dev_t) sc, an, tidno, 0);
 
-        ath_vap_pause_txq_use_inc(sc);		
-#if ATOPT_DRV_MONITOR
-		/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-		tid->add_paused_trace[tid->add_trace_index] = 6;
-		tid->add_trace_index ++;
-		if(tid->add_trace_index > 7)
-			tid->add_trace_index = 0;
-#endif
+        ath_vap_pause_txq_use_inc(sc);
         ATH_TX_RESUME_TID(sc, tid);
         ath_vap_pause_txq_use_dec(sc);
     }
@@ -730,7 +656,9 @@ ath_tx_send_normal(struct ath_softc *sc, struct ath_txq *txq, struct ath_atx_tid
     bf = TAILQ_FIRST(bf_head);
     bf->bf_seqno = txctl->seqno;
 
+    /* Inc. the wifi packet and byte counter */
     __11nstats(sc, tx_pkts);
+    sc->sc_stats.ast_tx_bytes += wbuf_get_pktlen(bf->bf_mpdu);
 
     /* 
      * In case of fragments, wait until all fragments coming.
@@ -827,9 +755,7 @@ send_swqueue:
 #if ATH_SWRETRY		
         /* if current STA power save is on and UMAC don't have any power save data
             set the tim bit on. */
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
         //add a condition here for check an_pspoll_pending due to if and an_pspoll_pending set TURE, it will direcen send 
         //out one packet.
         if (!atomic_read(&tid->an->an_pspoll_pending)&&
@@ -917,9 +843,6 @@ send_swqueue:
         }
     }
 #endif
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
     return ath_tx_txqaddbuf(sc, txq, bf_head);
 }
 
@@ -952,7 +875,9 @@ ath_tx_send_ampdu(struct ath_softc *sc, struct ath_txq *txq, struct ath_atx_tid 
     bf->bf_seqno = txctl->seqno; /* save seqno and tidno in buffer */
     bf->bf_tidno = txctl->tidno;
 
+    /* Inc. the wifi packet and byte counter */
     __11nstats(sc, tx_pkts);
+    sc->sc_stats.ast_tx_bytes += wbuf_get_pktlen(bf->bf_mpdu);
 
     /*
      * Do not queue to h/w when any of the following conditions is true:
@@ -989,10 +914,6 @@ enqueue_sw:
          */
         __11nstats(sc, tx_queue);
         TAILQ_CONCAT(&tid->buf_q, bf_head, bf_list);
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
 #ifdef ATH_SWRETRY
         /*
          * UMAC sometimes forces to send a frame down even when STA is in PS, 
@@ -1110,9 +1031,6 @@ enqueue_sw:
             goto enqueue_sw;
         }
     }
-#endif
-#if ATOPT_PACKET_TRACE
-	PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
 #endif
     if (ath_tx_txqaddbuf(sc, txq, bf_head) != 0) {
         ath_tx_update_baw(sc, tid, bf->bf_seqno);
@@ -1550,10 +1468,6 @@ ath_tx_form_aggr(struct ath_softc *sc, struct ath_atx_tid *tid,
 
     do {
         bf = TAILQ_FIRST(&tid->buf_q);
-		
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
 #ifdef ATH_SUPPORT_TxBF       
 #define MS(_v, _f)  (((_v) & _f) >> _f##_S)
 
@@ -2167,6 +2081,14 @@ ath_rifsburst_bar_buf_alloc(struct ath_softc *sc)
 	        (*buf_used)++;
 #endif
             sc->sc_txbuf_free--;
+            /**
+             * Debug print added in case of NULL descriptor assignment
+             */
+            if( !(bf->bf_desc) ) {
+                printk("\nxxx NULL descriptor detected in %s for buffer %p xxx\n",
+                        __func__,bf);
+            }
+
         }		
    
 #if TRACE_TX_LEAK                
@@ -2487,6 +2409,14 @@ ath_tx_sched_rifs(struct ath_softc *sc, struct ath_txq *txq, ath_atx_tid_t *tid)
         txq->axq_num_buf_used--;
 #endif		
         sc->sc_txbuf_free++;
+        /**
+         * Debug print added in case of NULL descriptor assignment
+         */
+        if( !(bar_bf->bf_desc) ) {
+            printk("\nxxx NULL descriptor detected in %s for buffer %p line %d xxx\n",
+                    __func__,bar_bf,__LINE__);
+        }
+
         ATH_TXBUF_UNLOCK(sc);
 #if ATH_SUPPORT_FLOWMAC_MODULE
         if (sc->sc_osnetif_flowcntrl) {
@@ -2675,10 +2605,6 @@ ath_tx_sched_mimoburst(struct ath_softc *sc, struct ath_txq *txq,
     }
 }
 
-#if ATOPT_POWERSAVE_PERF
-extern u_int32_t ps_fifo_depth;  //Add by chenxf for powersave performance 2014-06-05
-#endif
-
 /*
  * process pending HT single or legacy frames
  * NB: must be called with txq lock held
@@ -2702,11 +2628,8 @@ ath_tx_sched_normal(struct ath_softc *sc, struct ath_txq *txq, ath_atx_tid_t *ti
     OS_MEMZERO(rcs, sizeof(rcs));
 
     do {
-#if ATOPT_POWERSAVE_PERF
-	if ((sc->sc_enhanceddmasupport) && (txq->axq_depth >= ps_fifo_depth)) {  //Modified by chenxf for powersave performance 2014-06-05
-#else		
+
         if ((sc->sc_enhanceddmasupport) && (txq->axq_depth >= HAL_TXFIFO_DEPTH)) {
-#endif		
             /* Reached the MAX FIFO DEPTH - do not add any more buffer to the HW */
             break;
         }
@@ -2733,9 +2656,7 @@ ath_tx_sched_normal(struct ath_softc *sc, struct ath_txq *txq, ath_atx_tid_t *ti
         TAILQ_INIT(&bf_q);
 
         bf = TAILQ_FIRST(&tid->buf_q);
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
         /* 
          * Perform only one rate lookup, even if we are queuing multiple frames.
          */ 
@@ -2964,11 +2885,8 @@ ath_tx_sched_aggr(struct ath_softc *sc, struct ath_txq *txq, ath_atx_tid_t *tid)
     u_int8_t condition = 0;
 
     do {
-#if ATOPT_POWERSAVE_PERF
-	if ((sc->sc_enhanceddmasupport) && (txq->axq_depth >= ps_fifo_depth)) {  //Modified by chenxf for powersave performance 2014-06-05
-#else		
+
         if ((sc->sc_enhanceddmasupport) && (txq->axq_depth >= HAL_TXFIFO_DEPTH)) {
-#endif	
             /* Reached the MAX FIFO DEPTH - do not add any more buffer to the HW */
             break;
         }
@@ -3042,10 +2960,7 @@ ath_tx_sched_aggr(struct ath_softc *sc, struct ath_txq *txq, ath_atx_tid_t *tid)
         bf = TAILQ_FIRST(&bf_q);
         bf_last = TAILQ_LAST(&bf_q, ath_bufhead_s);
         bf->bf_lastbf = bf_last;
-	
-#if ATOPT_PACKET_TRACE
-		PACKET_TRACE(IEEE802_11_FRAME_MODE,bf->bf_mpdu,__func__,__LINE__,PRINT_DEBUG_LVL1);//AUTELAN-zhaoenjuan add for packet_trace		
-#endif
+
         /*
          * if only one frame, send as non-aggregate
          */
@@ -3454,97 +3369,12 @@ void ath_txq_schedule_before_eapol(struct ath_softc *sc, struct ath_atx_tid *tid
  * Tx scheduling logic
  * NB: must be called with txq lock held
  */
-
-#if ATOPT_POWERSAVE_PERF
-extern u_int32_t ps_ac_reorder;  //Add by chenxf for powersave performance 2014-06-05
-#endif
-#if ATOPT_DRV_MONITOR
-struct timeval    	tid_last_time;//AUTELAN-zhaoenjuan  for drv monitor tid_trace
-#endif
-
 void
 ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
 {
     struct ath_atx_ac *ac;
     struct ath_atx_tid *tid = NULL;
     TAILQ_HEAD(,ath_atx_tid)paused_tid_q;
-#if ATOPT_POWERSAVE_PERF	
-    TAILQ_HEAD(,ath_atx_ac)tmp_ps_acq;  //Add by chenxf for powersave performance 2014-06-05
-#endif
-
-
-    /* Begin:Add by chenxf for powersave performance 2014-06-05 */
-#if ATOPT_POWERSAVE_PERF	
- 
-	if (ps_ac_reorder) {
-
-
-		if( !TAILQ_EMPTY(&txq->axq_acq) )
-		{
-			struct ath_atx_ac *tmp_ac_next;
-
-			struct ath_node *an;
-			struct ieee80211_node *ni;
-			u_int8_t all_ps_flag = 1;
-
-			TAILQ_INIT(&tmp_ps_acq);
-
-			TAILQ_FOREACH_SAFE(ac, &txq->axq_acq, ac_qelem, tmp_ac_next)
-			{
-				 if (!TAILQ_EMPTY(&ac->tid_q))
-				 {
-					 struct ath_atx_tid *tmp_tid = TAILQ_FIRST(&ac->tid_q);
-
-
-					 an = tmp_tid->an;
-					 ni = (struct ieee80211_node *)an->an_node;
-
-
-
-
-					 
-					 if (ieee80211node_has_flag(ni, IEEE80211_NODE_PWR_MGT)){
-						 TAILQ_REMOVE(&txq->axq_acq, ac, ac_qelem);
-						 TAILQ_INSERT_TAIL(&tmp_ps_acq, ac, ac_qelem);
-					 }
-					 else
-						 all_ps_flag = 0;
-				 }
-				 else
-					 printk("Should not happen: ac in the txq, but no tid is in the ac list table\r\n");
-			}
-
-
-
-			if (all_ps_flag == 1) 
-			{
-				
-				if(!TAILQ_EMPTY(&tmp_ps_acq))
-					TAILQ_CONCAT(&txq->axq_acq, &tmp_ps_acq, ac_qelem);
-				
-				return;
-			}		
-		}
-	}
-#endif	
-    /* End:Add by chenxf for powersave performance 2014-06-05 */
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-Begin:zhaoenjuan for drv monitor tid_trace*/
-    struct timeval time_adjust_end;
-    do_gettimeofday(&time_adjust_end);
-
-    if(time_adjust_end.tv_usec > tid_last_time.tv_usec)
-        tid_period_us = time_adjust_end.tv_usec - tid_last_time.tv_usec;
-    else
-        tid_period_us = 1000000 - tid_last_time.tv_usec + time_adjust_end.tv_usec;
-
-    tid_period_sec = time_adjust_end.tv_sec - tid_last_time.tv_sec;
-
-    do_gettimeofday(&tid_last_time);
-	
-	__11nstats(sc, aute_tx_schedule);
-/*AUTELAN-End:zhaoenjuan  drv monitor tid_trace*/
-#endif	
 #ifdef VOW_TIDSCHED
     TAILQ_HEAD(,ath_atx_tid)paused_sc_tid_q;
 #endif
@@ -3634,25 +3464,9 @@ ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
                 }
 #endif
                 tid->sched = AH_TRUE;
-#if ATOPT_DRV_MONITOR
-                tid->error_trace_pause++;/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-#endif
                 continue;
             }
 
-             /* Begin:Add by chenxf for powersave performance 2014-06-05 */
-#if ATOPT_POWERSAVE_PERF			 
-			if (ps_ac_reorder) {
-				if (ieee80211node_has_flag((struct ieee80211_node *)tid->an->an_node, IEEE80211_NODE_PWR_MGT))
-				{
-				   TAILQ_INSERT_TAIL(&paused_tid_q, tid, tid_qelem);
-				   tid->sched = AH_TRUE;
-				   printk("Should never happen, because the head in the list table should be awake\r\n ");
-				   continue;
-				}
-			}
-#endif			
-            /* End:Add by chenxf for powersave performance 2014-06-05 */
             /*
              * schedule rifs or aggregation for this tid
              */
@@ -3683,15 +3497,6 @@ ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
                             }
 #endif
                             tid->sched = AH_TRUE;
-#if ATOPT_DRV_MONITOR
-/*AUTELAN-Begin:zhaoenjuan transplant for drv monitor tid trace*/
-				if(txq->axq_depth != 0)
-               			tid->error_trace_depth++;
-
-				if (tid->baw_head != tid->baw_tail )
-					tid->error_trace_baw++;
-/*AUTELAN-End:zhaoenjuan transplant for drv monitor tid trace*/
-#endif				
                             continue;
                         }
                     }
@@ -3737,33 +3542,6 @@ ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
                 TAILQ_INSERT_TAIL(&txq->axq_acq, ac, ac_qelem);
             }
         }
-
-        /* Begin:Add by chenxf for powersave performance 2014-06-05 */
-#if ATOPT_POWERSAVE_PERF		
-		if (ps_ac_reorder) {
-		/*AUTELAN-Begin:zhaoenjuan added for tx_monitor debug*/
-			struct ath_buf *buf = NULL;
-			if(!TAILQ_EMPTY(&tmp_ps_acq))
-			{
-				ps_bufcnt = 0;
-				ps_acqcnt ++;
-				TAILQ_FOREACH(ac, &tmp_ps_acq, ac_qelem) 
-            			{
-					TAILQ_FOREACH(tid, &ac->tid_q, tid_qelem) 
-	                		{
-						TAILQ_FOREACH(buf, &tid->buf_q, bf_list) {
-							ps_bufcnt++;
-						}
-					}
-				}
-			
-				TAILQ_CONCAT(&txq->axq_acq, &tmp_ps_acq, ac_qelem);
-			}
-		/*AUTELAN-End:zhaoenjuan added for tx_monitor debug*/
-		}
-#endif
-        /* End:Add by chenxf for powersave performance 2014-06-05 */
-		
 #if ATH_SUPPORT_VOWEXT
         else if ( ac == first_schd_ac ){
             if_first_ac = 1;
@@ -4348,13 +4126,6 @@ ath_tx_complete_aggr_rifs(struct ath_softc *sc, struct ath_txq *txq, struct ath_
                     tid->addba_exchangestatuscode = IEEE80211_STATUS_UNSPECIFIED;
                     /* resume the tid */
                     tid->paused--;
-#if ATOPT_DRV_MONITOR
-					/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-					tid->sub_paused_trace[tid->sub_trace_index] = 1;
-					tid->sub_trace_index ++;
-					if(tid->sub_trace_index > 7)
-						tid->sub_trace_index = 0;
-#endif		
                     __11nstats(sc, tx_tidresumed);
                     tid->cleanup_inprogress = AH_FALSE;
                 }
@@ -4380,7 +4151,6 @@ ath_tx_complete_aggr_rifs(struct ath_softc *sc, struct ath_txq *txq, struct ath_
                                         defer_completion.bf->bf_rcs[i].tries;
                 }
                 defer_completion.bf->bf_retries += ts->ts_longretry;
-				defer_completion.bf->bf_tx_ratecode = ts->ts_ratecode; //zhaoyang1 transplants statistics 2015-01-27
 
 
 #ifdef ATH_SUPPORT_TxBF
@@ -4434,7 +4204,6 @@ ath_tx_complete_aggr_rifs(struct ath_softc *sc, struct ath_txq *txq, struct ath_
                         ATH_TXQ_UNLOCK(txq);
 
                         if( defer_completion.bf ) {
-							defer_completion.bf->bf_tx_ratecode = ts->ts_ratecode; //zhaoyang1 transplants statistics 2015-01-27
 #ifdef ATH_SUPPORT_TxBF
                             ath_tx_complete_buf(sc, defer_completion.bf, &defer_completion.bf_head,
                                 !defer_completion.txfail, ts->ts_txbfstatus, ts->ts_tstamp);
@@ -4471,6 +4240,14 @@ ath_tx_complete_aggr_rifs(struct ath_softc *sc, struct ath_txq *txq, struct ath_
                     }
 #endif
                     sc->sc_txbuf_free--;
+                    /**
+                     * Debug print added in case of NULL descriptor assignment
+                     */
+                    if( !(tbf->bf_desc) ) {
+                        printk("\nxxx NULL descriptor detected in %s for buffer %p line %d xxx\n",
+                                __func__,tbf,__LINE__);
+                    }
+
                     ATH_TXBUF_UNLOCK(sc);
 
                     ATH_TXBUF_RESET(tbf, sc->sc_num_txmaps);
@@ -4559,13 +4336,6 @@ ath_tx_complete_aggr_rifs(struct ath_softc *sc, struct ath_txq *txq, struct ath_
             tid->cleanup_inprogress = AH_FALSE;
  
             /* send buffered frames as singles */
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->add_paused_trace[tid->add_trace_index] = 7;
-			tid->add_trace_index ++;
-			if(tid->add_trace_index > 7)
-				tid->add_trace_index = 0;
-#endif
             ATH_TX_RESUME_TID(sc, tid);
         } else {
             ATH_TXQ_UNLOCK(txq);
@@ -4670,7 +4440,6 @@ done:
         defer_completion.bf->bf_retries += defer_completion.bf->bf_rcs[i].tries;
     }
     defer_completion.bf->bf_retries += ts->ts_longretry;
-	defer_completion.bf->bf_tx_ratecode = ts->ts_ratecode; //zhaoyang1 transplants statistics 2015-01-27
 
 
 #ifdef ATH_SUPPORT_TxBF
@@ -4790,13 +4559,6 @@ ath_tid_cleanup(struct ath_softc *sc, struct ath_txq *txq, struct ath_atx_tid *t
         /* Frames in HW queue */
         /* Pause the tid and set cleanup in progress to True */
         tid->paused++;
-#if ATOPT_DRV_MONITOR
-		/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-		tid->add_paused_trace[tid->add_trace_index] = 8;
-		tid->add_trace_index ++;
-		if(tid->add_trace_index > 7)
-			tid->add_trace_index = 0;
-#endif
         __11nstats(sc, tx_tidpaused);
         tid->cleanup_inprogress = AH_TRUE;
     } else {
@@ -4976,13 +4738,6 @@ ath_tx_node_cleanup(struct ath_softc *sc, struct ath_node *an)
                         ath_cancel_timer(&tid->addba_requesttimer, CANCEL_NO_SLEEP);
                         /* Tid is paused - resume the tid */
                         tid->paused--;
-#if ATOPT_DRV_MONITOR
-						/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-						tid->sub_paused_trace[tid->sub_trace_index] = 2;
-						tid->sub_trace_index ++;
-						if(tid->sub_trace_index > 7)
-							tid->sub_trace_index = 0;
-#endif
                         __11nstats(sc, tx_tidresumed);
                     }
                     ath_tid_cleanup(sc, txq, tid);
@@ -5005,13 +4760,6 @@ ath_tx_node_cleanup(struct ath_softc *sc, struct ath_node *an)
             ath_cancel_timer(&tid->addba_requesttimer, CANCEL_NO_SLEEP);
             /* Tid is paused - resume the tid */
             tid->paused--;
-#if ATOPT_DRV_MONITOR
-			/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-			tid->sub_paused_trace[tid->sub_trace_index] = 3;
-			tid->sub_trace_index ++;
-			if(tid->sub_trace_index > 7)
-				tid->sub_trace_index = 0;
-#endif
             __11nstats(sc, tx_tidresumed);
         }
         ath_tid_cleanup(sc, txq, tid);
@@ -5087,14 +4835,7 @@ ath_tx_node_pause(struct ath_softc *sc, struct ath_node *an)
 
     for (tidno = 0, tid = &an->an_tx_tid[tidno]; tidno < WME_NUM_TID;
          tidno++, tid++)
-    {    
-#if ATOPT_DRV_MONITOR
-	/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-		tid->sub_paused_trace[tid->sub_trace_index] = 7;
-		tid->sub_trace_index ++;
-		if(tid->sub_trace_index > 7)
-			tid->sub_trace_index = 0;
-#endif
+    {
         ATH_TX_PAUSE_TID(sc,tid);
     }
 }
@@ -5122,17 +4863,59 @@ ath_tx_node_resume(struct ath_softc *sc, struct ath_node *an)
     for (tidno = 0, tid = &an->an_tx_tid[tidno]; tidno < WME_NUM_TID;
          tidno++, tid++)
     {
-#if ATOPT_DRV_MONITOR
-	/*AUTELAN-zhaoenjuan transplant for drv monitor tid trace*/
-    	tid->add_paused_trace[tid->add_trace_index] = 9;
-		tid->add_trace_index ++;
-		if(tid->add_trace_index > 7)
-			tid->add_trace_index = 0;
-#endif
         ATH_TX_RESUME_TID(sc,tid);
     }
     ath_vap_pause_txq_use_dec(sc);
 }
+
+#if QCA_AIRTIME_FAIRNESS
+void
+ath_tx_node_atf_pause(struct ath_softc *sc, struct ath_node *an)
+{
+    int tidno;
+    struct ath_atx_tid *tid;
+
+    for (tidno = 0, tid = &an->an_tx_tid[tidno]; tidno < WME_NUM_TID;
+         tidno++, tid++)
+    {
+        if (TID_TO_WME_AC(tid->tidno) != WME_AC_VI && TID_TO_WME_AC(tid->tidno) != WME_AC_VO) {
+            ATH_TX_PAUSE_TID(sc,tid);
+        }
+    }
+}
+
+void
+ath_tx_node_atf_pause_nolock(struct ath_softc *sc, struct ath_node *an)
+{
+    int tidno;
+    struct ath_atx_tid *tid;
+
+    for (tidno = 0, tid = &an->an_tx_tid[tidno]; tidno < WME_NUM_TID;
+         tidno++, tid++)
+    {
+        if (TID_TO_WME_AC(tid->tidno) != WME_AC_VI && TID_TO_WME_AC(tid->tidno) != WME_AC_VO) {
+            ATH_TX_PAUSE_TID_NOLOCK(sc,tid);
+        }
+    }
+}
+
+void
+ath_tx_node_atf_resume(struct ath_softc *sc, struct ath_node *an)
+{
+    int tidno;
+    struct ath_atx_tid *tid;
+
+    ath_vap_pause_txq_use_inc(sc);
+    for (tidno = 0, tid = &an->an_tx_tid[tidno]; tidno < WME_NUM_TID;
+         tidno++, tid++)
+    {
+        if (TID_TO_WME_AC(tid->tidno) != WME_AC_VI && TID_TO_WME_AC(tid->tidno) != WME_AC_VO) {
+            ATH_TX_RESUME_TID(sc,tid);
+        }
+    }
+    ath_vap_pause_txq_use_dec(sc);
+}
+#endif
 
 void
 ath_set_ampduparams(ath_dev_t dev, ath_node_t node, u_int16_t maxampdu,

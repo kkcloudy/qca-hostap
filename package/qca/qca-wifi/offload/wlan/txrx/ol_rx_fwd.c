@@ -20,10 +20,6 @@
 #include <ieee80211.h>         /* ieee80211_frame */
 #include <ieee80211_var.h>     /* IEEE80211_ADDR_COPY */
 
-#if ATOPT_TRAFFIC_LIMIT
-#include "ieee80211_traffic_limit.h"
-#include "osif_private.h"
-#endif
 static inline
 void
 ol_rx_fwd_to_tx(struct ol_txrx_vdev_t *vdev, adf_nbuf_t msdu)
@@ -36,9 +32,7 @@ ol_rx_fwd_to_tx(struct ol_txrx_vdev_t *vdev, adf_nbuf_t msdu)
 #endif
 
     adf_nbuf_set_next(msdu, NULL); /* add NULL terminator */
-
     OL_VDEV_TX(vdev, msdu, pdev->osdev);
-    TXRX_STATS_MSDU_INCR(vdev->pdev, rx.forwarded, msdu);
     }
 
 void
@@ -53,11 +47,6 @@ ol_rx_fwd_check(
     adf_nbuf_t deliver_list_tail = NULL;
     adf_nbuf_t msdu;
 
-#if ATOPT_TRAFFIC_LIMIT
-	osif_dev  *osdev = (osif_dev *)vdev->osif_vdev;
-	wlan_if_t vap = osdev->os_if;
-	wlan_dev_t ic = vap->iv_ic;
-#endif
     if (OL_CFG_RAW_RX_LIKELINESS(pdev->rx_decap_mode == htt_pkt_type_raw)) {
         /* Forwarding is not handled since keys would reside on Access
          * Controller.
@@ -73,11 +62,6 @@ ol_rx_fwd_check(
     while (msdu) {
         struct ol_txrx_vdev_t *tx_vdev;
         void *rx_desc;
-#if ATOPT_TRAFFIC_LIMIT
-		struct ether_header *eh = (struct ether_header *)msdu->data;
-		wlan_node_t ni = ieee80211_find_node(&ic->ic_sta, eh->ether_shost);
-		int ret = 0;
-#endif
         /*
          * Remember the next list elem, because our processing
          * may cause the MSDU to get linked into a different list.
@@ -120,41 +104,11 @@ ol_rx_fwd_check(
                 }
             }
         }
-#if ATOPT_TRAFFIC_LIMIT
-		if (ni)
-		{
-			if ((IEEE80211_TL_ENABLE == vap->vap_tl_vap_enable) &&	// Vap
-				(vap->vap_tl_up_srtcm_vap.sr_cir > 0)) {
-				ret = ol_ieee80211_tl_vap_cache_enqueue_rx(vap, msdu, peer, tid);
-				if(ret == IEEE80211_TL_ENQUEUE_OK) {
-					wbuf_set_node(msdu , ni);
-				} else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL) {
-					adf_nbuf_free(msdu);
-				}
-				msdu = NULL;
-			} else if ((IEEE80211_TL_ENABLE == ni->ni_tl_sp_enable && ni->ni_tl_up_srtcm_sp.sr_cir > 0) ||	// Specific node
-						(IEEE80211_TL_ENABLE == ni->ni_tl_ev_enable && ni->ni_tl_up_srtcm_ev.sr_cir > 0)) {	// Everynode
-				ret = ol_ieee80211_tl_node_cache_enqueue_rx(ni, msdu, peer, tid);
-				if(ret == IEEE80211_TL_ENQUEUE_OK) {
-					wbuf_set_node(msdu , ni);
-				} else if(ret == IEEE80211_TL_ENQUEUE_IS_FULL) {
-					adf_nbuf_free(msdu);
-				}
-				msdu = NULL;
-			}
-			if (msdu)
-				wbuf_set_node(msdu , ni);
-		}
-#endif
         if (msdu) {
             /* send this frame to the OS */
             OL_TXRX_LIST_APPEND(deliver_list_head, deliver_list_tail, msdu);
         }
         msdu = msdu_list;
-#if ATOPT_TRAFFIC_LIMIT
-		if (ni)
-			ieee80211_free_node(ni);
-#endif
     }
     if (deliver_list_head) {
         adf_nbuf_set_next(deliver_list_tail, NULL); /* add NULL terminator */
