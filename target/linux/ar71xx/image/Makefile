@@ -267,7 +267,7 @@ eap300v2_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env),320k(custom),1
 db120_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,6336k(rootfs),1408k(kernel),64k(nvram),64k(art)ro,7744k@0x50000(firmware)
 ap151_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1088k(kernel),6720k(rootfs),64k(art)ro,16000k@0x50000(firmware)
 ap152_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1088k(kernel),6720k(rootfs),64k(art)ro,16000k@0x50000(firmware)
-ap152_afi_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1088k(kernel),14848k(rootfs),64k(hard_info),64k(art)ro,15936k@0x50000(firmware),16384k@0x000000(full_flash)
+ap152_afi_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1536k(kernel),14400k(rootfs),64k(hard_info),64k(art)ro,15936k@0x50000(firmware),16384k@0x000000(full_flash),12352k(fs_size)
 cameo_ap94_mtdlayout=mtdparts=spi0.0:256k(uboot)ro,64k(config)ro,6208k(firmware),64k(caldata)ro,1600k(unknown)ro,64k@0x7f0000(caldata_copy)
 cameo_ap94_mtdlayout_fat=mtdparts=spi0.0:256k(uboot)ro,64k(config)ro,7808k(firmware),64k(caldata)ro,64k@0x660000(caldata_orig),6208k@0x50000(firmware_orig)
 esr900_mtdlayout=mtdparts=spi0.0:192k(u-boot)ro,64k(u-boot-env)ro,1408k(kernel),13248k(rootfs),1024k(manufacture)ro,64k(backup)ro,320k(storage)ro,64k(caldata)ro,14656k@0x40000(firmware)
@@ -487,6 +487,61 @@ Image/Build/AthGzip/initramfs=$(call MkuImageGzip/initramfs,$(2),$(3) $(4))
 Image/Build/AthLzma/buildkernel=$(call MkuImageLzma,$(2),$(3) $(4))
 Image/Build/AthLzma=$(call Image/Build/Ath,$(1),$(2),$(3),$(4),$(5),$(6),$(7))
 Image/Build/AthLzma/initramfs=$(call MkuImageLzma/initramfs,$(2),$(3) $(4))
+
+
+#zhouke add for fix rootfs_data size
+# $(1): 	*..uImage
+# $(2): 	kernelsize
+# $(3): 	*/root.squashfs-64k
+# $(4): 	rootfssize	(rootfs + rootfs_data)
+# $(5): 	*squashfs-sysupgrade.bin
+# $(6): 	fs_size  (fixed rootfs size)
+define HosCatFiles
+	if [ $(2) -eq 0 ]; then \
+		echo "Warning: /image/Makefile/kernelsize is equal to (0 bytes)" >&2; \
+		rm -f $(5); \
+	else	\
+		if [ `stat -c%s "$(1)"` -gt $(2) ]; then \
+			echo "Warning: $(1) is too big (> $(2) bytes)" >&2; \
+		else if [ -n "$(6)" ]; then \
+			if [ $(6) -ge $(4) ]; then \
+				echo "Warning: fs_size is too big (> $(4) bytes)" >&2; \
+			else if [ `stat -c%s $(3)` -gt $(6) ]; then \
+				echo "Warning: $(3) is too big (> $(4) bytes)" >&2; \
+			else	\
+				( dd if=$(1) bs=$(2) conv=sync; dd if=$(3) bs=$(6) conv=sync) > $(5); \
+			fi; fi; \
+		else	\
+			if [ `stat -c%s $(3)` -gt $(4) ]; then \
+				echo "Warning: $(3) is too big (> $(4) bytes)" >&2; \
+			else \
+				( dd if=$(1) bs=$(2) conv=sync; dd if=$(3) ) > $(5); \
+			fi	\
+		fi; fi; \
+	fi
+endef
+
+
+Sysupgrade/HosKRuImage=$(call HosCatFiles,$(KDIR_TMP)/vmlinux-$(2).uImage,$(3),$(KDIR)/root.$(1),$(4),$(call sysupname,$(1),$(2)),$(5))
+
+define Image/Build/Hos
+	$(eval fwsize=$(call mtdpartsize,firmware,$(4)))
+	$(eval rootsize=$(call mtdpartsize,rootfs,$(4)))
+	$(eval kernsize=$(call mtdpartsize,kernel,$(4)))
+	$(eval fssize=$(call mtdpartsize,fs_size,$(4)))
+	$(call Sysupgrade/$(5),$(1),$(2),$(if $(6),$(6),$(kernsize)),$(if $(rootsize),$(rootsize),$(fwsize)),$(fssize))
+	if [ -e "$(call sysupname,$(1),$(2))" ]; then \
+		dd if=$(KDIR_TMP)/vmlinux-$(2).uImage \
+			of=$(call imgname,kernel,$(2)).bin bs=64k conv=sync; \
+		dd if=$(KDIR)/root.$(1) \
+			of=$(call imgname,$(1),$(2)-rootfs).bin bs=$(fssize) conv=sync; \
+	fi
+endef
+
+Image/Build/HosLzma/buildkernel=$(call MkuImageLzma,$(2),$(3) $(4))
+Image/Build/HosLzma=$(call Image/Build/Hos,$(1),$(2),$(3),$(4),$(5),$(6),$(7))
+Image/Build/HosLzma/initramfs=$(call MkuImageLzma/initramfs,$(2),$(3) $(4))
+#endif zhouke
 
 
 define Image/Build/EnGenius
@@ -1078,7 +1133,7 @@ $(eval $(call SingleProfile,AthLzma,64k,AE5000_11AC_E2,ae5000_11ac_e2,AE5000_11A
 $(eval $(call SingleProfile,AthLzma,64k,APV5,apv5,APV5,ttyS0,115200,$$(apv5_mtdlayout),KRuImage))
 $(eval $(call SingleProfile,AthLzma,64k,AP151,ap151,AP151,ttyS0,115200,$$(ap151_mtdlayout),KRuImage))
 $(eval $(call SingleProfile,AthLzma,64k,AP152,ap152,AP152,ttyS0,115200,$$(ap152_mtdlayout),KRuImage))
-$(eval $(call SingleProfile,AthLzma,64k,AP152_AFI,ap152-afi,AP152_AFI,ttyS0,115200,$$(ap152_afi_mtdlayout),KRuImage))
+$(eval $(call SingleProfile,HosLzma,64k,AP152_AFI,ap152-afi,AP152_AFI,ttyS0,115200,$$(ap152_afi_mtdlayout),HosKRuImage))
 $(eval $(call SingleProfile,AthLzma,64k,AFI_A1_MINI,afi-a1-mini,AFI_A1,ttyS0,115200,$$(afi_a1_mini_mtdlayout),KRuImage))
 $(eval $(call SingleProfile,AthLzma,64k,AP135,ap135-020,AP135-020,ttyS0,115200,$$(ap135_mtdlayout),KRuImage))
 $(eval $(call SingleProfile,AthLzma,64k,AP136_010,ap136-010,AP136-010,ttyS0,115200,$$(ap136_mtdlayout),RKuImage))
