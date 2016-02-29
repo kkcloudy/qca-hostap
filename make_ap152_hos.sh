@@ -71,5 +71,10 @@ case $OPTION in
 	;;
 esac
 tar zcvf $IMG_NAME $TAR_LIST
+
+mv openwrt-ar71xx-generic-ap152-afi-kernel.bin	hos-r21-kernel.bin
+mv openwrt-ar71xx-generic-ap152-afi-rootfs-squashfs.bin hos-r21-rootfs.bin
+mv openwrt-ar71xx-generic-afi-a1-squashfs-sysupgrade.bin hos-r21-sysupgrade.bin
+
 cd ..
 
