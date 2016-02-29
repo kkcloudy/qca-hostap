@@ -1,0 +1,25 @@
+diff -urN a//drivers/mtd/mtdsplit_squashfs.c b//drivers/mtd/mtdsplit_squashfs.c
+--- a//drivers/mtd/mtdsplit_squashfs.c	2016-02-29 18:20:23.000000000 +0800
++++ b//drivers/mtd/mtdsplit_squashfs.c	2016-02-29 18:25:07.000000000 +0800
+@@ -21,6 +21,10 @@
+ 
+ #include "mtdsplit.h"
+ 
++/* zhouke add for fixed rootfs size 12352k */
++#define ROOTFS_FIXED_SIZE 0xc10000
++/* zhouke add end */
++
+ static int
+ mtdsplit_parse_squashfs(struct mtd_info *master,
+ 			struct mtd_partition **pparts,
+@@ -36,6 +40,10 @@
+ 	if (err)
+ 		return err;
+ 
++/* zhouke add for fixed rootfs size 12352k */
++    squashfs_len = ROOTFS_FIXED_SIZE;
++/* zhouke add end */
++
+ 	parent_mtd = mtdpart_get_master(master);
+ 	part_offset = mtdpart_get_offset(master);
+ 
