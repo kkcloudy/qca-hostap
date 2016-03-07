@@ -31,6 +31,7 @@ MAKE_OPTS:= \
 	SUBDIRS="$(PKG_BUILD_DIR)"
 
 define Build/Prepare
+	rm -rf $(PKG_BUILD_DIR)
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
 endef
