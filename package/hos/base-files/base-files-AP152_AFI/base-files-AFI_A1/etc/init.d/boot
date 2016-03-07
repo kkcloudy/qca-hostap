@@ -17,6 +17,29 @@ uci_apply_defaults() {
 	uci commit
 }
 
+kes_service() {
+
+	echo "**************** insmod kes.ko"
+	
+if [ -f /proc/kes_debug_switch ] && [ -f /proc/kes_dmsg_switch ];then
+	cat /proc/kes_dmsg > /tmp/kes_dmsg.log
+	cat /proc/kes_debug > /tmp/kes_debug.log
+	cat /proc/kes_traps > /tmp/kes_traps.log
+	echo 1 > /proc/kes_dmsg_switch
+	echo 1 > /proc/kes_debug_switch
+else
+	touch /tmp/kes_load_failed
+fi
+
+}
+
+setting_eth_mac() {
+	local mac="$(/usr/sbin/showsysinfo|/bin/grep 'MAC:'|/usr/bin/cut -d: -f2-7)"
+	ifconfig eth0 down
+	ifconfig eth0 hw ether "$mac"
+	ifconfig eth0 up
+}
+
 boot() {
 	[ -f /proc/mounts ] || /sbin/mount_root
 	[ -f /proc/jffs2_bbc ] && echo "S" > /proc/jffs2_bbc
@@ -51,35 +74,12 @@ boot() {
 	# temporary hack until configd exists
 	/sbin/reload_config
 
-	#zhouke add for version differentiation
-	echo afc > /tmp/sysinfo/osinfo
-	
 	# create /dev/root if it doesn't exist
 	[ -e /dev/root -o -h /dev/root ] || {
 		rootdev=$(awk 'BEGIN { RS=" "; FS="="; } $1 == "root" { print $2 }' < /proc/cmdline)
 		[ -n "$rootdev" ] && ln -s "$rootdev" /dev/root
 	}
-	#add by liwei for auto-uplink boot
-	/usr/sbin/uplink_boot
-
-	#add by liwei to count restart number                                                       
-        local count="`/sbin/uci get system.record.boot_count`" > /dev/null 2>&1                     
-        if [ x"$count" == x ]; then                                                                 
-                /sbin/uci set system.record=extend                                                  
-                /sbin/uci set system.record.boot_count=1                                            
-        else
-		/sbin/uci set system.record.boot_count=$((count+1))
-	fi          
 	
-        #add by wangjianru for hostname
-        local hostname="$(/usr/sbin/showsysinfo|/bin/grep 'Company Name:'|/usr/bin/cut -d: -f2)"
-        #echo "$hostname" > /proc/sys/kernel/hostname
-        uci set system.@system[0].hostname="$hostname"
-        uci commit system
-
-        #add by wangjianru for update eth macaddr
-        local mac="$(/usr/sbin/showsysinfo|/bin/grep 'MAC:'|/usr/bin/cut -d: -f2-7)"
-        ifconfig eth0 down
-        ifconfig eth0 hw ether "$mac"
-        ifconfig eth0 up
+	kes_service
+	setting_eth_mac
 }
