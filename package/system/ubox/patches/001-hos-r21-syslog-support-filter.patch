@@ -1,0 +1,171 @@
+diff -urN a/log/logread.c b/log/logread.c
+--- a/log/logread.c	2016-03-02 23:00:11.000000000 +0800
++++ b/log/logread.c	2016-03-05 01:15:44.000000000 +0800
+@@ -58,6 +58,12 @@
+ static struct uloop_timeout retry;
+ static struct uloop_fd sender;
+ static const char *log_file, *log_ip, *log_port, *log_prefix, *pid_file, *hostname;
++
++/* zhouke add for hos-r21 support filter and kes_syslog */
++static const char *log_module,*log_priority;
++#define KES_SYSLOG_PATH "/proc/kes_syslog"
++/* zhouke add end */
++
+ static int log_type = LOG_STDOUT;
+ static int log_size, log_udp, log_follow = 0;
+ 
+@@ -71,6 +77,33 @@
+ 	return "<unknown>";
+ };
+ 
++/* zhouke add for hos-r21 support filter according to module and priority */
++static int getcodevlaue(const char *text) {
++
++    if(text == NULL)
++        return LOG_DEBUG;
++
++    if(strcmp(text,"LOG_EMERG") == 0)
++        return LOG_EMERG;
++    else if(strcmp(text,"LOG_ALERT") == 0)
++        return LOG_ALERT;
++    else if(strcmp(text,"LOG_CRIT") == 0)
++        return LOG_CRIT;
++    else if(strcmp(text,"LOG_ERR") == 0)
++        return LOG_ERR;
++    else if(strcmp(text,"LOG_WARNING") == 0)
++        return LOG_WARNING;
++    else if(strcmp(text,"LOG_NOTICE") == 0)
++        return LOG_NOTICE;
++    else if(strcmp(text,"LOG_INFO") == 0)
++        return LOG_INFO;
++    else if(strcmp(text,"LOG_DEBUG") == 0)
++        return LOG_DEBUG;
++    
++	return LOG_DEBUG;
++};
++/* zhouke add end */
++
+ static void log_handle_reconnect(struct uloop_timeout *timeout)
+ {
+ 	sender.fd = usock((log_udp) ? (USOCK_UDP) : (USOCK_TCP), log_ip, log_port);
+@@ -102,6 +135,7 @@
+ 	char *str;
+ 	time_t t;
+ 	char *c, *m;
++    int i = 0;
+ 
+ 	if (sender.fd < 0)
+ 		return 0;
+@@ -110,6 +144,8 @@
+ 	if (!tb[LOG_ID] || !tb[LOG_PRIO] || !tb[LOG_SOURCE] || !tb[LOG_TIME] || !tb[LOG_MSG])
+ 		return 1;
+ 
++/* zhouke add for hos-r21 support write to kes_syslog */
++#if 0
+ 	if ((log_type == LOG_FILE) && log_size && (!stat(log_file, &s)) && (s.st_size > log_size)) {
+ 		char *old = malloc(strlen(log_file) + 5);
+ 
+@@ -125,6 +161,27 @@
+ 			exit(-1);
+ 		}
+ 	}
++#else
++    if ((log_file != NULL) && (strcmp(log_file,KES_SYSLOG_PATH) != 0))
++    {
++    	if ((log_type == LOG_FILE) && log_size && (!stat(log_file, &s)) && (s.st_size > log_size)) {
++    		char *old = malloc(strlen(log_file) + 5);
++
++    		close(sender.fd);
++    		if (old) {
++    			sprintf(old, "%s.old", log_file);
++    			rename(log_file, old);
++    			free(old);
++    		}
++    		sender.fd = open(log_file, O_CREAT | O_WRONLY | O_APPEND, 0600);
++    		if (sender.fd < 0) {
++    			fprintf(stderr, "failed to open %s: %s\n", log_file, strerror(errno));
++    			exit(-1);
++    		}
++    	}
++    }
++#endif
++/* zhouke add end */
+ 
+ 	m = blobmsg_get_string(tb[LOG_MSG]);
+ 	t = blobmsg_get_u64(tb[LOG_TIME]) / 1000;
+@@ -132,6 +189,40 @@
+ 	p = blobmsg_get_u32(tb[LOG_PRIO]);
+ 	c[strlen(c) - 1] = '\0';
+ 	str = blobmsg_format_json(msg, true);
++
++/* zhouke add for hos-r21 support filter according to module and priority */
++    while(strlen(m) - i)
++    {
++        if(m[i] == ':')
++            break;
++        i++;
++    }
++
++    if((log_priority != NULL) && (getcodevlaue(log_priority) < LOG_PRI(p)))
++    {
++    	free(str);
++        return 0;
++    }
++
++    if((log_module != NULL))
++    {
++        if(strcmp("kernel",log_module) == 0)
++        {
++            if (blobmsg_get_u32(tb[LOG_SOURCE]) != SOURCE_KLOG)
++            {
++            	free(str);
++                return 0;
++            }
++        }
++        else if(strncmp(m,log_module,i) != 0)
++        {
++        	free(str);
++            return 0;
++        }
++    }
++
++/* zhouke add end */
++
+ 	if (log_type == LOG_NET) {
+ 		int err;
+ 
+@@ -189,6 +280,10 @@
+ 		"    -P	<prefix>	Prefix custom text to streamed messages\n"
+ 		"    -f			Follow log messages\n"
+ 		"    -u			Use UDP as the protocol\n"
++/* zhouke add for hos-r21 support filter according to module and priority */
++		"    -m			Filter the log module name\n"
++		"    -o			Filter the priority of a message\n"
++/* zhouke add end */
+ 		"\n", prog);
+ 	return 1;
+ }
+@@ -233,7 +328,7 @@
+ 
+ 	signal(SIGPIPE, SIG_IGN);
+ 
+-	while ((ch = getopt(argc, argv, "ufcs:l:r:F:p:S:P:h:")) != -1) {
++	while ((ch = getopt(argc, argv, "ufcs:l:r:F:p:S:P:h:m:o:")) != -1) {
+ 		switch (ch) {
+ 		case 'u':
+ 			log_udp = 1;
+@@ -269,6 +364,14 @@
+ 		case 'h':
+ 			hostname = optarg;
+ 			break;
++/* zhouke add for hos-r21 support filter according to module and priority */
++		case 'm':
++			log_module = optarg;
++			break;
++		case 'o':
++			log_priority = optarg;
++			break;   
++/* zhouke add end */
+ 		default:
+ 			return usage(*argv);
+ 		}

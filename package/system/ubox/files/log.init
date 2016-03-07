@@ -18,7 +18,9 @@ validate_log_section()
 		'log_remote:bool:1' \
 		'log_port:port:514' \
 		'log_proto:or("tcp", "udp"):udp' \
-		'log_prefix:string'
+		'log_prefix:string'	\
+		'log_module:string'	\
+		'log_priority:string'
 }
 
 validate_log_daemon()
@@ -45,17 +47,43 @@ start_service_file()
 {
 	PIDCOUNT="$(( ${PIDCOUNT} + 1))"
 	local pid_file="/var/run/logread.${PIDCOUNT}.pid"
-	local log_file log_size
+	local log_file log_size log_module log_priority
 
 	validate_log_section "${1}" || {
 		echo "validation failed"
 		return 1
 	}
 	[ -z "${log_file}" ] && return
-
+	[ "${log_file}" = "/proc/kes_syslog" ] && return
+	
 	procd_open_instance
 	procd_set_param command "$PROG" -f -F "$log_file" -p "$pid_file"
 	[ -n "${log_size}" ] && procd_append_param command -S "$log_size"
+	[ -n "${log_module}" ] && procd_append_param command -m "$log_module"
+	[ -n "${log_priority}" ] && procd_append_param command -o "$log_priority"
+	procd_close_instance
+}
+
+start_service_kes()
+{
+	PIDCOUNT="$(( ${PIDCOUNT} + 1))"
+	local pid_file="/var/run/logread.${PIDCOUNT}.pid"
+	local kes_file="/proc/kes_syslog"
+	local log_size
+
+	validate_log_section "${1}" || {
+		echo "validation failed"
+		return 1
+	}
+
+	[ ! -f "${kes_file}" ] && return
+	[ ! -f "/tmp/kes_syslog.log" ] && cat ${kes_file} > /tmp/kes_syslog.log
+
+	procd_open_instance
+	procd_set_param command "$PROG" -f -F "$kes_file" -p "$pid_file"
+	[ -n "${log_size}" ] && procd_append_param command -S "$log_size"
+	[ -n "${log_module}" ] && procd_append_param command -m "$log_module"
+	[ -n "${log_priority}" ] && procd_append_param command -o "$log_priority"
 	procd_close_instance
 }
 
@@ -63,7 +91,7 @@ start_service_remote()
 {
 	PIDCOUNT="$(( ${PIDCOUNT} + 1))"
 	local pid_file="/var/run/logread.${PIDCOUNT}.pid"
-	local log_ip log_port log_proto log_prefix log_remote
+	local log_ip log_port log_proto log_prefix log_remote log_module log_priority
 
 	validate_log_section "${1}" || {
 		echo "validation failed"
@@ -76,6 +104,8 @@ start_service_remote()
 	procd_set_param command "$PROG" -f -r "$log_ip" "${log_port}" -p "$pid_file"
 	[ "${log_proto}" != "udp" ] || procd_append_param command -u
 	[ -z "${log_prefix}" ] || procd_append_param command -P "${log_prefix}"
+	[ -n "${log_module}" ] && procd_append_param command -m "$log_module"
+	[ -n "${log_priority}" ] && procd_append_param command -o "$log_priority"
 	procd_close_instance
 }
 
@@ -90,5 +120,6 @@ start_service()
 	config_load system
 	config_foreach start_service_daemon system
 	config_foreach start_service_file system
+	config_foreach start_service_kes system
 	config_foreach start_service_remote system
 }
