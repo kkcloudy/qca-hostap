@@ -1,39 +1,66 @@
 #!/bin/sh
+
+#tool 
 WRCPUTOOL="/usr/bin/partool -part mtd5 -show"
-COMPANY_NAME="`$WRCPUTOOL product.vendor`"
-PRODUCT_TYPE="`$WRCPUTOOL product.model`"
-SERIAL_NUMBER="`$WRCPUTOOL product.sn`"
-MAC="`$WRCPUTOOL product.mac`"
-SOFT_VERSIONFULL="`cat /etc/version/version`"
-SOFT_VERSION="`echo $SOFT_VERSIONFULL | awk -F '.' '{print $1"."$2}'`"
-MAIN_VER="`echo $SERIAL_NUMBER | cut -b 10`"
-MAIOR_VER="`echo $SERIAL_NUMBER | cut -b 11-12`"
-HARD_VERSION="$MAIN_VER.$MAIOR_VER"
 
-NONEMAC="`echo $MAC | cut -b 1-11`"
-NONESN="`echo $SERIAL_NUMBER | cut -b 1-10`"
-NONEDEV="`echo $PRODUCT_TYPE | cut -b 1-12`"
-NONEVENDOR="`echo $COMPANY_NAME | cut -b 1-14`"
+#soft version
+SOFT_VERSION="`cat /etc/version/version`"
 
-if [ "$NONEVENDOR" = "product.vendor" ];then
-        COMPANY_NAME=""
+#product_info
+PRODUCT_PATH="/overlay/.PRODUCT"
+VENDOR="${PRODUCT_PATH}/.company_name"
+MODEL="${PRODUCT_PATH}/.model"
+SERIES="${PRODUCT_PATH}/.sn"
+MAC_ADDRESS="${PRODUCT_PATH}/.mac"
+MAC="${PRODUCT_PATH}/.mac"
+COUNTRY_CODE="${PRODUCT_PATH}/.country"
+SOFTWARE_NAME="${PRODUCT_PATH}/.software_name"
+HARDWARE_VERSION="${PRODUCT_PATH}/.hardware_version"
+
+if [ -f ${VENDOR} ];then
+	COMPANY_NAME=`cat ${VENDOR}`
+else
+	COMPANY_NAME="`$WRCPUTOOL vendor`"
 fi
-if [ "$NONEMAC" = "product.mac" ];then
-        MAC=""
+
+if [ -f ${MODEL} ];then
+	PRODUCT_TYPE=`cat ${MODEL}`
+else
+	PRODUCT_TYPE="`$WRCPUTOOL model`"
 fi
-if [ "$NONESN" = "product.sn" ];then
-        SERIAL_NUMBER=""
-        HARD_VERSION=""
+if [ -f ${SERIES} ];then
+	SERIAL_NUMBER=`cat ${SERIES}`
+else
+	SERIAL_NUMBER="`$WRCPUTOOL sn`"
 fi
-if [ "$NONEDEV" = "product.mode" ];then
-        PRODUCT_TYPE=""
+if [ -f ${MAC_ADDRESS} ];then
+	temp_mac="`cat ${MAC_ADDRESS}`"
+	MAC="`/sbin/set_mac org $temp_mac`"
+else
+	MAC="`$WRCPUTOOL mac`"
+fi
+if [ -f ${HARDWARE_VERSION} ];then
+	HARD_VERSION=`cat ${HARDWARE_VERSION}`
+else
+	HARD_VERSION="`$WRCPUTOOL hw_version`"
+fi
+if [ -f ${SOFTWARE_NAME} ];then
+	SOFT_NAME=`cat ${SOFTWARE_NAME}`
+else
+	SOFT_NAME="`$WRCPUTOOL sw_name`"
+fi
+if [ -f ${COUNTRY_CODE} ];then
+	COUNTRY=`cat ${COUNTRY_CODE}`
+else
+	COUNTRY="`$WRCPUTOOL country`"
 fi
 
 #show
 echo "    Company Name:$COMPANY_NAME"
 echo "              SN:$SERIAL_NUMBER"
-echo "         AP Mode:fatap"
-echo "     Device Type:$PRODUCT_TYPE"
+echo "    Device Model:$PRODUCT_TYPE"
 echo "             MAC:$MAC"
+echo "         Country:$COUNTRY"
+echo "   Software Name:$SOFT_NAME"
 echo "Software Version:$SOFT_VERSION"
 echo "Hardware Version:$HARD_VERSION"

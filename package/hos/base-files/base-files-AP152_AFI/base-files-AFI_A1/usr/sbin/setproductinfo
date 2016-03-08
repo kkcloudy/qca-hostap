@@ -1,0 +1,175 @@
+#!/bin/sh
+
+#product path
+PRODUCT_PATH="/overlay/.PRODUCT"
+PRODUCT_LOGO="${PRODUCT_PATH}/.logo"
+
+CA_CERTIFICATE="${PRODUCT_PATH}/.ca_certificate"
+PRODUCT_CERTIFICATE="${PRODUCT_PATH}/.product_certificate"
+
+#product file
+VENDOR="${PRODUCT_PATH}/.company_name"
+MODEL="${PRODUCT_PATH}/.model"
+SERIES="${PRODUCT_PATH}/.sn"
+MAC_ADDRESS="${PRODUCT_PATH}/.mac"
+MAC_COUNT="${PRODUCT_PATH}/.mac_count"
+PRODUCT_VERSION="${PRODUCT_PATH}/.product_version"
+HARDWARE_VERSION="${PRODUCT_PATH}/.hardware_version"
+SOFTWARE_NAME="${PRODUCT_PATH}/.software_name"
+COUNTRY="${PRODUCT_PATH}/.country"
+URL="${PRODUCT_PATH}/.url"
+ESSID_PREFIX="${PRODUCT_PATH}/.essid_prefix"
+CLUSTER_DES="${PRODUCT_PATH}/.cluster_describe"
+
+#usage()
+#print usage
+usage()
+{
+	echo "usage:"
+	echo "setproductinfo vendor {vendorname}"
+	echo "setproductinfo model  {product name}"
+	echo "setproductinfo sn {series number}"
+	echo "setproductinfo mac {mac address such as : XX:XX:XX:XX:XX:XX}"
+	echo "setproductinfo mac_count {Number of mac address}"
+	echo "setproductinfo product_version {product info version}"
+	echo "setproductinfo hw_version {hardware version}"
+	echo "setproductinfo sw_name {software name}"
+	echo "setproductinfo country {International Domain Name}"
+	echo "setproductinfo url {URL into configuration page of the AP}"
+	echo "setproductinfo essid_prefix {Management essid prefix}"
+	echo "setproductinfo cluster_describe {cluster description}"
+	echo "setproductinfo ca_cer {CA certificate}"
+	echo "setproductinfo product_cer {product certificate}"
+	echo "setproductinfo logo {logo picture path}"
+	echo "setproductinfo clean"
+	exit 0
+}
+
+#checkfinish()
+#check validity
+checkfinish()
+{
+	( [ ! -f ${VENDOR} ] && echo "product information is empty" && rm -rf ${PRODUCT_PATH} && exit 0 )
+	( [ ! -f ${PRODUCT_LOGO}/logo.jpg ] && echo "not set vendor logo, will use default log instead" && exit 0 )
+	echo "vendor information valid" && exit 0
+}
+
+#main process
+
+( [ "$1" = "-h" ] || [ "$1" = "-help" ] ) && usage
+if [ $# -gt 2 ];then
+	echo "parameter is wrong ,please add \" \""
+	exit 1
+fi
+
+filename=""
+value=$2
+case "$1" in
+	vendor)
+		[ ! -f ${PRODUCT_LOGO} ] && ( mkdir -p ${PRODUCT_LOGO} )
+		echo "$2" > ${VENDOR}
+		exit 0
+	;;
+	model)
+		filename=${MODEL}
+		#check arg
+	;;
+	sn)
+		filename=${SERIES}
+		#check arg
+	;;
+	mac)
+		tmp_length=`echo "$value" | wc -c`
+		#length=$(($(echo "$value" | wc -c)-1))
+		length=`expr $tmp_length - 1`
+		if [ $length -ne 12 ]&&[ $length -ne 17 ];then
+			echo "please input the vaild mac address"
+			usage && exit 0
+		fi
+		if [ $length -eq 17 ]; then 
+			high_byte=$(echo "$value" |awk -F'[: ]' '{print $1}')
+			value=$(echo "$value" |awk -F'[: ]' '{print $1$2$3$4$5$6}')
+		else
+			high_byte=`echo "$value" | cut -c 1-2`
+		fi
+	  	  echo "$value" |grep [^0-9a-fA-F] -q
+		if [ $? -eq 0 ]; then
+			echo "please input the vaild mac address"
+			usage && exit 0
+		fi 
+		high_byte=0x$high_byte 
+		is_mul=$(($high_byte&0x01))
+		if [ $is_mul -eq 1 ]; then
+			echo "please input the vaild mac address"
+			usage && exit 0
+		fi
+		filename=${MAC_ADDRESS}
+		#check arg
+	;;
+	mac_count)
+		filename=${MAC_COUNT}
+		#check arg
+	;;
+	product_version)
+		filename=${PRODUCT_VERSION}
+		#check arg
+	;;
+	hw_version)
+		filename=${HARDWARE_VERSION}
+		#check arg
+	;;
+	sw_name)
+		filename=${SOFTWARE_NAME}
+		#check arg
+	;;
+	country)
+		filename=${COUNTRY}
+		#check arg
+	;;
+	url)
+		filename=${URL}
+		#check arg
+	;;
+	essid_prefix)
+		filename=${ESSID_PREFIX}
+		#check arg
+	;;
+	cluster_describe)
+		filename=${CLUSTER_DES}
+		#check arg
+	;;
+	ca_cer)
+		[ ! -f "$2" ] && echo "error:CA certificate not exist" && exit 0
+		[ ! -f ${CA_CERTIFICATE} ] && mkdir -p ${CA_CERTIFICATE}  
+		cp $2 ${CA_CERTIFICATE}
+		exit 0
+	;;
+	product_cer)
+		[ ! -f "$2" ] && echo "error:product certificate not exist" && exit 0
+		[ ! -f ${PRODUCT_CERTIFICATE} ] && mkdir -p ${PRODUCT_CERTIFICATE}  
+		cp $2 ${PRODUCT_CERTIFICATE}
+		exit 0
+	;;
+	logo)
+		[ ! -f "$2" ] && echo "error:logo file not exist" && exit 0
+		[ ! -f ${VENDOR} ] && echo "error:need set vendor name first" && exit 0
+		[ ! -f ${PRODUCT_LOGO} ] && mkdir -p ${PRODUCT_LOGO}  
+		cp $2 ${PRODUCT_LOGO}
+		mv ${PRODUCT_LOGO}/* ${PRODUCT_LOGO}/.logo.jpg 
+		exit 0
+	;;
+	clean)
+		rm -rf ${PRODUCT_PATH}
+		exit 0
+	;;
+	*)
+		usage
+	;;
+esac
+
+[ ! -f ${VENDOR} ] && echo "error:need set vendor name first" && exit 0
+echo "$value" > $filename
+
+
+
+	

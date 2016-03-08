@@ -1,0 +1,77 @@
+#!/bin/sh
+#product file
+
+PRODUCT_PATH="/overlay/.PRODUCT"
+VENDOR="${PRODUCT_PATH}/.company_name"
+MODEL="${PRODUCT_PATH}/.model"
+SERIES="${PRODUCT_PATH}/.sn"
+MAC_ADDRESS="${PRODUCT_PATH}/.mac"
+MAC_COUNT="${PRODUCT_PATH}/.mac_count"
+PRODUCT_VERSION="${PRODUCT_PATH}/.product_version"
+HARDWARE_VERSION="${PRODUCT_PATH}/.hardware_version"
+SOFTWARE_NAME="${PRODUCT_PATH}/.software_name"
+COUNTRY_CODE="${PRODUCT_PATH}/.country"
+URL="${PRODUCT_PATH}/.url"
+ESSID_PREFIX="${PRODUCT_PATH}/.essid_prefix"
+CLUSTER_DES="${PRODUCT_PATH}/.cluster_describe"
+
+if [ -f ${VENDOR} ];then
+	echo vendor=`cat ${VENDOR}`
+else
+	echo vendor=``
+fi
+if [ -f ${MODEL} ];then
+	echo model=`cat ${MODEL}`
+else
+	echo model=``
+fi
+if [ -f ${SERIES} ];then
+	echo sn=`cat ${SERIES}`
+else
+	echo sn=``
+fi
+if [ -f ${MAC_ADDRESS} ];then
+	echo mac=`cat ${MAC_ADDRESS}`
+else
+	echo mac=``
+fi
+if [ -f ${MAC_COUNT} ];then
+	echo mac_count=`cat ${MAC_COUNT}`
+else
+	echo mac_count=``
+fi
+if [ -f ${PRODUCT_VERSION} ];then
+	echo product_version=`cat ${PRODUCT_VERSION}`
+else
+	echo product_version=``
+fi
+if [ -f ${HARDWARE_VERSION} ];then
+	echo hw_version=`cat ${HARDWARE_VERSION}`
+else
+	echo hw_version=``
+fi
+if [ -f ${SOFTWARE_NAME} ];then
+	echo sw_name=`cat ${SOFTWARE_NAME}`
+else
+	echo sw_name=``
+fi
+if [ -f ${COUNTRY_CODE} ];then
+	echo country=`cat ${COUNTRY_CODE}`
+else
+	echo country=``
+fi
+if [ -f ${URL} ];then
+	echo url=`cat ${URL}`
+else
+	echo url=``
+fi
+if [ -f ${ESSID_PREFIX} ];then
+	echo essid_prefix=`cat ${ESSID_PREFIX}`
+else
+	echo essid_prefix=``
+fi
+if [ -f ${CLUSTER_DES} ];then
+	echo cluster_describe=`cat ${CLUSTER_DES}`
+else
+	echo cluster_describe=``
+fi

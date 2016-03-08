@@ -54,7 +54,9 @@ start_service_file()
 		return 1
 	}
 	[ -z "${log_file}" ] && return
-	[ "${log_file}" = "/proc/kes_syslog" ] && return
+	if [ "${log_file}" == "/proc/kes_syslog" ];then
+		return
+	fi
 	
 	procd_open_instance
 	procd_set_param command "$PROG" -f -F "$log_file" -p "$pid_file"
