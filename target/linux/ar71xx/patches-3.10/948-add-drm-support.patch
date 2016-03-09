@@ -1,0 +1,60 @@
+diff -ruN a//include/uapi/linux/netlink.h b//include/uapi/linux/netlink.h
+--- a//include/uapi/linux/netlink.h	2016-03-09 22:14:57.000000000 +0800
++++ b//include/uapi/linux/netlink.h	2016-03-09 22:34:30.000000000 +0800
+@@ -28,6 +28,7 @@
+ #define NETLINK_RDMA		20
+ #define NETLINK_CRYPTO		21	/* Crypto layer */
+ #define NETLINK_TID         22
++#define NETLINK_DRM         23
+ 
+ #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
+ 
+diff -ruN a//net/core/dev.c b//net/core/dev.c
+--- a//net/core/dev.c	2016-03-09 22:14:50.000000000 +0800
++++ b//net/core/dev.c	2016-03-09 22:32:53.000000000 +0800
+@@ -144,6 +144,7 @@
+ struct list_head ptype_all __read_mostly;	/* Taps */
+ static struct list_head offload_base __read_mostly;
+ void (*ktid_filter_packet_cb)(struct sk_buff *skb);
++void (*kdrm_filter_packet_cb)(struct sk_buff *skb);
+ /*
+  * The @dev_base_head list is protected by @dev_base_lock and the rtnl
+  * semaphore.
+@@ -166,6 +167,7 @@
+ DEFINE_RWLOCK(dev_base_lock);
+ EXPORT_SYMBOL(dev_base_lock);
+ EXPORT_SYMBOL(ktid_filter_packet_cb);
++EXPORT_SYMBOL(kdrm_filter_packet_cb);
+ 
+ seqcount_t devnet_rename_seq;
+ 
+@@ -3588,10 +3590,17 @@
+ static int __netif_receive_skb(struct sk_buff *skb)
+ {
+ 	int ret;
+-    	if (NULL != ktid_filter_packet_cb)
+-    	{
+-        	ktid_filter_packet_cb(skb);
+-    	}
++	
++	if (NULL != ktid_filter_packet_cb)
++	{
++		ktid_filter_packet_cb(skb);
++	}
++		
++	if (NULL != kdrm_filter_packet_cb)
++	{
++		kdrm_filter_packet_cb(skb);
++	}
++	
+ 	if (sk_memalloc_socks() && skb_pfmemalloc(skb)) {
+ 		unsigned long pflags = current->flags;
+ 
+@@ -6304,6 +6313,7 @@
+ 	int i, rc = -ENOMEM;
+ 
+ 	ktid_filter_packet_cb = NULL;
++	kdrm_filter_packet_cb = NULL;
+ 	BUG_ON(!dev_boot_phase);
+ 
+ 	if (dev_proc_init())
