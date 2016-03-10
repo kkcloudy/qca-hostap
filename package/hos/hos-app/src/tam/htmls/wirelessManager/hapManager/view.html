@@ -1,0 +1,48 @@
+<!--提示信息 -->
+<tip my-data="message"></tip>
+<!--显示列表 -->
+<div class="panel panel-default">
+	<div class="panel-body">
+		<div class="row" style="margin: 20px auto;">
+			<div class="col-md-12">
+			<!--按钮组-->
+				<div style="width: 100%; height: 30px;">
+					<button type="button" ng-click="toCreate()" class="btn btn-primary">
+		            	<span class="glyphicon glyphicon-plus" ></span> {{'add'|translate}}
+		            </button>
+				</div>
+	            <br/>	
+				
+				<table class="table table-hover table-bordered">
+					<thead>
+						<tr>
+							<th style="width:5%;">id</th>
+							<th style="width:20%;">{{'ip'|translate}}</th>
+							<th style="width:20%;">{{'mac'|translate}}</th>
+							<th style="width:20%;">{{'status'|translate}}</th>
+							<th style="width:35%;">{{'ctrl'|translate}}</th>
+						</tr>
+					</thead>
+					<tbody ng-repeat='item in hapManager.haps'>
+						<tr>
+							<td>{{$index+1}}</td>
+							<td>{{item.ip}}</td>
+							<td>{{item.mac}}</td>
+							<td>{{item.status}}</td>
+							<td>
+								<button type="button" title="{{'update' | translate}}"
+									ng-click="toEdit(item)" class="btn btn-primary btn-sm">
+									<span class="glyphicon glyphicon-pencil"></span>
+								</button>
+								<button type="button" title="{{'del' | translate}}"
+									ng-click="delete(item)" class="btn btn-primary btn-sm">
+									<span class="glyphicon glyphicon-trash"></span>
+								</button>								
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</div>
+</div>

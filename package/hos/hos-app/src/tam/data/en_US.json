@@ -1,0 +1,23 @@
+{
+	"login" : "login",
+	"home" : "home",
+	"logout" :"logout",
+	"do you sure to logut":"do you sure to logut",
+	"internal server error" : "internal server error",
+	"about":"about",
+	"hello":"hello",
+	"Page is skipping":"Page is skipping",
+	"messageInfo":"Prompt",
+	"messageError":"Error",
+	"ctrl":"ctrl",
+	"loading":"loading",
+	"oNew":"new",
+	"oBack":"back",
+	"oSave":"save",
+	"create":"create",
+	"update":"update",
+	"delete":"delete",
+	"view":"view",
+	"username" : "UserName",
+	"password" : "PassWord"
+}

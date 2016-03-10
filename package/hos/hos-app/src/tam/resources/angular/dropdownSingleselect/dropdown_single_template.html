@@ -1,0 +1,22 @@
+<div>
+    <ul class="nav navbar-nav">
+        <li ng-class="{true: 'dropdown open', false: 'dropdown'}[isActive]">
+            <div class="input-group" >
+                <input  type="text" ng-required="true" ng-disabled="editAble === 'false'" name="{{monitorAttr}}"
+                         ng-model="option.mymodel" class="form-control" ng-change="setMValue()"
+                         style="padding-left:3px;font-size: 10px;" ng-style="controlInput"/>
+                <button  ng-style="controlA" class="input-group-addon  btn btn-default dropdown-toggle" data-toggle="dropdown" ng-click="setFlag()">
+                    <span   class="glyphicon glyphicon-chevron-down pull-left" ></span>
+                </button>
+            </div>
+            <ul class="dropdown-menu" ng-style="controlList">
+                <li ng-if="option.stringList" ng-repeat="item in initData">
+                    <a ng-click="setValue(item)">{{item|translate}}</a>
+                </li>
+                <li ng-if="option.objectList" ng-repeat="item in initData">
+                    <a ng-click="setValue(item.attribute)">{{item.attribute|translate}}</a>
+                </li>
+            </ul>
+        </li>
+    </ul>
+</div>

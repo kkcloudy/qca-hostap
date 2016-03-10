@@ -1,0 +1,44 @@
+<div class="panel panel-default">
+	<div class="panel-body">
+		<div class="row">
+			<div class="col-md-5">
+				<form name="currentHapForm" class="form-horizontal" role="form">
+					<div class="form-group">
+						<label style="padding-left: 0; padding-right: 0;"
+							for="ip" class="col-sm-4 control-label">{{"ip"|translate}}:</label>
+						<div class="col-sm-8">
+							<input name="ip" type="text"
+								id="ip" placeholder="ip"  class="form-control"
+								ng-model="hapManager.currentHap.ip">
+						</div>					
+					</div>
+					<div class="form-group">
+						<label style="padding-left: 0; padding-right: 0;"
+							for="mac" class="col-sm-4 control-label">{{"mac"|translate}}:</label>
+						<div class="col-sm-8">
+							<input name="mac" type="text"
+								id="mac" placeholder="mac"  class="form-control"
+								ng-model="hapManager.currentHap.mac">
+						</div>					
+					</div>
+					<div class="form-group">
+						<label style="padding-left: 0; padding-right: 0;"
+							for="status" class="col-sm-4 control-label">{{"status"|translate}}:</label>
+						<div class="col-sm-8">
+							<input name="description" type="text"
+								id="status" placeholder="status"  class="form-control"
+								ng-model="hapManager.currentHap.status">
+						</div>
+					</div>									
+					<div class="form-group">
+						<div class="col-sm-offset-2 col-sm-10">
+							<button type="submit" ng-click="update()"  class="btn btn-primary ">{{"oSave"|translate}}</button>
+							<button type="submit" ng-click="backToList()"
+								class="btn btn-primary">{{"oBack"|translate}}</button>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+</div>

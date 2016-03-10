@@ -1,0 +1,27 @@
+<div class="panel panel-default" style="border: none;margin:-26px 0px -15px 0px;">
+    <div class="panel-body" style="border: none" >
+        <div class="alert alert-success alert-dismissible" role="alert" style="height:35px; padding-top:7px;">
+            <button type="button" class="close" ng-click="innerMethod()">
+               <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+            </button>
+            <strong style="margin-left: 20px;">
+                 {{'messageInfo'|translate}}
+            </strong>
+            <span style="margin-left: 20px;" ng-transclude></span>
+        </div>
+    </div>
+
+    <div class="panel-body" style="border: none" ng-if="myType === 'error'">
+        <div class="alert alert-danger alert-dismissible" role="alert" style="height:35px; padding-top:7px;">
+            <button type="button" class="close" ng-click="innerMethod()">
+                <span aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+            </button>
+            <strong style="margin-left: 20px;">
+                {{'messageError'|translate}}
+            </strong>
+            <span style="margin-left: 20px;" ng-transclude></span>
+        </div>
+    </div>
+
+</div>
+

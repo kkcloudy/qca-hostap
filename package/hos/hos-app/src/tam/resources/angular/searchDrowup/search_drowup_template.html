@@ -1,0 +1,20 @@
+<div class="input-group">
+    <div class="input-group-btn search-panel">
+        <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+            <span id="search_concept">{{initSelect.drowupText|translate}}</span> <span class="caret"></span>
+        </button>
+        <ul class="dropdown-menu" role="menu" >
+            <li ng-repeat="item in initData">
+                <a ng-click="set_drowuptext(item)">{{item|translate}}</a>
+            </li>
+        </ul>
+    </div>
+        <input type="text" class="form-control" name="x" placeholder="Search term..."
+               ng-model="initSelect.searchText" ng-change="_search()" style="width:250px;" required="true">
+
+        <span class="input-group-btn" style="float: left">
+             <button class="btn btn-default" ng-click="_reset()" type="button"><span class="glyphicon glyphicon-remove"></span></button>
+        </span>
+
+
+</div>

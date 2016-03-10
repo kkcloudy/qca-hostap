@@ -142,6 +142,26 @@ define Package/hos-um/compile
 			" \
 		LDFLAGS="$(TARGET_LDFLAGS)"
 endef
+
+####################################################################
+TAM_PATH=www
+define Package/hos-tam
+  SECTION:=apps
+  CATEGORY:=hos-app
+  TITLE:=HOS Terminal Access Management
+endef
+
+define Package/hos-tam/install
+	$(INSTALL_DIR) $(1)/$(TAM_PATH)
+
+	for m in dirlisting indexfile staticfile; do \
+		$(CP) $(PKG_BUILD_DIR)/tam/* $(1)/$(TAM_PATH) ; \
+	done
+endef
+
+define Package/hos-tam/compile
+endef
+
 ####################################################################
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
@@ -158,10 +178,12 @@ define Build/Compile
 	$(Package/hos-appkey/compile)
 	$(Package/hos-partool/compile)
 	$(Package/hos-um/compile)
+	$(Package/hos-tam/compile)
 endef
 ####################################################################
 $(eval $(call BuildPackage,hos-btt))
 $(eval $(call BuildPackage,hos-appkey))
 $(eval $(call BuildPackage,hos-partool))
 $(eval $(call BuildPackage,hos-um))
+$(eval $(call BuildPackage,hos-tam))
 

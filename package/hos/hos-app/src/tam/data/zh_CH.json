@@ -1,0 +1,23 @@
+{
+	"login":"登陆",
+	"home":"首页",
+	"logout" : "注销",
+	"do you sure to logut":"你确定要退出吗",
+	"internal server error" : "服务器内部错误",
+	"about":"关于",
+	"hello":"你好",
+	"Page is skipping":"页面正在跳转",
+	"messageInfo":"提示",
+	"messageError":"错误",
+	"ctrl":"操作",
+	"loading":"加载中",
+	"oNew":"添加",
+	"oBack":"返回",
+	"oSave":"保存",
+	"create":"创建",
+	"update":"修改",
+	"delete":"删除",
+	"view":"查看",
+	"username":"用户名",
+	"password":"密码"
+}

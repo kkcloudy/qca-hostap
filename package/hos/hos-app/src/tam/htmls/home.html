@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="home">
+	<head>
+		<meta charset="utf-8">
+
+		<!-- Always force latest IE rendering engine (even in intranet) & Chrome Frame
+		Remove this if you use the .htaccess -->
+		<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+
+		<title>home</title>
+		<meta name="description" content="">
+		<meta name="author" content="Administrator">
+		<meta name="viewport" content="width=device-width,initial-scale=1.0">
+	</head>
+
+	<body>	
+		<div id="bg">	
+			<div id="loading" style="top:50%;left:50%;position:absolute">
+				<img  src="../resources/custom/images/loading.gif">
+				<span style="margin:5px 0px 0px 5px;">
+					<b>loading...</b>
+				</span>
+			</div>		
+			<div id="loaded" style="display:none" ng-controller="homeCtrl">
+				<ng-include src="'common/navigation.html'"></ng-include>
+				<div class="row"  style="padding-left:20px; padding-top: 68px;width: auto">
+					<ng-include src="'/htmls/common/category.html'"></ng-include>
+					<div id="aaa"  ui-view class="ngFade"></div>
+				</div>
+				<ng-include src="'common/footer.html'"></ng-include>
+				<ng-include src="'common/message.html'"></ng-include>
+				<ng-include src="'common/logout.html'"></ng-include>
+			</div>
+		</div>
+		<div id="show"></div>
+	</body>
+		<!-- Replace favicon.ico & apple-touch-icon.png in the root of your domain and delete these references -->
+		<link rel="shortcut icon" href="/favicon.ico">
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+		<link rel="shortcut icon" href="/favicon.ico">
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+		<link rel="stylesheet" href="../resources/bootstrap/css/bootstrap-theme.min.css" />
+		<link rel="stylesheet" href="../resources/bootstrap/css/bootstrap.min.css" />
+		<link rel="stylesheet" href="../resources/bootstrap/css/bootstrap-custom.css" />
+		<link rel="stylesheet" href="../resources/custom/css/sticky-footer-navbar.css" />
+
+        <!-- list detail -->
+        <link rel="stylesheet" href="../resources/custom/css/message.css" />
+        <!-- panel  -->
+        <link rel="stylesheet" href="../resources/angular/tabsComponent/tabs.css" />
+		<!-- checkbox style -->
+        <link rel="stylesheet" href="../resources/angular/checkBox/check-box.css" />
+       
+
+		<script type="text/javascript" src="../resources/jquery/jquery-1.11.1.min.js"></script>
+		<script type="text/javascript" src="../resources/bootstrap/js/bootstrap.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/angular.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/angular-resource.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/angular-route.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/lodash.compat.js"></script>
+		<script type="text/javascript" src="../resources/angular/angular-translate.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/translate-service/storage-cookie.js"></script>
+		<script type="text/javascript" src="../resources/angular/translate-service/loader-static-files.js"></script>
+		<script type="text/javascript" src="../resources/angular/angular-cookies.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/restangular.min.js"></script>
+		<script type="text/javascript" src="../resources/angular/angular-ui-router.min.js"></script>
+        <script type="text/javascript" src="../resources/angular/angular-sanitize.min.js"></script>
+     
+		<script src="../resources/angular/angular-animate.min.js"></script>
+		
+		<!-- services -->
+        <script src="common/services/services.js"></script>
+       <!-- <script src="common/services/messageInfo.js"></script>-->
+
+        <script src="../resources/angular/tipComponent/tip.js"></script>
+    		
+        <!-- pagation -->
+        <script src="../resources/angular/ui-bootstrap-tpls-0.11.0.min.js"></script>
+        
+         <!-- dropdown single -->
+        <script type="text/javascript" src="../resources/angular/dropdownSingleselect/dropdown_single_directive.js"></script>
+        <link rel="stylesheet" href="../resources/angular/dropdownSingleselect/dropdown_single.css" />
+
+        <!--  modal component -->
+        <script type="text/javascript" src="../resources/angular/modalComponent/bootbox.min.js"></script>
+
+        <!-- search drowup -->
+        <script type="text/javascript" src="../resources/angular/searchDropdownComponent/search_dropdown_directive.js"></script>
+
+        <!-- angular-strap -->
+        <link rel="stylesheet" href="../resources/angular/angular-strap-2.1.3/style.less" />
+        <script type="text/javascript" src="../resources/angular/angular-strap-2.1.3/angular-strap.min.js"></script>
+        <script type="text/javascript" src="../resources/angular/angular-strap-2.1.3/angular-strap.tpl.min.js"></script>
+        <script type="text/javascript" src="../resources/angular/angular-strap-2.1.3/modules/date-parser.min.js"></script>
+
+        <!-- font awesome css  
+        <link rel="stylesheet" href="../resources/custom/font-awesome-4.2.0/css/font-awesome.min.css" />-->
+	
+        <!-- common -->
+		<script type="text/javascript" src="home.js"></script>
+		<script type="text/javascript" src="../resources/custom/js/home/home.js"></script>
+        <script type="text/javascript" src="../resources/custom/js/categoryListAdvance/category-enhance.js"></script>
+        <script type="text/javascript" src="../resources/custom/js/md5/md5.js"></script>
+          
+		<!-- checkbox style -->
+        <script type="text/javascript" src="../resources/angular/checkBox/index.js"></script>
+        <script type="text/javascript" src="../resources/angular/checkBox/checkbox-directive.js"></script>
+
+        <!-- upload -->
+        <script type="text/javascript" src="../resources/angular/uploadComponent/ng-flow-standalone.min.js"></script>
+        <script type="text/javascript" src="../resources/angular/uploadComponent/ng-flow.min.js"></script>
+		
+        <!-- home -->
+		<script type="text/javascript" src="home/homeMain.js"></script>		
+		
+		<!-- demo -->
+		<script type="text/javascript" src="wirelessManager/wirelessManager.js"></script>	
+		<script type="text/javascript" src="wirelessManager/hapManager/hapManager.js"></script>	
+			
+</html>

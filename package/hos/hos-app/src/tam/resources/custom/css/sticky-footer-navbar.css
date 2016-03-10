@@ -1,0 +1,87 @@
+/* Sticky footer styles
+-------------------------------------------------- */
+html {
+  position: relative;
+  min-height: 100%;
+}
+body {
+  /* Margin bottom by footer height */
+  margin-bottom: 60px;
+}
+.footer {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  /* Set the fixed height of the footer here */
+  height: 60px;
+  background-color: #f5f5f5;
+}
+
+
+/* Custom page CSS
+-------------------------------------------------- */
+/* Not required for template or sticky footer method. */
+
+body > .container {
+  padding: 60px 15px 0;
+}
+.container .text-muted {
+  margin: 20px 0;
+}
+
+.footer > .container {
+  padding-right: 15px;
+  padding-left: 15px;
+}
+
+code {
+  font-size: 80%;
+}
+
+/*-------customer----------*/
+.row{
+	margin-right: 0px;
+}
+a{
+	font-size: 15px;
+	font-weight: 800;
+}
+a:hover{
+	text-decoration:none;
+	color: #428bca;
+	
+}
+.panel-body  a:hover{
+	color: red;
+}
+.red {
+	color: red;
+}
+table{
+	table-layout:fixed;
+}
+td,th{
+	word-wrap:break-word;
+	word-break:break-all; 
+}
+
+form .ng-invalid-isfit.ng-dirty { background-color: lightpink; }
+form .ng-invalid-uniqued.ng-dirty { background-color: lightpink; }
+form .ng-invalid-minlength.ng-dirty { background-color: lightpink; }
+form .ng-invalid-pattern.ng-dirty { background-color: lightpink; }
+form .ng-invalid-maxlength.ng-dirty { background-color: lightpink; }
+form .ng-invalid-required.ng-dirty { background-color: lightpink; }
+form .ng-invalid-email.ng-dirty { background-color: lightgoldenrodyellow; }
+form .ng-valid.ng-dirty { background-color: lightgreen; }
+span.summary.ng-invalid { color: red; font-weight: bold; }
+span.summary.ng-valid { color: green; }
+div.error {color: red; font-weight: bold;margin-left: 100px;}
+
+.ngFade.ng-enter { transition: 0.5s linear all; opacity: 0; }
+.ngFade.ng-enter-active { opacity: 1; }
+
+.panel-group,.nav, .pagination, .carousel, .panel-title a { cursor: pointer; }
+
+
+
+

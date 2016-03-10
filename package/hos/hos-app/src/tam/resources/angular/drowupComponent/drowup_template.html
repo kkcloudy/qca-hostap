@@ -1,0 +1,19 @@
+
+<div>
+    <ul class="nav navbar-nav">
+        <li ng-class="{true: 'dropdown open', false: 'dropdown'}[isActive]">
+            <div class="input-group" >
+                <input ng-model="initSelect[monitorAttr]" class="form-control" ng-style="controlInput"/>
+                <button  ng-style="controlA" class="input-group-addon  btn btn-default dropdown-toggle" data-toggle="dropdown" ng-click="setFlag()">
+                    <span  style="margin-top: 2px" class="glyphicon glyphicon-chevron-down pull-left" ></span>
+                </button>
+            </div>
+            <ul class="dropdown-menu" >
+                <li ng-repeat="item in initData">
+                    <a ng-click="setValue(item)">{{item}}</a>
+                </li>
+            </ul>
+
+        </li>
+    </ul>
+</div>
