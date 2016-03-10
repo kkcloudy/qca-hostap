@@ -66,9 +66,7 @@ filename=""
 value=$2
 case "$1" in
 	vendor)
-		[ ! -f ${PRODUCT_LOGO} ] && ( mkdir -p ${PRODUCT_LOGO} )
-		echo "$2" > ${VENDOR}
-		exit 0
+		filename=${VENDOR}
 	;;
 	model)
 		filename=${MODEL}
@@ -152,7 +150,6 @@ case "$1" in
 	;;
 	logo)
 		[ ! -f "$2" ] && echo "error:logo file not exist" && exit 0
-		[ ! -f ${VENDOR} ] && echo "error:need set vendor name first" && exit 0
 		[ ! -f ${PRODUCT_LOGO} ] && mkdir -p ${PRODUCT_LOGO}  
 		cp $2 ${PRODUCT_LOGO}
 		mv ${PRODUCT_LOGO}/* ${PRODUCT_LOGO}/.logo.jpg 
@@ -167,7 +164,7 @@ case "$1" in
 	;;
 esac
 
-[ ! -f ${VENDOR} ] && echo "error:need set vendor name first" && exit 0
+[ ! -f ${PRODUCT_PATH} ] && ( mkdir -p ${PRODUCT_PATH} )
 echo "$value" > $filename
 
 
