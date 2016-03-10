@@ -80,6 +80,7 @@ boot() {
 		[ -n "$rootdev" ] && ln -s "$rootdev" /dev/root
 	}
 	
+	echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
 	kes_service
 	setting_eth_mac
 }
