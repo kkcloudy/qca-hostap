@@ -729,6 +729,17 @@ partool_main
 {
     struct command_item commands[] = {
         {
+            .list = {"-part", PARTNAME_HELP, "-show", "name"},
+            .func = partool_show_byname,
+            .help = "show by name",
+        },
+        {
+            .list = {"-part", PARTNAME_HELP, "-show"},
+            .func = partool_show_all,
+            .help = "show all",
+        },
+#ifdef HOS_WRITE_PERMISSIONS
+        {
             .list = {"-part", PARTNAME_HELP, "-crc"},
             .func = partool_crc,
             .help = "calc crc",
@@ -737,16 +748,6 @@ partool_main
             .list = {"-part", PARTNAME_HELP, "-empty"},
             .func = partool_empty,
             .help = "flush empty to mtd",
-        },
-        {
-            .list = {"-part", PARTNAME_HELP, "-show"},
-            .func = partool_show_all,
-            .help = "show all",
-        },
-        {
-            .list = {"-part", PARTNAME_HELP, "-show", "name"},
-            .func = partool_show_byname,
-            .help = "show by name",
         },
         {
             .list = {"-part", PARTNAME_HELP, "-new", "name", "value"},
@@ -784,6 +785,7 @@ partool_main
             .func = partool_update,
             .help = "update name/value, the name must exist",
         },
+#endif
 #endif
     };
     
