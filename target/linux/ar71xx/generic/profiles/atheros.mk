@@ -152,7 +152,7 @@ define Profile/AP152_AFI
 		-firewall -odhcpd -dnsmasq -wpad-mini\
 		kmod-qca-wifi-perf kmod-qca-wifi-perf qca-hostap \
 		qca-spectral qca-hostapd-cli qca-wpa-cli qca-whc-lbd \
-		qca-wpa-supplicant tid kmod-tid_kmod \
+		qca-wpa-supplicant tid kmod-tid_kmod drm kmod-drm_kmod \
 		hos-appkey hos-btt hos-partool \
 		hos-um libhos-appkey libhos-partool \
 		kmod-kes horst libncurses ethtool fping \
