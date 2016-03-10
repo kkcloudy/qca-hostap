@@ -18,7 +18,11 @@
 #include <ieee80211_ald.h>
 #include <ieee80211_crypto.h>
 #include <ieee80211_node.h>
-
+	/*Begin:pengdecai for han private wmm*/
+#if ATOPT_WIRELESS_QOS
+#include <wireless_qos.h>
+#endif
+	/*End:pengdecai for han private wmm*/
 
 extern void ieee80211_cts_done(bool txok);
 
@@ -676,6 +680,16 @@ ieee80211_classify(struct ieee80211_node *ni, wbuf_t wbuf)
     if(wbuf_is_eapol(wbuf))
         tid = TX_QUEUE_FOR_EAPOL_FRAME;
     else {
+		
+	    /*Begin:pengdecai for han private wmm*/	
+#ifdef ATOPT_WIRELESS_QOS
+		if( vap->priv_wmm.dscp_flag && ieee80211_vap_wme_is_set(vap)){
+		  ac = ieee80211_dscp_to_wmm(vap, wbuf);
+		  tid =  WME_AC_TO_TID(ac);
+		}else 
+#endif
+	    /*End:pengdecai for han private wmm*/
+
 		 if ((tid = ieee80211_dscp_override(vap, wbuf)) < 0)
         	tid = (wbuf_classify(wbuf) & 0x7);
 	}
@@ -744,6 +758,15 @@ ieee80211_classify(struct ieee80211_node *ni, wbuf_t wbuf)
 	/*
 	** Determine the VLAN AC
 	*/
+	
+	/*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_WIRELESS_QOS
+	if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap)){
+		v_wme_ac = ieee80211_vlan_priv_to_wmm(vap,v_pri);
+		v_pri =  WME_AC_TO_TID(v_wme_ac);
+	}else
+#endif
+	/*End:pengdecai for han private wmm*/ 
 
 	v_wme_ac = TID_TO_WME_AC(v_pri);
 

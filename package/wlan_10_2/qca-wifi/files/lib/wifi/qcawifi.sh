@@ -1216,8 +1216,92 @@ enable_qcawifi() {
 		esac
 		ifconfig "$ifname" up
 	done
+    #Begin:pengdecai for han private wmm
+    set_han_wmm_start
+    set_prio_8021p_start
+    #End:pengdecai for han private wmm
+}
+#Begin:pengdecai for han private wmm
+set_wmm() {                                                                                                  local cfg="$1"
+    config_get wmm_enable "$cfg"  wmm_enable "0"                                                                              
+    config_get dscp_enable "$cfg" dscp_enable  "0"                                                                          
+    config_get dot1p_enable "$cfg" dot1p_enable  "0" 
+	config_get dscp_to_bk "$cfg" dscp_to_bk "0" 
+	config_get dscp_to_be "$cfg" dscp_to_be "0" 
+	config_get dscp_to_vi "$cfg" dscp_to_vi "0" 
+	config_get dscp_to_vo "$cfg" dscp_to_vo "0" 		
+    config_get bk_to_dscp "$cfg" bk_to_dscp "0"                                                                                    
+    config_get be_to_dscp "$cfg" be_to_dscp "0"                                                                            
+    config_get vi_to_dscp "$cfg" vi_to_dscp  "0"      
+	config_get vo_to_dscp "$cfg" vo_to_dscp  "0"  
+	config_get dot1p_to_bk "$cfg" dot1p_to_bk "0" 
+	config_get dot1p_to_be "$cfg" dot1p_to_be "0" 
+	config_get dot1p_to_vi "$cfg" dot1p_to_vi "0" 
+	config_get dot1p_to_vo "$cfg" dot1p_to_vo "0" 
+	config_get bk_to_dot1p "$cfg" bk_to_dot1p "0"  
+	config_get be_to_dot1p "$cfg" be_to_dot1p "0" 
+	config_get vi_to_dot1p "$cfg" vi_to_dot1p "0" 
+	config_get vo_to_dot1p "$cfg" vo_to_dot1p "0" 
+			
+	config_get ifname "$cfg" ifname
+                                                                                                                                  
+    wlanset wmm  "$ifname" set_enable $wmm_enable  > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_dscp_enable $dscp_enable > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_8021p_enable $dot1p_enable > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_dscp_to_background $dscp_to_bk > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_dscp_to_besteffort $dscp_to_be > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_dscp_to_video $dscp_to_vi > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_dscp_to_voice $dscp_to_vo > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_background_to_dscp $bk_to_dscp > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_besteffort_to_dscp $be_to_dscp > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_video_to_dscp $vi_to_dscp > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_voice_to_dscp $vo_to_dscp > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_8021p_to_background $dot1p_to_bk > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_8021p_to_besteffort $dot1p_to_be > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_8021p_to_video $dot1p_to_vi > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_8021p_to_voice $dot1p_to_vo > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_background_to_8021p $bk_to_dot1p > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_besteffort_to_8021p $be_to_dot1p > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_video_to_8021p $vi_to_dot1p > /dev/null 2>&1 
+	wlanset wmm  "$ifname" set_voice_to_8021p $vo_to_dot1p > /dev/null 2>&1                                                                    
+} 
+
+set_han_wmm_start() {
+    config_load wireless
+	config_foreach set_wmm wifi-iface
+}
+set_prio_8021p() {
+
+    local cfg="$1"
+    config_get name  "$cfg" name "0"                                      
+    config_get vid  "$cfg"  vid  "0" 
+        if [ $vid -gt 0 ];then     
+
+        vconfig  set_egress_map  "$name" 0  0   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 1  1   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 2  2   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 3  3   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 4  4   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 5  5   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 6  6   > /dev/null 2>&1 
+        vconfig  set_egress_map  "$name" 7  7   > /dev/null 2>&1 
+
+        vconfig set_ingress_map "$name"  0  0  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  1  1  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  2  2  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  3  3  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  4  4  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  5  5  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  6  6  > /dev/null 2>&1 
+        vconfig set_ingress_map "$name"  7  7  > /dev/null 2>&1 
+     fi
 }
 
+set_prio_8021p_start() {
+    config_load network
+    config_foreach set_prio_8021p device
+}
+#End:pengdecai for han private wmm
 pre_qcawifi() {
 	local action=${1}
 

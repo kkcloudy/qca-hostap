@@ -134,6 +134,13 @@ endif
 ifeq ($(ATOPT_COMMAND), 1)
 OSDEP_OBJS += $(DEPTH)/ATOPT/command/han_command.o
 endif
+
+#Begin:pengdecai for han private wmm
+ifeq ($(ATOPT_WIRELESS_QOS), 1)
+OSDEP_OBJS += $(DEPTH)/ATOPT/wirelessqos/wireless_qos.o
+endif
+#End:pengdecai for han private wmm
+
 ifeq ($(QCA_THIRDPARTY), 1)
 PLTFRM_OBJS = $(DEPTH)/thirdparty/$(THIRDPARTY_VENDOR)/ath_carr_pltfrm.o
 endif

@@ -63,6 +63,12 @@
 #include <han_ioctl.h>
 #endif
 
+/*Begin:pengdecai for han private wmm*/
+#if ATOPT_WIRELESS_QOS
+#include <wireless_qos.h>
+#endif
+/*End:pengdecai for han private wmm*/
+
 #define ONEMBPS 1000
 #define THREE_HUNDRED_FIFTY_MBPS 350000
 #define NETDEV_TO_VAP(_dev) (((osif_dev *)netdev_priv(_dev))->os_if)
@@ -16966,6 +16972,13 @@ ieee80211_ioctl_han_priv(struct net_device *dev, struct iwreq *iwr)
 	if (copy_from_user(&a, iwr->u.data.pointer, sizeof(a)))
 		return -EFAULT;
 	switch (a.type) {
+	/*Begin:pengdecai for han private wmm*/	
+#ifdef ATOPT_WIRELESS_QOS
+	case HAN_IOCTL_PRIV_WIRELESSQOS:
+		error = ieee80211_ioctl_wireless_qos(dev,&a,iwr);
+		break;
+#endif
+	/*End:pengdecai for han private wmm*/
 
 		default:
 			return -EFAULT;

@@ -33,7 +33,11 @@
 #include <ieee80211_band_steering.h>
 #endif
 #include <osif_private.h>
-
+/*Begin:pengdecai for han private wmm*/
+#if ATOPT_WIRELESS_QOS
+#include <wireless_qos.h>
+#endif
+/*End:pengdecai for han private wmm*/
 typedef enum {
     FILTER_STATUS_ACCEPT = 0,
     FILTER_STATUS_REJECT
@@ -1099,6 +1103,16 @@ ieee80211_input_data(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee80211_rx
         WLAN_VAP_STATS(vap, is_rx_decap);
         goto bad;
     }
+	
+	/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+		if(vap->priv_wmm.dscp_flag && ieee80211_vap_wme_is_set(vap)){
+			ieee80211_do_wmm_to_dscp(vap,wbuf);
+		}
+#endif
+	/*End:pengdecai for han private wmm*/
+
+	
     /*
      *QOS NULL Data frames and NULL Data frames must be reported to the Channel Switch state machine 
      *since they are used to confirm     that TDLS peers can communicate with each other after switching to offchannel
@@ -1643,7 +1657,12 @@ ieee80211_decap(struct ieee80211vap *vap, wbuf_t wbuf, size_t hdrspace, struct i
     struct llc *llc;
     u_int16_t ether_type = 0;
     struct ieee80211_frame *whhp;
-
+	/*Begin:pengdecai for han private wmm*/	
+#ifdef ATOPT_WIRELESS_QOS
+    u_int8_t tid = 0;
+    u_int8_t vlan = 0;
+#endif
+	/*End:pengdecai for han private wmm*/
     if (wbuf_get_pktlen(wbuf) < (hdrspace + sizeof(*llc))) {
         /* XXX stat, msg */
         wbuf_free(wbuf);
@@ -1664,10 +1683,22 @@ ieee80211_decap(struct ieee80211vap *vap, wbuf_t wbuf, size_t hdrspace, struct i
         } else {
             qos = &((struct ieee80211_qosframe *)whhp)->i_qos[0];
         }
-
-        /* save priority */
-        wbuf_set_qosframe(wbuf);
-        wbuf_set_priority(wbuf, (qos[0] & IEEE80211_QOS_TID));
+		
+	/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+		if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap)){
+			 tid = qos[0] & IEEE80211_QOS_TID;
+             vlan = ieee80211_wmm_to_vlan(vap,TID_TO_WME_AC(tid));
+             wbuf_set_qosframe(wbuf);
+			 wbuf_set_priority(wbuf,vlan);
+		}else 
+#endif
+	/*End:pengdecai for han private wmm*/
+        {
+             /* save priority */
+             wbuf_set_qosframe(wbuf);
+             wbuf_set_priority(wbuf, (qos[0] & IEEE80211_QOS_TID));
+        }
     }
 
     OS_MEMCPY(&wh, wbuf_header(wbuf), hdrspace < sizeof(wh) ? hdrspace : sizeof(wh));

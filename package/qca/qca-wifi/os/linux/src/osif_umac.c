@@ -72,6 +72,14 @@ extern osif_dev* osif_wrap_wdev_find(struct wrap_devt *wdt, unsigned char *mac);
 #endif /* QCA_SUPPORT_RAWMODE_PKT_SIMULATION */
 #endif /* ATH_PERF_PWR_OFFLOAD */
 
+
+/*Begin:pengdecai for han private wmm*/   
+#if ATOPT_WIRELESS_QOS
+#include <wireless_qos.h>
+#endif
+/*End:pengdecai for han private wmm*/   
+
+
 #define OSIF_TO_NETDEV(_osif) (((osif_dev *)(_osif))->netdev)
 
 #define IEEE80211_MSG_IOCTL   IEEE80211_MSG_DEBUG
@@ -5090,6 +5098,13 @@ osif_vap_hardstart_generic(struct sk_buff *skb, struct net_device *dev)
                 vap->iv_ic->ic_adf_dev, (adf_nbuf_t) skb, ADF_OS_DMA_TO_DEVICE);
             /* terminate the (single-element) list of tx frames */
             skb->next = NULL;
+			
+		/*Begin:pengdecai for han private wmm*/	
+#ifdef ATOPT_WIRELESS_QOS
+			if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap))
+			ol_do_vlan_to_wmm(vap,skb);
+#endif
+		/*End:pengdecai for han private wmm*/
 
             if (tidno != OFFCHAN_EXT_TID_NONPAUSE)
                 skb = osdev->iv_vap_send(osdev->iv_txrx_handle, skb);
@@ -6595,6 +6610,13 @@ osif_ioctl_create_vap(struct net_device *comdev, struct ifreq *ifr,
         }
         ic->ic_need_vap_reinit = 0;
     }
+	
+	/*Begin:pengdecai for han private wmm*/   
+#ifdef ATOPT_WIRELESS_QOS
+	ieee80211_priv_wmm_init(vap);
+#endif
+	/*End:pengdecai for han private wmm*/
+
 
     /* Initializing Node debug Counters */
     vap->auth_req_cnt = 0;

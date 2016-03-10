@@ -58,7 +58,11 @@
 #if QCA_AIRTIME_FAIRNESS
 #include "ath_airtime_fairness.h"
 #endif
-
+/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+#include <wireless_qos.h>
+#endif
+/*End:pengdecai for han private wmm*/
 #if UMAC_SUPPORT_APONLY
 
 #if ATH_SUPPORT_KEYPLUMB_WAR
@@ -3166,6 +3170,34 @@ ieee80211_input_data_aponly(struct ieee80211_node *ni, wbuf_t wbuf, struct ieee8
             rs->rs_cryptodecapcount += key->wk_cipher->ic_miclen;
         }
     }
+	
+	/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+	if (subtype == IEEE80211_FC0_SUBTYPE_QOS && ieee80211_vap_wme_is_set(vap)) {
+		u_int8_t *qos;
+		u_int8_t tid;
+		u_int8_t vlan;
+
+		if(vap->priv_wmm.dscp_flag){
+			ieee80211_do_wmm_to_dscp(vap,wbuf);
+		}
+		
+	    if(vap->priv_wmm.vlan_flag){
+	        if ((wh->i_fc[1] & IEEE80211_FC1_DIR_MASK) == IEEE80211_FC1_DIR_DSTODS) {
+	            qos = &((struct ieee80211_qosframe_addr4 *)wh)->i_qos[0];
+	        } else {
+	            qos = &((struct ieee80211_qosframe *)wh)->i_qos[0];
+	        }
+  		    tid = qos[0] & IEEE80211_QOS_TID;
+            vlan = ieee80211_wmm_to_vlan(vap,TID_TO_WME_AC(tid));
+			
+            wbuf_set_qosframe(wbuf);
+  		    wbuf_set_priority(wbuf,vlan);
+		
+	    }
+	}
+#endif
+	/*End:pengdecai for han private wmm*/
 
     if (subtype == IEEE80211_FC0_SUBTYPE_NODATA) {
         ieee80211_input_update_data_stats_aponly(ni,
@@ -8982,6 +9014,14 @@ ieee80211_classify_aponly(struct ieee80211_node *ni, wbuf_t wbuf)
 found:
     ac = TID_TO_WME_AC(tid);
 #else
+	/*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_WIRELESS_QOS
+	if(vap->priv_wmm.dscp_flag  && ieee80211_vap_wme_is_set(vap)){
+		ac = ieee80211_dscp_to_wmm(vap, wbuf);
+		tid =  WME_AC_TO_TID(ac);
+	}else 
+#endif
+	/*End:pengdecai for han private wmm*/
 
     if ((tid = ieee80211_dscp_override(vap, wbuf)) < 0)
         tid = (wbuf_classify(wbuf) & 0x7);
@@ -9037,7 +9077,15 @@ found:
 	/*
 	** Determine the VLAN AC
 	*/
-
+			 
+	/*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_WIRELESS_QOS
+	if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap) ){
+	    v_wme_ac = ieee80211_vlan_priv_to_wmm(vap,v_pri);
+		v_pri =  WME_AC_TO_TID(v_wme_ac);
+	}else
+#endif
+	/*End:pengdecai for han private wmm*/ 
 	v_wme_ac = TID_TO_WME_AC(v_pri);
 
 
@@ -9356,6 +9404,17 @@ osif_vap_hardstart_aponly(struct sk_buff *skb, struct net_device *dev)
             goto bad;
         }
     }
+
+	/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+		if (osdev->osif_is_mode_offload) {
+			if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap)){
+			ol_do_vlan_to_wmm(vap,skb);
+		   }
+		}
+#endif
+    /*End:pengdecai for han private wmm*/
+
 
 #if ADF_SUPPORT
     N_FLAG_KEEP_ONLY(skb, N_PWR_SAV);

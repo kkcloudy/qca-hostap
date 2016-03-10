@@ -477,6 +477,12 @@ wbuf_8021p(adf_nbuf_t nbf)
 	{
     	tos = (veth->h_vlan_TCI >> VLAN_PRI_SHIFT) & VLAN_PRI_MASK;
 	}
+	/*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_WIRELESS_QOS
+	else 
+		tos = nbf->priority;
+#endif
+	/*End:pengdecai for han private wmm*/ 
 
     return tos;
 }

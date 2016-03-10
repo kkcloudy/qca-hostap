@@ -1768,6 +1768,55 @@ struct ieee80211_tim_set {
 	int set;
 	u_int16_t aid;
 };
+/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+
+struct   han_priority{
+#define PRI_MAX_NUM 8
+    u_int8_t    num;
+    u_int8_t    priority[PRI_MAX_NUM];
+};
+
+struct han_wmm {
+    /* Wireless QoS function enable flag */
+	u_int8_t    wmm_flag;    
+    /*DSCP priority transform function enable flag */
+    u_int8_t    dscp_flag;   
+    /*8021p priority transform function enable flag */
+	u_int8_t    vlan_flag;  
+    /* Store 8021p/DSCP priority value for every WMM access category */
+    struct   han_priority  dscp_to_bk;
+    struct   han_priority  dscp_to_be;
+    struct   han_priority  dscp_to_vi;
+    struct   han_priority  dscp_to_vo;
+    struct   han_priority  vlan_to_bk;
+    struct   han_priority  vlan_to_be;
+    struct   han_priority  vlan_to_vi;
+    struct   han_priority  vlan_to_vo;
+    /* the index is 8021p/DSCP priority */
+    u_int8_t     dscp_to_wmm_map[IP_DSCP_MAP_LEN]; //store the ac not tid.
+    u_int8_t     vlan_to_wmm_map[8];
+   /* the index is WMM access category */
+    u_int8_t     wmm_to_dscp_map[4];   
+	u_int8_t     wmm_to_vlan_map[4];
+    /*statistics information*/
+    u_int64_t     dscp_to_wmm_ok;   
+	u_int64_t     wmm_to_dscp_ok;
+    u_int64_t     dscp_to_wmm_error;   
+    u_int64_t     wmm_to_dscp_error;
+    u_int64_t     vlan_to_wmm_ok;   
+	u_int64_t     wmm_to_vlan_ok;
+    u_int64_t     wmm_to_vlan_error;
+    u_int64_t     vlan_to_wmm_error;
+	/*reserve*/
+	u_int8_t      reserve_8btit[8];
+	u_int16_t     reserve_16btit[4];
+	u_int32_t     reserve_32btit[2];
+	u_int64_t     reserve_64btit;
+};
+
+#endif
+/*End:pengdecai for han private wmm*/
 
 typedef struct ieee80211vap {
     TAILQ_ENTRY(ieee80211vap)         iv_next;    /* list of vap instances */
@@ -2315,6 +2364,12 @@ typedef struct ieee80211vap {
 #if QCA_AIRTIME_FAIRNESS
     u_int8_t                   tx_blk_cnt;/*number of ni under this vap blocked to transmit*/
 #endif
+/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS	
+	struct	han_wmm  priv_wmm ;
+#endif	
+/*End:pengdecai for han private wmm*/
+
 } IEEE80211VAP, *PIEEE80211VAP;
 
 #ifndef __ubicom32__

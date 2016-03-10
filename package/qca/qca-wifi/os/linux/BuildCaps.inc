@@ -976,6 +976,11 @@ ifndef ATOPT_IOCTL
 export ATOPT_IOCTL=0
 endif
 
+#Begin:pengdecai for han private wmm
+ifndef ATOPT_WIRELESS_QOS
+export ATOPT_WIRELESS_QOS=0
+endif
+#End:pengdecai for han private wmm
 
 ifndef ATOPT_COMMAND
 export ATOPT_COMMAND=0
@@ -2232,3 +2237,11 @@ COPTS+= -DATOPT_COMMADN=1
 else
 COPTS+= -DATOPT_COMMAND=0
 endif
+
+#Begin:pengdecai for han private wmm
+ifeq ($(strip ${ATOPT_WIRELESS_QOS}),1)
+COPTS+= -DATOPT_WIRELESS_QOS=1
+else
+COPTS+= -DATOPT_WIRELESS_QOS=0
+endif
+#End:pengdecai for han private wmm

@@ -34,6 +34,13 @@
 #include <net.h>
 #include <ol_vowext_dbg_defs.h>
 
+/*Begin:pengdecai for han private wmm*/ 
+#if ATOPT_WIRELESS_QOS
+#include <wireless_qos.h>
+#endif
+/*End:pengdecai for han private wmm*/ 
+
+
 static int ol_rx_monitor_deliver(
     ol_txrx_pdev_handle pdev,
     adf_nbuf_t head_msdu,
@@ -1241,6 +1248,17 @@ ol_rx_deliver(
         }
     }
 #endif
+
+		/*Begin:pengdecai for han private wmm*/
+#ifdef ATOPT_WIRELESS_QOS
+	if(tid < 8){//tid >= 8 is used for other.
+		for (msdu = deliver_list_head; msdu; msdu = adf_nbuf_next(msdu)) {
+			ol_ieee80211_do_wmm_to_dscp_vlan(vdev->osif_vdev,msdu,tid);
+		}
+	}
+#endif
+		/*End:pengdecai for han private wmm*/
+
     vdev->osif_rx(vdev->osif_vdev, deliver_list_head);
 #if OL_ATH_SUPPORT_LED
     {

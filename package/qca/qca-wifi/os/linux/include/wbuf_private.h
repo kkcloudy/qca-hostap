@@ -836,6 +836,13 @@ wbuf_8021p(struct sk_buff *skb)
     {
         tos = (veth->h_vlan_TCI >> VLAN_PRI_SHIFT) & VLAN_PRI_MASK;
     }
+	/*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_WIRELESS_QOS
+	else 
+	tos = skb->priority;
+#endif
+		/*End:pengdecai for han private wmm*/ 
+
 
     return tos;
 }
