@@ -1,0 +1,16 @@
+#!/bin/sh
+
+#tool 
+WRCPUTOOL="/usr/bin/partool -part mtd5 -show"
+
+#product path
+PRODUCT_PATH="/overlay/.PRODUCT"
+
+#url_info
+URL="${PRODUCT_PATH}/.url"
+
+if [ -f ${URL} ];then
+	cat ${URL}
+else
+	$WRCPUTOOL url
+fi
