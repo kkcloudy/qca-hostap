@@ -123,7 +123,6 @@ void kdrm_filter_packet(struct sk_buff *skb)
 
     if (0 != strcmp(g_ap_mgmt_url, buf + 12))
     {
-        printk(KERN_DEBUG "[drm kmod]: strcmp url fail %s\r\n", buf + 12);
         return;
     }
     printk(KERN_DEBUG "[drm kmod]: strcmp url sucess %s\r\n", buf + 12);
