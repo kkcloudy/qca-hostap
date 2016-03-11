@@ -237,6 +237,8 @@ static int tid_parse_useragent(struct devinfo *devinfo, const char *ua)
 {
     char tmp[TID_USER_AGENT_MAXLEN] = {0};
     char *devstr = NULL;
+    int ret = -1;
+    
     if (ua == NULL || devinfo == NULL)
     {
         return -1;
@@ -254,7 +256,13 @@ static int tid_parse_useragent(struct devinfo *devinfo, const char *ua)
         return -1;    
     }
 
-    return tid_parse_devstr(devinfo, devstr);
+    ret = tid_parse_devstr(devinfo, devstr);
+    if (0 == ret) 
+    {
+        tid_debug_error("[os printfinger test]:  os type %s", devinfo->ostype);        
+    }
+    
+    return ret;
 }
 
 /*****************************************************************************
