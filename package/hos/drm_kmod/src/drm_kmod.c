@@ -123,10 +123,10 @@ void kdrm_filter_packet(struct sk_buff *skb)
 
     if (0 != strcmp(g_ap_mgmt_url, buf + 12))
     {
-        printk(KERN_ERR "[drm kmod]: strcmp url fail %s\r\n", buf + 12);
+        printk(KERN_DEBUG "[drm kmod]: strcmp url fail %s\r\n", buf + 12);
         return;
     }
-    printk(KERN_ERR "[drm kmod]: strcmp url sucess %s\r\n", buf + 12);
+    printk(KERN_DEBUG "[drm kmod]: strcmp url sucess %s\r\n", buf + 12);
     
     kdrm_sendmsg(skb->data, skb->len);
 
@@ -159,7 +159,7 @@ static void kdrm_receive_skb(struct sk_buff  *skb)
         ap_mgmt_url = nlmsg_data(nlmhdr);
         spin_lock(&drm_lock);
         memcpy(g_ap_mgmt_url, ap_mgmt_url, APURLLEN);
-        printk(KERN_ERR "[drm kmod]: kdrm_receive_skb %s\r\n", g_ap_mgmt_url);
+        printk(KERN_DEBUG "[drm kmod]: kdrm_receive_skb %s\r\n", g_ap_mgmt_url);
         spin_unlock(&drm_lock);
     }
     
