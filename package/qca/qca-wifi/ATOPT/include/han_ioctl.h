@@ -29,6 +29,7 @@ enum han_ioctl_priv {
 #define HAN_IOCTL_WMM_VI_TO_8021P 17
 #define HAN_IOCTL_WMM_VO_TO_8021P 18
 #define HAN_IOCTL_WMM_STATISTICS  19
+#define HAN_IOCTL_WMM_DEBUG  20
 
 #define OP_SET 	0x01
 #define OP_GET	0x02
@@ -43,6 +44,7 @@ struct wireless_qos{
 			u_int8_t wmm_enable;
 			u_int8_t dscp_enable;
 			u_int8_t vlan_enable;
+			u_int8_t debug;
 			/*WMM priority to DSCP prioriy*/
 			u_int8_t bk_to_dscp;
 			u_int8_t be_to_dscp;
@@ -78,10 +80,7 @@ struct wireless_qos{
 			u_int64_t vlan_to_wmm_packets_error;
 			u_int64_t wmm_to_vlan_packets_ok;
 			u_int64_t wmm_to_vlan_packets_error;
-			u_int8_t  reserve_8btit[8];
-			u_int16_t reserve_16btit[4];
-			u_int32_t reserve_32btit[2];
-			u_int64_t reserve_64btit;
+
 		}wmm_stat;
 };
 

@@ -1688,9 +1688,16 @@ ieee80211_decap(struct ieee80211vap *vap, wbuf_t wbuf, size_t hdrspace, struct i
 #ifdef ATOPT_WIRELESS_QOS
 		if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap)){
 			 tid = qos[0] & IEEE80211_QOS_TID;
+
+			 if(vap->priv_wmm.debug == 2){
+				  printk("WMM->802.1P:step(1/3):start tid = %d",tid);
+			 } 
              vlan = ieee80211_wmm_to_vlan(vap,TID_TO_WME_AC(tid));
              wbuf_set_qosframe(wbuf);
 			 wbuf_set_priority(wbuf,vlan);
+			 if(vap->priv_wmm.debug == 2){
+				 printk("WMM->802.1P:step(3/3):End:WMM_AC = %d , 802.1P = %d",TID_TO_WME_AC(tid),wbuf_get_priority(wbuf));
+			 } 
 		}else 
 #endif
 	/*End:pengdecai for han private wmm*/

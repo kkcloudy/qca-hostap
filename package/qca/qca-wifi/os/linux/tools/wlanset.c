@@ -58,6 +58,8 @@ enum han_ioctl_priv {
 #define HAN_IOCTL_WMM_VI_TO_8021P 17
 #define HAN_IOCTL_WMM_VO_TO_8021P 18
 #define HAN_IOCTL_WMM_STATISTICS  19
+#define HAN_IOCTL_WMM_DEBUG  20
+
 
 #define OP_SET 	0x01
 #define OP_GET	0x02
@@ -72,6 +74,7 @@ struct wireless_qos{
 			u_int8_t wmm_enable;
 			u_int8_t dscp_enable;
 			u_int8_t vlan_enable;
+			u_int8_t debug;
 			/*WMM priority to DSCP prioriy*/
 			u_int8_t bk_to_dscp;
 			u_int8_t be_to_dscp;
@@ -107,10 +110,6 @@ struct wireless_qos{
 			u_int64_t vlan_to_wmm_packets_error;
 			u_int64_t wmm_to_vlan_packets_ok;
 			u_int64_t wmm_to_vlan_packets_error;
-			u_int8_t  reserve_8btit[8];
-			u_int16_t reserve_16btit[4];
-			u_int32_t reserve_32btit[2];
-			u_int64_t reserve_64btit;
 		} wmm_stat;
 };
 /*End:pengdecai for han private wmm*/
@@ -331,7 +330,7 @@ han_wirelessqos_help(void)
 {
 	printf("\nusage:: wlanset wmm COMMAND [OPTION] ... \n");
 	printf("OPTIONS: \n");
-	printf("\t[interface]\ttset_enable\t\t[0|1]\n");
+	printf("\t[interface]\tset_enable\t\t[0|1]\n");
 	printf("\t[interface]\tget_enable\n");
 	
 	printf("\t[interface]\tset_dscp_enable\t\t[0|1]\n");
@@ -387,8 +386,9 @@ han_wirelessqos_help(void)
 	
 	printf("\t[interface]\tset_voice_to_8021p\t\t[8021p priority]\n");
 	printf("\t[interface]\tget_voice_to_8021p\n");
-
 	printf("\t[interface]\tget_statistics\n");
+	printf("\t[interface]\tset_debug\n");
+	printf("\t[interface]\tget_debug\n");
 }
 
 
@@ -534,6 +534,11 @@ static int han_wirelessqos(int argc, char** argv)
 	}else if (WLANSET_STRING_EQ(argv[3], "get_8021p_enable")) {
 		a.u.wmm.subtype =  HAN_IOCTL_WMM_8021P_ENABLE;
 
+	}else if (WLANSET_STRING_EQ(argv[3], "set_debug")) {
+		a.u.wmm.subtype = HAN_IOCTL_WMM_DEBUG;
+		a.u.wmm.wmm_args.debug = atoi(argv[4]);
+	}else if (WLANSET_STRING_EQ(argv[3], "get_debug")) {
+		a.u.wmm.subtype = HAN_IOCTL_WMM_DEBUG;
 	}else if (WLANSET_STRING_EQ(argv[3], "set_dscp_to_background")) {
 		a.u.wmm.subtype = HAN_IOCTL_WMM_DSCP_TO_BK;
         memcpy(a.u.wmm.wmm_args.dscp_to_bk,arg,real_arg_num);
@@ -645,7 +650,7 @@ static int han_wirelessqos(int argc, char** argv)
 		a.u.wmm.subtype =  HAN_IOCTL_WMM_VO_TO_8021P;
 	}else if (WLANSET_STRING_EQ(argv[3], "get_statistics")) {
 		a.u.wmm.subtype = HAN_IOCTL_WMM_STATISTICS;
-	} else {
+	}else {
 		printf("command error!");
 		han_wirelessqos_help();
 		return -1;
@@ -677,6 +682,9 @@ static int han_wirelessqos(int argc, char** argv)
 
 		}else if(HAN_IOCTL_WMM_8021P_ENABLE == a.u.wmm.subtype){
 			printf("%d\n",a.u.wmm.wmm_args.vlan_enable);
+
+		}else if(HAN_IOCTL_WMM_DEBUG == a.u.wmm.subtype){
+			printf("%d\n",a.u.wmm.wmm_args.debug);
 
 		}else if(HAN_IOCTL_WMM_DSCP_TO_BK == a.u.wmm.subtype){
 			PRINT_PARM(a.u.wmm.wmm_args.dscp_to_bk,a.u.wmm.arg_num);
@@ -744,29 +752,6 @@ static int han_wirelessqos(int argc, char** argv)
 			printf("8021p_to_wmm_packets_error:\t\t%llu\n",a.u.wmm.wmm_stat.vlan_to_wmm_packets_error);
 			printf("wmm_to_8021p_packets_ok:\t\t%llu\n",a.u.wmm.wmm_stat.vlan_to_wmm_packets_ok);
 			printf("wmm_to_8021P_packets_error:\t\t%llu\n",a.u.wmm.wmm_stat.vlan_to_wmm_packets_error);
-
-			
-			printf("\nReserve:\n");
-
-			for(i = 0; i < 8 ;i ++){
-				if(a.u.wmm.wmm_stat.reserve_8btit[i]){
-					printf("reserve_8bit_%d = %d\n",i,a.u.wmm.wmm_stat.reserve_8btit[i]);
-				}
-			}
-			
-			for(i = 0; i < 4 ;i ++){
-				if(a.u.wmm.wmm_stat.reserve_16btit[i]){
-					printf("reserve_16bit_%d = %d\n",i,a.u.wmm.wmm_stat.reserve_16btit[i]);
-				}
-			}
-			for(i = 0; i < 2 ;i ++){
-				if(a.u.wmm.wmm_stat.reserve_32btit[i]){
-					printf("reserve_32bit_%d = %d\n",i,a.u.wmm.wmm_stat.reserve_32btit[i]);
-				}
-			}
-			if(a.u.wmm.wmm_stat.reserve_64btit){
-				printf("reserve_64bit = %llu\n",i,a.u.wmm.wmm_stat.reserve_64btit);
-			}
 			
 		}else {
 			printf("han ioctl wmm get subtype error!");

@@ -1784,6 +1784,7 @@ struct han_wmm {
     u_int8_t    dscp_flag;   
     /*8021p priority transform function enable flag */
 	u_int8_t    vlan_flag;  
+	u_int8_t    debug;
     /* Store 8021p/DSCP priority value for every WMM access category */
     struct   han_priority  dscp_to_bk;
     struct   han_priority  dscp_to_be;
@@ -1808,11 +1809,6 @@ struct han_wmm {
 	u_int64_t     wmm_to_vlan_ok;
     u_int64_t     wmm_to_vlan_error;
     u_int64_t     vlan_to_wmm_error;
-	/*reserve*/
-	u_int8_t      reserve_8btit[8];
-	u_int16_t     reserve_16btit[4];
-	u_int32_t     reserve_32btit[2];
-	u_int64_t     reserve_64btit;
 };
 
 #endif

@@ -81,15 +81,39 @@ int ieee80211_priv_wmm_init(struct ieee80211vap *vap)
 	//vap->priv_wmm.
 	return retv;
 }
+u_int8_t print_dscp_to_wmm_map(struct ieee80211vap *vap)
+{
+	int i;
+	
+    for (i = 0;i < 64;i ++){
+		printk("dscp = %d-> wmm = %d\n",i,vap->priv_wmm.dscp_to_wmm_map[i]);
+    }
+	return 0;
+}
+u_int8_t print_8021p_to_wmm_map(struct ieee80211vap *vap)
+{
+	int i;
+		
+	for (i = 0;i < 8;i ++){
+		printk("8021P = %d-> wmm = %d\n",i,vap->priv_wmm.vlan_to_wmm_map[i]);
+	}
+	return 0;
+}
 
 u_int8_t dscp_to_wmm(struct ieee80211vap *vap,u_int8_t dscp)
 {
+	u_int8_t ac =  WME_AC_BE;
 	if( dscp > 63 ){
 		vap->priv_wmm.dscp_to_wmm_error++;
 		return 0;
 	}
 	vap->priv_wmm.dscp_to_wmm_ok ++;
-	return vap->priv_wmm.dscp_to_wmm_map[dscp];
+	ac = vap->priv_wmm.dscp_to_wmm_map[dscp];
+	if(vap->priv_wmm.debug == 1){
+		printk("DSCP->WMM:set(2/4): dscp =%d -> WMM_AC=%d\n",dscp,ac);
+	}
+	
+	return ac;
 }
 
 int
@@ -155,6 +179,20 @@ ieee80211_ioctl_wireless_qos(struct net_device *dev,struct han_ioctl_priv_args *
 				retv = ENETRESET;
 			}
 			break;
+		case HAN_IOCTL_WMM_DEBUG:
+			if(OP_SET == a->u.wmm.op){
+				vap->priv_wmm.debug= a->u.wmm.wmm_args.debug;
+				if(vap->priv_wmm.debug == 3){
+					print_dscp_to_wmm_map(vap);
+				}else if(vap->priv_wmm.debug == 4){
+					print_8021p_to_wmm_map(vap);
+				}
+			}else if(OP_GET == a->u.wmm.op){
+				a->u.wmm.wmm_args.debug= vap->priv_wmm.debug;
+			}else {
+				retv = ENETRESET;
+			}
+				break;
 		case HAN_IOCTL_WMM_DSCP_TO_BK:
 			if(OP_SET == a->u.wmm.op){
 				WMM_STORE_INFO_USER_TO_DRIVER(vap,a,dscp_to_bk);
@@ -334,16 +372,6 @@ ieee80211_ioctl_wireless_qos(struct net_device *dev,struct han_ioctl_priv_args *
 			a->u.wmm.wmm_stat.vlan_to_wmm_packets_error = vap->priv_wmm.vlan_to_wmm_error;
 			a->u.wmm.wmm_stat.wmm_to_vlan_packets_ok = vap->priv_wmm.wmm_to_vlan_ok;
 			a->u.wmm.wmm_stat.wmm_to_vlan_packets_error = vap->priv_wmm.wmm_to_vlan_error;
-			for (i = 0;i < 8;i ++){
-				a->u.wmm.wmm_stat.reserve_8btit[i] = vap->priv_wmm.reserve_8btit[i];
-			}
-			for (i = 0;i < 4;i ++){
-				a->u.wmm.wmm_stat.reserve_16btit[i] = vap->priv_wmm.reserve_16btit[i];
-			}
-			for (i = 0;i < 2;i ++){
-				a->u.wmm.wmm_stat.reserve_32btit[i] = vap->priv_wmm.reserve_32btit[i];
-			}
-			a->u.wmm.wmm_stat.reserve_64btit = vap->priv_wmm.reserve_64btit;
 			break;
 		default:
 			return -EFAULT;		
@@ -364,11 +392,14 @@ ieee80211_dscp_to_wmm(struct ieee80211vap *vap, wbuf_t wbuf)
 	u_int8_t ac = WME_AC_BE;
 	u_int8_t tid = 0;
 	
+	if(vap->priv_wmm.debug == 1){
+		printk("DSCP->WMM:set(1/4): start \n");
+	}
+	
 	if (eh->ether_type == __constant_htons(ETHERTYPE_IP)) {
 		const struct iphdr *ip = (struct iphdr *)
 		(wbuf->data + sizeof (struct ether_header));
-		
-			ac = dscp_to_wmm(vap,(ip->tos >> 2));
+		ac = dscp_to_wmm(vap,(ip->tos >> 2));
 
 	}
 	else if(eh->ether_type == __constant_htons(ETHERTYPE_IPV6))
@@ -388,37 +419,56 @@ ieee80211_dscp_to_wmm(struct ieee80211vap *vap, wbuf_t wbuf)
 /*return ac */
 u_int8_t 
 ieee80211_vlan_priv_to_wmm(struct ieee80211vap *vap,u_int8_t v_priv)
-{
+{	
+	u_int8_t ac = WME_AC_BE;
+
     if( v_priv > 7){
 		vap->priv_wmm.vlan_to_wmm_error ++;
 		return WME_AC_BE;
 	}
 	vap->priv_wmm.vlan_to_wmm_ok ++;
-	return vap->priv_wmm.vlan_to_wmm_map[v_priv];
+	ac = vap->priv_wmm.vlan_to_wmm_map[v_priv];
+	if(vap->priv_wmm.debug == 2){
+		printk("802.1P->WMM:step(1/3): 802.1P = %d -> WMM_AC = %d\n",v_priv,ac);
+	}  
+	return 0;
 
 }
 
 u_int8_t 
 ieee80211_wmm_to_dscp(struct ieee80211vap *vap, u_int8_t ac)
-{
+{	
+	u_int8_t dscp = 0;
 	if(ac > WME_AC_VO){
 		vap->priv_wmm.wmm_to_dscp_error++;
-		return WME_AC_BE;
+		return 0;
 	}
 	vap->priv_wmm.wmm_to_dscp_ok ++;
-	return vap->priv_wmm.wmm_to_dscp_map[ac];
+	dscp = vap->priv_wmm.wmm_to_dscp_map[ac];
+	
+	if(vap->priv_wmm.debug == 1){
+		printk("WMM->DSCP:step(2/2): WMM_AC = %d -> DSCP = %d\n",ac,dscp);
+	}  
+	
+	return dscp;
 }
 
 u_int8_t 
 ieee80211_wmm_to_vlan(struct ieee80211vap *vap, u_int8_t ac)
 {
+    u_int8_t vlan = 0;
 	if(ac > 3){
 		
 		vap->priv_wmm.wmm_to_vlan_error++;
 		return 0;
 	}
 	vap->priv_wmm.wmm_to_vlan_ok ++;
-	return vap->priv_wmm.wmm_to_vlan_map[ac];
+	vlan = 	vap->priv_wmm.wmm_to_vlan_map[ac];
+	
+	if(vap->priv_wmm.debug == 2){
+		printk("WMM->802.1P:step(2/3):WMM_AC = % -> 8021P = %d ",ac,vlan);
+	}  
+	return vlan;
 }
 
 
@@ -433,7 +483,11 @@ ieee80211_do_wmm_to_dscp(struct ieee80211vap *vap, wbuf_t wbuf)
 	wh= (struct ieee80211_frame *) wbuf_header(wbuf);
 	hdrspace = ieee80211_hdrspace(vap->iv_ic, wbuf_header(wbuf));
 	llc_type = (struct llc *)skb_pull(wbuf, hdrspace);
-	   
+	
+	if(vap->priv_wmm.debug == 1){
+			printk("WMM->DSCP:set(1/2): start\n");
+	}   
+	
     if (llc_type != NULL)
     {
 		 if (wbuf->len >= LLC_SNAPFRAMELEN &&
@@ -480,7 +534,7 @@ int ol_set_dscp_to_wmm(struct ieee80211vap *vap)
 	    tid = WME_AC_TO_TID(vap->priv_wmm.dscp_to_wmm_map[i]);
 	    vap->iv_dscp_tid_map[i]= tid;
 	}
-		
+
 	ol_ath_set_vap_dscp_tid_map(vap);
 #endif
 	return 0;
@@ -506,7 +560,10 @@ int ol_do_vlan_to_wmm(struct ieee80211vap *vap,struct sk_buff *skb)
 		vlan_tci |= ((tos & VLAN_PRI_MASK) << VLAN_PRI_SHIFT);
 		veth->h_vlan_TCI = __constant_htons(vlan_tci);
 	}
+	if(vap->priv_wmm.debug == 2){
 
+		printk("802.1P->WMM:step(2/3)5G-end: vlan_tci = %d\n",vlan_tci);
+	}  
 	return 0;
 }
 
@@ -527,6 +584,10 @@ ol_ieee80211_do_wmm_to_dscp(struct ieee80211vap *vap,struct sk_buff *skb,u_int8_
 	frametype = ((struct ether_header *) skb->data)->ether_type;	
 	if (frametype == __constant_htons(ETHERTYPE_VLAN)) {
 		hdr_len += WMM_VLAN_LEN;
+	} 
+	
+	if(vap->priv_wmm.debug == 1){
+			printk("WMM->DSCP:set(1/2): start\n");
 	} 
 	
 	if (frametype == __constant_htons(ETHERTYPE_IP)\
@@ -555,10 +616,17 @@ static int
 ol_ieee80211_do_wmm_to_vlan(struct ieee80211vap *vap,struct sk_buff *skb,u_int8_t tid)
 {
 	u_int8_t vlan = 0;
+	
+	if(vap->priv_wmm.debug == 2){
+		 printk("WMM->802.1P:step(1/3):start tid = %d",tid);
+	} 
 	vlan = ieee80211_wmm_to_vlan(vap,TID_TO_WME_AC(tid));
 	
 	wbuf_set_qosframe(skb);
 	wbuf_set_priority(skb,vlan);
+	if(vap->priv_wmm.debug == 2){
+		printk("WMM->802.1P:step(3/3):End:WMM_AC = %d , 802.1P = %d",TID_TO_WME_AC(tid),wbuf_get_priority(skb));
+	} 
 	return 0;
 }
 
