@@ -1,0 +1,170 @@
+diff -urN a/log/logread.c b/log/logread.c
+--- a/log/logread.c	2016-03-14 23:28:53.000000000 +0800
++++ b/log/logread.c	2016-03-14 23:47:20.000000000 +0800
+@@ -31,6 +31,9 @@
+ #include <libubox/uloop.h>
+ #include "libubus.h"
+ #include "syslog.h"
++#include <net/if.h>
++#include <sys/ioctl.h>
++#include <arpa/inet.h>
+ 
+ enum {
+ 	LOG_STDOUT,
+@@ -60,7 +63,7 @@
+ static const char *log_file, *log_ip, *log_port, *log_prefix, *pid_file, *hostname;
+ 
+ /* zhouke add for hos-r21 support filter and kes_syslog */
+-static const char *log_module,*log_priority;
++static const char *log_module,*log_priority,*log_ifname;
+ #define KES_SYSLOG_PATH "/proc/kes_syslog"
+ /* zhouke add end */
+ 
+@@ -102,6 +105,67 @@
+     
+ 	return LOG_DEBUG;
+ };
++
++static int get_basemac(const char *if_name,unsigned char *basemac)
++{
++	int sock;
++	struct ifreq req;
++
++	sock = socket(AF_INET, SOCK_DGRAM, 0);
++	if(sock < 0)
++	{
++		return 0;
++	}
++    
++    memset(basemac, 0, 6);
++	memset(&req, 0, sizeof(struct ifreq));
++	strcpy(req.ifr_name, if_name);
++
++	if(ioctl(sock, SIOCGIFHWADDR, &req) < 0)
++	{
++		close(sock);
++		return 0;
++	}	
++
++	memcpy(basemac, req.ifr_hwaddr.sa_data, 6);
++
++	close(sock);
++
++	return 1;
++}
++
++
++static int get_ipaddr(const char *if_name,char *baseip)
++{
++	int sock;
++	struct ifreq req;
++    struct sockaddr_in *pAddr; 
++
++	sock = socket(AF_INET, SOCK_DGRAM, 0);
++	if(sock < 0)
++	{
++		return 0;
++	}
++    
++    memset(baseip, 0, 6);
++	memset(&req, 0, sizeof(struct ifreq));
++	strcpy(req.ifr_name, if_name);
++
++	if(ioctl(sock, SIOCGIFADDR, &req) < 0)
++	{
++		close(sock);
++		return 0;
++	}	
++
++    pAddr = (struct sockaddr_in *)&(req.ifr_addr);
++
++    strcpy(baseip, inet_ntoa(pAddr->sin_addr));  
++
++	close(sock);
++
++	return 1;
++}
++
+ /* zhouke add end */
+ 
+ static void log_handle_reconnect(struct uloop_timeout *timeout)
+@@ -136,6 +200,9 @@
+ 	time_t t;
+ 	char *c, *m;
+     int i = 0;
++    unsigned char hostmac[6];
++    char hostip[20];
++    char host[128];
+ 
+ 	if (sender.fd < 0)
+ 		return 0;
+@@ -236,9 +303,42 @@
+ 			strncat(buf, log_prefix, sizeof(buf));
+ 			strncat(buf, ": ", sizeof(buf));
+ 		}
++
++/* zhouke add for hos-r21 add message host ip and mac */
++#if 0
+ 		if (blobmsg_get_u32(tb[LOG_SOURCE]) == SOURCE_KLOG)
+ 			strncat(buf, "kernel: ", sizeof(buf));
+ 		strncat(buf, m, sizeof(buf));
++#else
++        if(log_ifname)
++        {
++            get_basemac(log_ifname,hostmac);
++            get_ipaddr(log_ifname,hostip);
++            snprintf(host,sizeof(host)," {%s %02X:%02X:%02X:%02X:%02X:%02X}",\
++                hostip,hostmac[0],hostmac[1],hostmac[2],hostmac[3],hostmac[4],hostmac[5]); 
++
++    		if (blobmsg_get_u32(tb[LOG_SOURCE]) == SOURCE_KLOG)
++            {      
++                strncat(buf, "kernel:", sizeof(buf));
++                strncat(buf, host, sizeof(buf));
++                strncat(buf, m, sizeof(buf));
++            }
++            else
++            {
++                strncat(buf, m, i+1); 
++                strncat(buf, host, sizeof(buf));
++                strncat(buf, m+i+1, sizeof(buf));
++            }
++        }
++        else
++        {
++    		if (blobmsg_get_u32(tb[LOG_SOURCE]) == SOURCE_KLOG)
++    			strncat(buf, "kernel: ", sizeof(buf));
++    		strncat(buf, m, sizeof(buf)); 
++        }
++#endif
++/* zhouke add end */
++
+ 		if (log_udp)
+ 			err = write(sender.fd, buf, strlen(buf));
+ 		else
+@@ -281,6 +381,7 @@
+ 		"    -f			Follow log messages\n"
+ 		"    -u			Use UDP as the protocol\n"
+ /* zhouke add for hos-r21 support filter according to module and priority */
++		"    -i			interface name\n"
+ 		"    -m			Filter the log module name\n"
+ 		"    -o			Filter the priority of a message\n"
+ /* zhouke add end */
+@@ -328,7 +429,7 @@
+ 
+ 	signal(SIGPIPE, SIG_IGN);
+ 
+-	while ((ch = getopt(argc, argv, "ufcs:l:r:F:p:S:P:h:m:o:")) != -1) {
++	while ((ch = getopt(argc, argv, "ufcs:l:r:F:p:S:P:h:i:m:o:")) != -1) {
+ 		switch (ch) {
+ 		case 'u':
+ 			log_udp = 1;
+@@ -365,6 +466,9 @@
+ 			hostname = optarg;
+ 			break;
+ /* zhouke add for hos-r21 support filter according to module and priority */
++		case 'i':
++			log_ifname = optarg;
++            break;
+ 		case 'm':
+ 			log_module = optarg;
+ 			break;

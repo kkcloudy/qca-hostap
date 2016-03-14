@@ -103,7 +103,7 @@ start_service_remote()
 	[ -z "${log_ip}" ] && return
 
 	procd_open_instance
-	procd_set_param command "$PROG" -f -r "$log_ip" "${log_port}" -p "$pid_file"
+	procd_set_param command "$PROG" -f -r "$log_ip" "${log_port}" -p "$pid_file" -i br-wan
 	[ "${log_proto}" != "udp" ] || procd_append_param command -u
 	[ -z "${log_prefix}" ] || procd_append_param command -P "${log_prefix}"
 	[ -n "${log_module}" ] && procd_append_param command -m "$log_module"
