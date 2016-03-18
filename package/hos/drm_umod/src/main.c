@@ -22,7 +22,8 @@
 
 #define DRM_NETLINK 23
 #define DRM_APURLLEN 128
-#define DRM_SHOWCFGURL "/user/sbin/showurlinfo | awk -F '.' '{for(i=1;i<=NF;i++) printf(""%s%d"",$i,length($i))}'"
+
+#define DRM_SHOWCFGURL "showurlinfo | awk -F '.' '{ for(i=1;i<=NF;i++) printf(\"%s%d\",$i,length($i)) }'"
 
 unsigned char drm_debug_level = 3;
 
