@@ -19,14 +19,14 @@
 #define KDRM_OFF              1
 #define KDRM_UDP_PROTOCOL     17
 #define DRM_DNS_PROTOCOL      53
-#define APURLLEN              128
+#define DRM_APURLLEN          128
 
 DEFINE_SPINLOCK(drm_lock);
 
 static int g_drmpid = -1;
 static int kdrm_switch = KDRM_ON;
 static struct sock *kdrm_sockfd = NULL;
-char g_ap_mgmt_url[APURLLEN];
+char g_ap_mgmt_url[DRM_APURLLEN];
 
 extern void (*kdrm_filter_packet_cb)(struct sk_buff *skb);
 
@@ -157,7 +157,7 @@ static void kdrm_receive_skb(struct sk_buff  *skb)
         
         ap_mgmt_url = nlmsg_data(nlmhdr);
         spin_lock(&drm_lock);
-        memcpy(g_ap_mgmt_url, ap_mgmt_url, APURLLEN);
+        memcpy(g_ap_mgmt_url, ap_mgmt_url, DRM_APURLLEN);
         printk(KERN_DEBUG "[drm kmod]: kdrm_receive_skb %s\r\n", g_ap_mgmt_url);
         spin_unlock(&drm_lock);
     }
@@ -299,7 +299,7 @@ static int __init kdrm_init(void)
         return -1;
     }
     
-    kdrm_sockfd = netlink_kernel_create(&init_net, NETLINK_DRM, &cfg);
+    kdrm_sockfd = netlink_kernel_create(&init_net, DRM_NETLINK, &cfg);
     if (NULL == kdrm_sockfd)
     {
         kdrm_switch_exit();

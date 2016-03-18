@@ -8,50 +8,27 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/types.h>  
+#include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netinet/udp.h>
-#include <arpa/inet.h>
 #include <netinet/if_ether.h>
+#include <arpa/inet.h>
+#include <net/if.h> 
+#include <unistd.h>
 #include <linux/ip.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <asm/types.h>
+#include <linux/sockios.h>
 #include <linux/netlink.h>
 #include <linux/socket.h>
+#include <asm/types.h>
 #include <malloc.h>
 
 #include "drm_parse.h"
 #include "drm_debug.h"
-/*
-struct iphdr {
-#if defined(__LITTLE_ENDIAN_BITFIELD)
-	__u8	ihl:4,
-		version:4;
-#elif defined (__BIG_ENDIAN_BITFIELD)
-	__u8	version:4,
-  		ihl:4;
-#else
-#error	"Please fix <asm/byteorder.h>"
-#endif
-	__u8	tos;
-	__be16	tot_len;
-	__be16	id;
-	__be16	frag_off;
-	__u8	ttl;
-	__u8	protocol;
-	__u16	check;
-	__be32	saddr;
-	__be32	daddr;
-};
-struct udphdr {
-	__u16	source;
-	__u16	dest;
-	__u16	len;
-	__u16	check;
-};
-*/
+
+/* ap mgmt interface */
+#define DRMMGMTINTER   "br-wan"
 
 /******************************************************************************
   Function Name    : checksum
@@ -216,7 +193,7 @@ static void drm_send_response(unsigned char *buffer, int buffer_size, struct iph
     }
     else
     {
-        drm_debug_error("[DRM]: send dns response sucess");
+        drm_debug_trace("[DRM]: send dns response sucess");
     }
 
     close(sock);
@@ -270,6 +247,50 @@ static void drm_assemble_response_udp(struct udphdr *response_udp, int response_
 }
 
 /******************************************************************************
+  Function Name    : drm_get_mgmt_ip
+  Author           : lhc
+  Date             : 20160302
+  Description      : drm get mgmt ip
+  Param            : void
+  return Code      : mgmt ip = 0   fail
+                            != 0   success
+******************************************************************************/
+static unsigned int drm_get_mgmt_ip()
+{    
+    int mgmt_ip_sock = -1;
+    unsigned int mgmt_ip = 0;
+    struct sockaddr_in *sin;
+    struct ifreq ifr_ip;
+
+    /* creat socket */
+    mgmt_ip_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (mgmt_ip_sock < 0)
+    {  
+         drm_debug_error("[DRM]: creat sock for get mgmt ip fail");
+         return 0;
+    }
+    
+    memset(&ifr_ip, 0, sizeof(ifr_ip));
+    strncpy(ifr_ip.ifr_name, DRMMGMTINTER, sizeof(ifr_ip.ifr_name) - 1);
+
+    /* get ip */
+    if (ioctl(mgmt_ip_sock, SIOCGIFADDR, &ifr_ip) < 0)
+    {
+        drm_debug_error("[DRM]: ioctl get mgmt ip fail");
+    }
+    else
+    {
+        sin = (struct sockaddr_in *)&ifr_ip.ifr_addr;
+        mgmt_ip = (sin->sin_addr).s_addr;
+        drm_debug_error("[DRM]: ioctl get local ip %s", inet_ntoa(sin->sin_addr));
+    }
+    
+    close(mgmt_ip_sock);
+      
+    return mgmt_ip;
+}
+
+/******************************************************************************
   Function Name    : drm_assemble_response_dns
   Author           : lhc
   Date             : 20160302
@@ -277,9 +298,11 @@ static void drm_assemble_response_udp(struct udphdr *response_udp, int response_
   Param            : unsigned char *response_dns    dns response packet 
                      unsigned char *query_dns       dns query packet
                      int query_dns_len              query packet dns part len
+                     unsigned int drm_mgmt_ip       mgmt ip
   return Code      :
 ******************************************************************************/
-static void drm_assemble_response_dns(unsigned char *response_dns, unsigned char *query_dns, int query_dns_len)
+static void drm_assemble_response_dns(unsigned char *response_dns, unsigned char *query_dns, 
+                                        int query_dns_len, unsigned int drm_mgmt_ip)
 {
     struct dnsmsghead dnsmsg_head;
     struct dnsmsganswear dnsmsg_answear;
@@ -305,7 +328,7 @@ static void drm_assemble_response_dns(unsigned char *response_dns, unsigned char
     dnsmsg_answear.time1 = 0;
     dnsmsg_answear.time2 = 0x018b;
     dnsmsg_answear.datelen = 0x0004;
-    dnsmsg_answear.addr = 0x707c0ba3;
+    dnsmsg_answear.addr = drm_mgmt_ip;
 
     memcpy(response_dns, &dnsmsg_head, sizeof(dnsmsg_head));
     memcpy(response_dns + sizeof(dnsmsg_head), dnsmsg_queries, dnsmsg_queries_len);
@@ -334,12 +357,22 @@ static void drm_reply_qurery(const void *packet)
     unsigned char *response_buf = NULL;
     int response_dns_len = 0;
     int response_buf_len = 0;
+    unsigned int drm_mgmt_ip = 0;
     
     if (NULL == packet)
     {
+        drm_debug_error("[DRM]: dns qurery packet NULL");
         return;
     }
 
+    /* get mgmt ip */
+    drm_mgmt_ip = drm_get_mgmt_ip();
+    if (0 == drm_mgmt_ip)
+    {
+        drm_debug_error("[DRM]: get mgmt ip fail");
+        return;
+    }
+    
     /* parse query */
     query_ip = (struct iphdr *)(packet);
     query_udp = (struct udphdr *)(packet + sizeof(struct iphdr));
@@ -353,7 +386,7 @@ static void drm_reply_qurery(const void *packet)
     response_buf = malloc(response_buf_len);
     if (NULL == response_buf)
     {
-        drm_debug_error("[DRM]: unable to allocate memory for buf");
+        drm_debug_error("[DRM]: alloc memory for dns response fail");
         return;
     }
     memset(response_buf, 0, response_buf_len);
@@ -368,7 +401,7 @@ static void drm_reply_qurery(const void *packet)
 
     /* assemble response udp */
     response_dns = response_buf + sizeof(struct iphdr) + sizeof(struct udphdr);
-    drm_assemble_response_dns(response_dns, query_dns, query_dns_len);
+    drm_assemble_response_dns(response_dns, query_dns, query_dns_len, drm_mgmt_ip);
 
     /* CheckSum response */
     CalculateCheckSum(response_ip, response_udp, response_dns, response_dns_len);
@@ -401,12 +434,10 @@ void Drm_recvmsg_form_kernel(int socketfd)
     ret = recvfrom(socketfd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &len);
     if (ret < 0 || ret >= sizeof(buf))
     {
-        drm_debug_error("[DRM]: recv msg from drm_kmod error");
+        drm_debug_error("[DRM]: recv msg from drm_kmod fail");
 
         return;
     }
-
-    drm_debug_trace("[DRM]: recv msg from drm_kmod success");
 
     /* reply qurery */
     drm_reply_qurery(buf + sizeof(struct nlmsghdr));
