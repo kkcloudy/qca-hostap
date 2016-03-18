@@ -438,6 +438,8 @@ void Drm_recvmsg_form_kernel(int socketfd)
 
         return;
     }
+    
+    drm_debug_trace("[DRM]: recv msg from drm_kmod success");
 
     /* reply qurery */
     drm_reply_qurery(buf + sizeof(struct nlmsghdr));
