@@ -299,7 +299,7 @@ static int __init kdrm_init(void)
         return -1;
     }
     
-    kdrm_sockfd = netlink_kernel_create(&init_net, DRM_NETLINK, &cfg);
+    kdrm_sockfd = netlink_kernel_create(&init_net, NETLINK_DRM, &cfg);
     if (NULL == kdrm_sockfd)
     {
         kdrm_switch_exit();
