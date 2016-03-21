@@ -28,35 +28,6 @@
 
 unsigned char drm_debug_level = 3;
 
-static void replace_domain(char *domain)
-{
-    unsigned char i, l, n;
-    unsigned char *q = domain;
-    char *dn = domain2;
-    char *p = domain2;
-
-    l=0;
-    i=0;
-    n=0;
-    for (;;) {
-        if (*p && (*p != '.')) {
-            l++;
-            p++;
-        } else {
-            domain[n] = l;
-            n++;
-            for(i=0; i < l; i++) {
-                domain[n] = dn[n-1];
-                n++;
-            }
-            l = 0;
-            p++;
-            if (*p == '\0') break;
-        }
-    }
-    domain[n] = (unsigned char)0;
-    return n+1;
-}
 /******************************************************************************
   Function Name    : DRM_cfg_load
   Author           : lhc
@@ -85,7 +56,6 @@ static int DRM_cfg_load(char *ap_mgmt_url)
     /* get url */
     if (NULL != fgets(tmp_url, DRM_APURLLEN, url_file)) 
     {
-        replace_domain(tmp_url);
         memcpy(ap_mgmt_url, tmp_url, DRM_APURLLEN);
         ret = 0;
 
