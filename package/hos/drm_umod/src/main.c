@@ -20,13 +20,57 @@
 #include "drm_parse.h"
 #include "drm_debug.h"
 
-#define DRM_NETLINK 23
+#define NETLINK_DRM 23
 #define DRM_APURLLEN 128
-
-//#define DRM_SHOWCFGURL "showurlinfo | awk -F '.' '{ for(i=1;i<=NF;i++) printf(\"%s%d\",$i,length($i)) }'"
 #define DRM_SHOWCFGURL "showurlinfo"
 
 unsigned char drm_debug_level = 3;
+
+/******************************************************************************
+  Function Name    : replace_domain
+  Author           : lhc
+  Date             : 20160302
+  Description      : replace domain
+  Param            : char *output_url            output url
+                     char *input_url             input url
+  return Code      : ret = 0   success 
+                     ret != 0  fail
+******************************************************************************/
+static int replace_domain(char *buf_output, char *buf_input)
+{
+    char *token = NULL;
+    int buf_len = 0;
+    int tmp_len = 0;
+    int tmp_flag = 0;
+
+    /* rm \n */
+    buf_len = strlen(buf_input);
+    if ('\n' == buf_input[buf_len - 1])
+    {
+        buf_input[buf_len - 1] = 0;
+    }
+
+    /* replace domain */
+    token = strtok(buf_input, ".");
+    if (NULL == token)
+    {
+        drm_debug_error("[DRM]: replace url info fail");
+        return -1;
+    }
+    
+    while (NULL != token)
+    {
+        tmp_len = strlen(token);
+        buf_output[tmp_flag] = (char)tmp_len;
+        tmp_flag++;
+        memcpy(buf_output + tmp_flag, token, tmp_len);
+        tmp_flag += tmp_len;
+        
+        token = strtok(NULL, ".");
+    }
+    
+    return 0;
+}
 
 /******************************************************************************
   Function Name    : DRM_cfg_load
@@ -54,18 +98,29 @@ static int DRM_cfg_load(char *ap_mgmt_url)
     }
 
     /* get url */
-    if (NULL != fgets(tmp_url, DRM_APURLLEN, url_file)) 
-    {
-        memcpy(ap_mgmt_url, tmp_url, DRM_APURLLEN);
-        ret = 0;
-
-        drm_debug_error("[DRM]: load url info %s\n", tmp_url);
-    }
-    else
+    if (NULL == fgets(tmp_url, DRM_APURLLEN, url_file)) 
     {
         drm_debug_error("[DRM]: load url info fail");
+        pclose(url_file);
+        return -1;
     }
-    
+
+    /* replace url */
+    ret = replace_domain(ap_mgmt_url, tmp_url);
+    if (0 == ret)
+    {
+        /*
+        int i;
+        for (i=0; i<DRM_APURLLEN; i++)
+        {
+            printf("%d ", ap_mgmt_url[i], ap_mgmt_url[i]);
+            if (i%10==0)
+            printf("\n");
+        }
+        */
+        drm_debug_error("[DRM]: load url info %s len %d\n", ap_mgmt_url, strlen(ap_mgmt_url));
+    }
+
     /* close pipe */
     pclose(url_file);
 
@@ -97,7 +152,7 @@ int main(int argc, char **argv)
     }
     
     /* creat socket */
-    netlink_sock = socket(PF_NETLINK, SOCK_RAW, DRM_NETLINK);
+    netlink_sock = socket(PF_NETLINK, SOCK_RAW, NETLINK_DRM);
 	if (netlink_sock < 0)
 	{
 	    drm_debug_error("[DRM]: creat netlink socket failed");
