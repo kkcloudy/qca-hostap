@@ -114,31 +114,31 @@ define Package/hos-partool/compile
 		LDFLAGS="$(TARGET_LDFLAGS)"
 endef
 ####################################################################
-define Package/hos-um
+define Package/hos-cfpd
   SECTION:=apps
   CATEGORY:=hos-app
   TITLE:=HOS Basic App
   DEPENDS:=+libubacktrace +libhos-appkey +libuci +libubus +libubox +libblobmsg-json +libpthread
 endef
 
-define Package/hos-um/install
+define Package/hos-cfpd/install
 	$(Package/hos-app/install/common)
-	$(INSTALL_DIR) $(1)/$(BACKTRACE_PATH)/um/
+	$(INSTALL_DIR) $(1)/$(BACKTRACE_PATH)/cfpd/
 	$(INSTALL_DIR) $(1)/etc/init.d
 
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/um/um $(1)/usr/bin
-	$(INSTALL_BIN) ./files/um $(1)/etc/init.d
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/um/um.key $(1)/$(APPKEY_PATH)/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cfpd/cfpd $(1)/usr/bin
+	$(INSTALL_BIN) ./files/cfpd $(1)/etc/init.d
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/cfpd/um.key $(1)/$(APPKEY_PATH)/
 endef
 
-define Package/hos-um/compile
-	$(MAKE) -C $(PKG_BUILD_DIR)/um \
+define Package/hos-cfpd/compile
+	$(MAKE) -C $(PKG_BUILD_DIR)/cfpd \
 		CC="$(TARGET_CC)" \
 		CFLAGS=" \
 			$(TARGET_CFLAGS) \
 			$(TARGET_CPPFLAGS) \
-			-D__THIS_NAME=\\\"um\\\" \
-			-D__AKID_DEBUG=__um_debug \
+			-D__THIS_NAME=\\\"cfpd\\\" \
+			-D__AKID_DEBUG=__cfpd_debug \
 			" \
 		LDFLAGS="$(TARGET_LDFLAGS)"
 endef
@@ -177,13 +177,13 @@ define Build/Compile
 	$(Package/hos-btt/compile)
 	$(Package/hos-appkey/compile)
 	$(Package/hos-partool/compile)
-	$(Package/hos-um/compile)
+	$(Package/hos-cfpd/compile)
 	$(Package/hos-tam/compile)
 endef
 ####################################################################
 $(eval $(call BuildPackage,hos-btt))
 $(eval $(call BuildPackage,hos-appkey))
 $(eval $(call BuildPackage,hos-partool))
-$(eval $(call BuildPackage,hos-um))
+$(eval $(call BuildPackage,hos-cfpd))
 $(eval $(call BuildPackage,hos-tam))
 

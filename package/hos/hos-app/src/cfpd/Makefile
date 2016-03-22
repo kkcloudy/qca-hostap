@@ -1,6 +1,6 @@
 
 OBJS=um.o user.o l2user.o l3user.o uci.o ubus.o tid.o um_delay.o
-__TARGET=um
+__TARGET=cfpd
 TARGET=$(__TARGET)
 LIBS_DEPEND=-lubacktrace -lhos-appkey -luci -lubus -lubox -lblobmsg_json -lpthread
 
