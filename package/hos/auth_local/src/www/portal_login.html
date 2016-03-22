@@ -1,0 +1,228 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=gb2312" />
+<META   HTTP-EQUIV=\"pragma\"   CONTENT=\"no-cache\">
+<META   HTTP-EQUIV=\"Cache-Control\"   CONTENT=\"no-cache,   must-revalidate\">
+<META   HTTP-EQUIV=\"expires\"   CONTENT=\"Wed,   26   Feb   1997   08:21:57   GMT\">
+<title></title>
+
+<style><!--
+    body,td,a,p,h{
+        font-family:arial,sans-serif;
+    }
+    body {
+        text-align: center;
+        padding-top: 0px;
+        margin: auto;
+        width: 500px;
+    }
+    td{
+    	text-align:left;
+    	padding: 10px;
+    }
+    
+    #locationName {
+        height: 50px;
+        font-size: 120%;
+        font-weight: bold;
+    }
+    #eagPage {
+        border: 0px solid orange;
+        padding: 0px;
+        margin-top: 0px;
+        width: 500px;
+    }
+    #logonPage {
+    	width: 500px;
+    	border: 0px solid orange;
+    	margin: 0px;
+    	padding: 0px;
+    	background: #C0E0FF;
+    }
+    #logonTable {
+		width:100%;
+		border: 0px solid orange;
+		border-spacing: 0px;
+		border-collapse: 0px;
+    }
+    #logomessage{
+    	text-align:left;
+    	padding-left:20px;
+    	padding-bottom:20px;
+    	font-family:Arial;
+    	font-size:40px;
+    	font-weight:bold;   	
+    	color:#0D5E87;
+    }
+    #usernameLabel{
+    	width:220px;
+    	text-align:right;
+    	padding-right:20px;
+     	font-family:Arial;
+    	font-weight:bold;
+    	color:#0D5E87;
+    }
+    #passwordLabel{
+    	text-align:right;
+    	padding-right:20px;
+    	font-family:Arial;
+    	font-weight:bold;
+    	color:#0D5E87;
+    }
+    .colorlight {
+    	//background: #C0E0FF;
+    	background: #C0E0FF;
+    }
+    .colordeep{
+    	background: #C0E0FF;
+    }
+    .Button{
+    	text-align:center;
+    	font-family:Arial;
+    	font-weight:bold;
+    	background: #2783DF;
+    	color:#FFF;
+    	border-color:#2783DF;
+    }
+    .eagLabel{
+    	text-align:left;
+    	font-family:Arial;
+    	font-weight:bold;
+    }
+    .eagValue{
+    	text-align:left;
+    	font-family:Arial;
+    }
+    #statusTable{
+		width:100%;
+		border: 0px solid orange;
+		border-spacing: 0px;
+    }
+    #signUpRow {
+        display: none;
+    }
+	#copyright{
+		display: none;
+	}
+	
+	b.rtop, b.rbottom, b.rtop2{display:block;}
+	b.rtop b, b.rbottom b,b.rtop2 b{display:block;height: 1px;overflow: hidden}
+	b.rtop b{background: #C0E0FF}
+	b.rtop2 b{background: #C0E0FF}
+	b.rbottom b{background: #C0E0FF}
+	b.r1{margin: 0 5px}
+	b.r2{margin: 0 3px}
+	b.r3{margin: 0 2px}
+	b.rtop b.r4, b.rbottom b.r4{margin: 0 1px;height: 2px}
+
+
+    
+-->
+</style>
+
+<script language="javascript">
+
+function Reset()
+{
+	document.getElementById("a_name").value = "";
+	document.getElementById("a_pass").value = "";
+	document.getElementById("submit").disabled=false;
+	document.getElementById("submit").style.backgroundColor='#2783DF';
+}
+
+function onformsubmit(obj)
+{
+	if(document.getElementById("a_name").value == "" || document.getElementById("a_pass").value == "")
+	{
+		alert("please fill correct name and password!");
+		return false;
+	}
+	else
+	{
+		obj.submit.disabled=true;
+		obj.submit.style.backgroundColor='ccc';
+		return true;
+	}
+}
+
+</script>
+
+
+</head>
+
+<body style="background-color:#DFF0F8">
+
+<!--logon-->
+<div id="logonPage">
+	<b class="rtop"><b class="r1"></b><b class="r2"></b> <b class="r3"></b><b class="r4"></b></b>
+	<table id="logonTable" border="0">
+	<form name="loginForm" id="loginForm" action="http://instant.alcatel-lucentnetworks.com:8080/cgi-bin/wp_eag_portal_login.cgi" method="POST" onsubmit="return onformsubmit(this);" >
+		<tr class="colorlight">
+			<td colspan="2" id="logomessage">EAG</td>
+		</tr>
+  	
+  		<tr class="colorlight">
+			<td id="usernameLabel">账号 Account:</td>
+			<td><input type="text" name="a_name" id="username" size="16"/></td>
+		</tr>
+
+		<tr class="colordeep">
+			<td id="passwordLabel">密码 Password:</td>
+			<td><input type="password" name="a_pass" id="password" size="16"/></td>
+		</tr>
+
+		<tr class="colordeep">
+			<td style="text-align:right;"><input class=Button type="submit" id="submit" name="submit" value="登录 Login" /></td>
+			<td><input class=Button type="button" value="重置 Reset" onClick="Reset();"/></td>
+		</tr>
+		<input type="hidden" name="op_auth" value="login">
+		<input type="hidden" name="suc_url" value="http://instant.alcatel-lucentnetworks.com:8080/portal_auth_suc.html">
+		<input type="hidden" name="fail_url" value="http://instant.alcatel-lucentnetworks.com:8080/portal_auth_fail.html">
+	</form>
+	</table>
+	<b class="rbottom"><b class="r4"></b><b class="r3"></b><b class="r2"></b><b class="r1"></b></b>
+</div>
+
+<!--status-->
+<div id="statusPage" style="display:none;">
+	<b class="rtop2"><b class="r1"></b><b class="r2"></b> <b class="r3"></b><b class="r4"></b></b>
+	<table border="0" id="statusTable" style="padding-top:0px;font-size:70%">
+		<tr id="connectRow" class="colordeep">
+			<td><span id="statusMessage"><b>Connected</b></span></td>
+			<td><a href="#" onClick="return disconnect();">logout</a></td>
+		</tr>
+		<tr id="sessionIdRow" class="colordeep">
+			<td id="sessionIdLabel" class="eagLabel"><b>Session ID</b></td>
+			<td id="sessionId" class="eagValue">Not available</td>
+		</tr>
+		<tr id="sessionTimeoutRow" class="colordeep">
+			<td id="sessionTimeoutLabel" class="eagLabel"><b>Max Session Time</b></td>
+			<td id="sessionTimeout" class="eagValue">Not available</td>
+		</tr>
+		<tr id="idleTimeoutRow" class="colordeep">
+			<td id="idleTimeoutLabel" class="eagLabel"><b>Max Idle Time</b></td>
+			<td id="idleTimeout" class="eagValue">Not available</td>
+		</tr>
+		<tr id="startTimeRow" class="colordeep">
+			<td id="startTimeLabel" class="eagLabel"><b>Start Time</b></td>
+			<td id="startTime" class="eagValue">Not available</td>
+		</tr>
+		<tr id="sessionTimeRow" class="colordeep">
+			<td id="sessionTimeLabel" class="eagLabel"><b>Session Time</b></td>
+			<td id="sessionTime" class="eagValue">Not available</td>
+		</tr>
+		<tr id="originalURLRow" class="colordeep">
+			<td id="originalURLLabel" class="eagValueLabel"><b>Original URL</b></td>
+			<td id="originalURL" class="eagValue">N/A</td>
+		</tr>
+	</table>
+	<b class="rbottom"><b class="r4"></b><b class="r3"></b><b class="r2"></b><b class="r1"></b></b>
+</div>
+
+
+
+
+</body>
+
+</html>

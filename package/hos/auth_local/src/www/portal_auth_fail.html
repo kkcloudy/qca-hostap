@@ -1,0 +1,48 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=gb2312" />
+<META   HTTP-EQUIV=\"pragma\"   CONTENT=\"no-cache\">
+<META   HTTP-EQUIV=\"Cache-Control\"   CONTENT=\"no-cache,   must-revalidate\">
+<META   HTTP-EQUIV=\"expires\"   CONTENT=\"Wed,   26   Feb   1997   08:21:57   GMT\">
+<title></title>
+<style>
+body,td{
+        font-family:arial,sans-serif;
+    }
+    td{
+    padding-left:20px;
+    padding-bottom:20px;
+    font-size:20
+    }
+    body,failform {
+        text-align: center;
+        padding-top: 0px;
+        margin: auto;
+        width: 500px;
+    }
+</style>
+<script language="javascript">
+function Close()
+{
+	window.opener=null;     
+	window.open("","_self");     
+	window.close();  
+}
+</script>
+</head>
+
+<boby>
+<table border="0"  cellpadding="0" cellspacing="0" >
+<form name="failform" id="failform" action="http://instant.alcatel-lucentnetworks.com:8080/portal_login.html">
+  <tr>
+    <td height="50" colspan=2>Name or password is wrong,please check it!</td>
+  </tr>
+   <tr align="center">
+    <td><input type="submit" name=return value="返回" size="16" ></td>
+    <td><input type="button" name=ok value="关闭" size="16" onclick="Close();"></td>
+  </tr>
+  </form>
+</table>
+</boby>
+</html>

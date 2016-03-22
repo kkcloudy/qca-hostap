@@ -1,0 +1,135 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=gb2312" />
+<META   HTTP-EQUIV=\"pragma\"   CONTENT=\"no-cache\">
+<META   HTTP-EQUIV=\"Cache-Control\"   CONTENT=\"no-cache,   must-revalidate\">
+<META   HTTP-EQUIV=\"expires\"   CONTENT=\"Wed,   26   Feb   1997   08:21:57   GMT\">
+<title>testSuc</title>
+
+<style>
+		body,td,a,p,h{
+        font-family:arial,sans-serif;
+    }
+    body {
+        text-align: center;
+        padding-top: 0px;
+        margin: auto;
+        width: 500px;
+    }
+    #authStatusPage {
+      align: center
+    	width: 200px;
+    	border: 0px solid orange;
+    	margin: 0px;
+    	padding: 0px;
+    	background: #C0E0FF;
+    }
+</style>
+
+<script language="javascript">
+setInterval("dytime()",1000);
+var oldtime=new Date();
+function dytime(){
+var nowtime=new Date();
+onlinetime=nowtime.getTime()-oldtime.getTime();
+//getTime():返回自1970年1月1日0时0分0秒起,至Date实例初始化为止的毫秒数
+onlinetime=onlinetime/1000;
+hh = parseInt(onlinetime/3600);
+mm = parseInt((onlinetime-3600*hh)/60);
+ss = parseInt(onlinetime%60);
+if(mm<10)
+hh="0"+hh;
+
+if(mm<10)
+mm="0"+mm;
+
+if(ss<10)
+ss="0"+ss;
+document.getElementById("ptime").innerHTML="在线时长"+"<font color=#ff0000>"+hh+"</font>时"+"<font color=#ff0000>"+mm+"</font>分"+"<font color=#ff0000>"+ss+"</font>秒";
+}
+
+
+function ButtonSubmit(thisform)
+{
+  	if( confirm("请确认下线！") )
+	  { 
+	    window.opener=null;     
+			window.open("","_self");
+			window.close();
+	  }
+		
+	  return true;
+}
+
+
+function onbeforeunload_ex()
+{
+		//return '该操作可能造成您的帐号非正常下线或无法下线,如需下线请点击页面中“下线”按钮';	
+      
+      var   n   =   window.event.screenX   -   window.screenLeft;      
+      var   b   =   n   >   document.documentElement.scrollWidth-20;      
+      if(b   &&   window.event.clientY   <   0   ||   window.event.altKey)      
+      {      
+          //alert("是关闭而非刷新");      
+          window.event.returnValue   =   '该操作可能造成您的帐号非正常下线或无法下线,如需下线请点击页面中“下线”按钮';
+      }else{
+      			// window.event.returnValue   =   '该操作可能造成您的帐号非正常下线或无法下线,如需下线请点击页面中“下线”按钮';
+             //alert("是刷新而非关闭");
+     }      
+
+
+}
+window.onbeforeunload=onbeforeunload_ex;
+
+
+/*屏蔽键盘操作*/
+function KeyDown()
+{
+
+	if ((event.keyCode ==   8)||            //屏蔽退格删除键
+		(event.keyCode == 114)||
+		(event.keyCode == 116)||			//屏蔽 F5 刷新键
+		(event.keyCode == 122)) 			//屏蔽 F12 刷新键
+		{
+			event.keyCode=0;
+			event.returnValue=false;
+		}
+
+	 
+	if ((window.event.altKey)&& ((window.event.keyCode==37)||(window.event.keyCode==39))) // 屏蔽 Alt + -> 和 Alt+ <-
+	{
+		event.returnValue=false;
+	}
+
+	if (window.event.ctrlKey ||(event.shiftKey)&&(event.keyCode==121)) //屏蔽 Ctrl 键 和 shift+F10
+	{
+		event.returnValue=false;
+	}
+
+}
+
+function comfirm_leave()
+{
+	return confirm("are you sure to leave now?");
+}
+
+</script>
+
+</head>
+<body style="background-color:#DFF0F8" onKeyDown="KeyDown()">
+<div id=authStatusPage>
+<center>Welcome!you have been authenticated!</center>
+<p id=ptime align="center" style=></p>
+<table width="50%" border="1" cellspacing="0" cellpadding="0">
+<form name="logoutForm" id="logoutForm" action="http://instant.alcatel-lucentnetworks.com:8080/cgi-bin/wp_eag_portal_login.cgi" method="POST">
+      <tr align="center">
+        <td height="43" ><strong>如果下线，请点击下线按钮</strong></td>
+      </tr>
+      <tr>
+        <td align="center"><a id=link href="http://instant.alcatel-lucentnetworks.com:8080/cgi-bin/wp_eag_portal_login.cgi?op_auth=logout&suc_url=http://instant.alcatel-lucentnetworks.com:8080/portal_login.html&fail_url=http://instant.alcatel-lucentnetworks.com:8080/portal_auth_suc.html" onclick="comfirm_leave">下线</a></td>
+      </tr>
+      <!--<input type="hidden" name="op_auth" value="logout"> -->
+</form>
+</body>
+</div>
+</html>
