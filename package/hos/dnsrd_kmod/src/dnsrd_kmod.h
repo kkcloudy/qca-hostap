@@ -1,12 +1,12 @@
 /******************************************************************************
-  File Name    : drm_kmod.h
+  File Name    : dnsrd_kmod.h
   Author       : lhc
   Date         : 20160302
-  Description  : drm_kmod.c
+  Description  : dnsrd_kmod.c
 ******************************************************************************/
 
-#ifndef _KERNEL_DRM_PARSE_H_
-#define _KERNEL_DRM_PARSE_H_
+#ifndef _KERNEL_DNSRD_KMOD_H_
+#define _KERNEL_DNSRD_KMOD_H_
 
 struct udpstruct {
     unsigned short srcport;

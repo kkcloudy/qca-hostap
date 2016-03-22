@@ -1,12 +1,12 @@
 /******************************************************************************
-  File Name    : drm_phase.h
+  File Name    : dnsrd_parse.h
   Author       : lhc
   Date         : 20160302
-  Description  : drm_phase.c
+  Description  : dnsrd_parse.c
 ******************************************************************************/
 
-#ifndef _DRM_PARSE_H_
-#define _DRM_PARSE_H_
+#ifndef _DNSRD_PARSE_H_
+#define _DNSRD_PARSE_H_
 
 struct dnsmsghead {
     unsigned short transid;

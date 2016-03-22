@@ -1,5 +1,5 @@
 /******************************************************************************
-  File Name    : drm_phase.c
+  File Name    : dnsrd_parse.c
   Author       : lhc
   Date         : 20160302
   Description  : proc msg

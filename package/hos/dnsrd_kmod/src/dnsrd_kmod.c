@@ -1,5 +1,5 @@
 /******************************************************************************
-  File Name    : drm_kmod.c
+  File Name    : dnsrd_kmod.c
   Author       : lhc
   Date         : 20160302
   Description  : kernel proc msg

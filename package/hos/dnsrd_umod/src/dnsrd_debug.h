@@ -1,12 +1,12 @@
 /******************************************************************************
-  File Name    : drm_dbug.h
+  File Name    : dnsrd_debug.h
   Author       : lhc
   Date         : 20160302
   Description  : debug
 ******************************************************************************/
 
-#ifndef _DRM_DEBUG_H_
-#define _DRM_DEBUG_H_
+#ifndef _DNSRD_DEBUG_H_
+#define _DNSRD_DEBUG_H_
 
 #include <syslog.h>
 
