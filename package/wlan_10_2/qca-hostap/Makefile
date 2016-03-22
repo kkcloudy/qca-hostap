@@ -35,7 +35,7 @@ endef
 define Package/qca-hostap
   $(call Package/qca-hostap/Default)
   TITLE:=Hostap authenticator
-  DEPENDS:=kmod-qca-wifi @(!(PACKAGE_hostapd))
+  DEPENDS:=kmod-qca-wifi @(!(PACKAGE_hostapd)) +libnl +libnl-genl
   VARIANT:=default
 endef
 
@@ -112,7 +112,8 @@ endef
 
 TARGET_CPPFLAGS += \
 	-I$(STAGING_DIR)/usr/include \
-	-I$(STAGING_DIR)/usr/include/qca-nss-macsec
+	-I$(STAGING_DIR)/usr/include/qca-nss-macsec \
+	-I$(STAGING_DIR)/usr/include/libnl3
 
 ifneq ($(LOCAL_TYPE),hostap)
   ifeq ($(LOCAL_VARIANT),macsec)

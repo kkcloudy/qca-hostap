@@ -408,6 +408,8 @@ struct hostapd_bss_config {
 	u16 gas_comeback_delay;
 	int gas_frag_limit;
 
+	int proxy_arp;
+	
 #ifdef CONFIG_INTERWORKING
 	u8 *hs20_venue_name;
 	u8 hs20_venue_name_len;

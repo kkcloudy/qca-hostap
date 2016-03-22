@@ -39,6 +39,11 @@ struct l2_ethhdr {
 #pragma pack(pop)
 #endif /* _MSC_VER */
 
+enum l2_packet_filter_type {
+	L2_PACKET_FILTER_DHCP,
+	L2_PACKET_FILTER_NDISC,
+};
+
 /**
  * l2_packet_init - Initialize l2_packet interface
  * @ifname: Interface name

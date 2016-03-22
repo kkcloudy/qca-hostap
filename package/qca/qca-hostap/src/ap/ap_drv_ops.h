@@ -213,4 +213,45 @@ static inline void hostapd_drv_poll_client(struct hostapd_data *hapd,
 	hapd->driver->poll_client(hapd->drv_priv, own_addr, addr, qos);
 }
 
+static inline int hostapd_drv_br_add_ip_neigh(struct hostapd_data *hapd,
+					      int version, const u8 *ipaddr,
+					      int prefixlen, const u8 *addr)
+{
+	if (hapd->driver == NULL || hapd->drv_priv == NULL ||
+	    hapd->driver->br_add_ip_neigh == NULL)
+		return -1;
+	return hapd->driver->br_add_ip_neigh(hapd->drv_priv, version, ipaddr,
+					     prefixlen, addr);
+}
+
+static inline int hostapd_drv_br_delete_ip_neigh(struct hostapd_data *hapd,
+						 u8 version, const u8 *ipaddr)
+{
+	if (hapd->driver == NULL || hapd->drv_priv == NULL ||
+	    hapd->driver->br_delete_ip_neigh == NULL)
+		return -1;
+	return hapd->driver->br_delete_ip_neigh(hapd->drv_priv, version,
+						ipaddr);
+}
+
+static inline int hostapd_drv_br_port_set_attr(struct hostapd_data *hapd,
+					       enum drv_br_port_attr attr,
+					       unsigned int val)
+{
+	if (hapd->driver == NULL || hapd->drv_priv == NULL ||
+	    hapd->driver->br_port_set_attr == NULL)
+		return -1;
+	return hapd->driver->br_port_set_attr(hapd->drv_priv, attr, val);
+}
+
+static inline int hostapd_drv_br_set_net_param(struct hostapd_data *hapd,
+					       enum drv_br_net_param param,
+					       unsigned int val)
+{
+	if (hapd->driver == NULL || hapd->drv_priv == NULL ||
+	    hapd->driver->br_set_net_param == NULL)
+		return -1;
+	return hapd->driver->br_set_net_param(hapd->drv_priv, param, val);
+}
+
 #endif /* AP_DRV_OPS */

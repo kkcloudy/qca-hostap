@@ -2561,6 +2561,8 @@ static int hostapd_config_fill(struct hostapd_config *conf,
 			os_free(bss->dump_msk_file);
 			bss->dump_msk_file = os_strdup(pos);
 #endif /* CONFIG_RADIUS_TEST */
+		} else if (os_strcmp(buf, "proxy_arp") == 0) {
+			bss->proxy_arp = atoi(pos);
 #ifdef CONFIG_HS20
 		} else if (os_strcmp(buf, "hs20") == 0) {
 			bss->hs20 = atoi(pos);

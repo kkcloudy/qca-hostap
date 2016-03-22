@@ -31,6 +31,7 @@ ifdef CONFIG_NATIVE_WINDOWS
 CFLAGS += -DCONFIG_NATIVE_WINDOWS
 LIBS += -lws2_32
 endif
+DRV_LD_LIBS += -lnl-3 -lnl-genl-3
 
 OBJS += main.o
 OBJS += config_file.o
@@ -779,6 +780,11 @@ OBJS += ../src/common/gas.o
 OBJS += ../src/ap/gas_serv.o
 endif
 
+ifdef CONFIG_PROXYARP
+CFLAGS += -DCONFIG_PROXYARP
+OBJS += ../src/ap/x_snoop.o
+OBJS += ../src/ap/dhcp_snoop.o
+endif
 OBJS += ../src/drivers/driver_common.o
 
 ifdef CONFIG_WPA_CLI_EDIT
@@ -838,7 +844,7 @@ install: all
 BCHECK=../src/drivers/build.hostapd
 
 hostapd: $(BCHECK) $(OBJS)
-	$(Q)$(CC) $(LDFLAGS) -o hostapd $(OBJS) $(LIBS)
+	$(Q)$(CC) $(LDFLAGS) -o hostapd $(OBJS) $(LIBS) $(DRV_LD_LIBS)
 	@$(E) "  LD " $@
 
 ifdef CONFIG_WPA_TRACE

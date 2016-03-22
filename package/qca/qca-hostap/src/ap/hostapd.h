@@ -186,6 +186,9 @@ struct hostapd_data {
 	u16 cellular_network_delay;
 	u16 domain_name_list_delay;
 #endif /* CONFIG_INTERWORKING */
+#ifdef CONFIG_PROXYARP
+	struct l2_packet_data *sock_dhcp;
+#endif /* CONFIG_PROXYARP */
 #ifdef CONFIG_HS20
 	u16 operator_friendly_name_delay;
 	u16 wan_metrics_delay;

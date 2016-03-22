@@ -32,6 +32,8 @@
 #include "ap_config.h"
 #include "p2p_hostapd.h"
 #include "gas_serv.h"
+#include "x_snoop.h"
+#include "dhcp_snoop.h"
 
 
 static int hostapd_flush_old_stations(struct hostapd_data *hapd, u16 reason);
@@ -272,6 +274,8 @@ static void hostapd_free_hapd_data(struct hostapd_data *hapd)
 #ifdef CONFIG_INTERWORKING
 	gas_serv_deinit(hapd);
 #endif /* CONFIG_INTERWORKING */
+	dhcp_snoop_deinit(hapd);
+	x_snoop_deinit(hapd);
 }
 
 
@@ -771,6 +775,22 @@ static int hostapd_setup_bss(struct hostapd_data *hapd, int first)
 	}
 #endif /* CONFIG_INTERWORKING */
 
+	/*
+	if (conf->proxy_arp) {
+	*/
+	if (1){
+		if (x_snoop_init(hapd)) {
+			wpa_printf(MSG_ERROR,
+				   "Generic snooping infrastructure initialization failed");
+			return -1;
+		}
+
+		if (dhcp_snoop_init(hapd)) {
+			wpa_printf(MSG_ERROR,
+				   "DHCP snooping initialization failed");
+			return -1;
+		}
+	}
 	if (hapd->iface->ctrl_iface_init &&
 	    hapd->iface->ctrl_iface_init(hapd)) {
 		wpa_printf(MSG_ERROR, "Failed to setup control interface");

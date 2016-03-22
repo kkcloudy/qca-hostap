@@ -1014,6 +1014,16 @@ struct macsec_init_params {
 };
 #endif /* CONFIG_MACSEC */
 
+enum drv_br_port_attr {
+	DRV_BR_PORT_ATTR_PROXYARP,
+	DRV_BR_PORT_ATTR_HAIRPIN_MODE,
+};
+
+enum drv_br_net_param {
+	DRV_BR_NET_PARAM_GARP_ACCEPT,
+	DRV_BR_MULTICAST_SNOOPING,
+};
+
 
 /**
  * struct wpa_driver_ops - Driver interface API definition
@@ -2432,10 +2442,49 @@ struct wpa_driver_ops {
 			u8 *buf, u16 *buf_len);
 
 	/**
+	 * br_add_ip_neigh - Add a neigh to the bridge ip neigh table
+	 * @priv: Private driver interface data
+	 * @version: IP version of the IP address, 4 or 6
+	 * @ipaddr: IP address for the neigh entry
+	 * @prefixlen: IP address prefix length
+	 * @addr: Corresponding MAC address
+	 * Returns: 0 on success, negative (<0) on failure
+	 */
+	int (*br_add_ip_neigh)(void *priv, u8 version, const u8 *ipaddr,
+			       int prefixlen, const u8 *addr);
+
+	/**
+	 * br_delete_ip_neigh - Remove a neigh from the bridge ip neigh table
+	 * @priv: Private driver interface data
+	 * @version: IP version of the IP address, 4 or 6
+	 * @ipaddr: IP address for the neigh entry
+	 * Returns: 0 on success, negative (<0) on failure
+	 */
+	int (*br_delete_ip_neigh)(void *priv, u8 version, const u8 *ipaddr);
+
+	/**
+	 * br_port_set_attr - Set a bridge port attribute
+	 * @attr: Bridge port attribute to set
+	 * @val: Value to be set
+	 * Returns: 0 on success, negative (<0) on failure
+	 */
+	int (*br_port_set_attr)(void *priv, enum drv_br_port_attr attr,
+				unsigned int val);
+
+	/**
+	 * br_port_set_attr - Set a bridge network parameter
+	 * @param: Bridge parameter to set
+	 * @val: Value to be set
+	 * Returns: 0 on success, negative (<0) on failure
+	 */
+	int (*br_set_net_param)(void *priv, enum drv_br_net_param param,
+				unsigned int val);
+
+	/**
 	 * signal_poll - Get current connection information
 	 * @priv: Private driver interface data
 	 * @signal_info: Connection info structure
-         */
+	 */
 	int (*signal_poll)(void *priv, struct wpa_signal_info *signal_info);
 
 	/**
