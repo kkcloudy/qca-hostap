@@ -8,7 +8,6 @@
 
 CFLAGS=-O3 -fPIC -Wall -ffunction-sections
 
-RANLIB=ranlib
 LIBS= -L. -lcgic -ldbusapi -lm -lxml2 -lz 
 
 #LD_PATH = -L ../../../export/opt/lib/
@@ -124,7 +123,6 @@ libdbusapi.a:$(CGIOBJS_WS)
 userm_cli:user_data_info.o
 	$(CC) $^ $(LD_PATH)  -o $@
 .c.o:
-	@echo "debug12345"
 	$(CC) $(CFLAGS) -I$(INCLUDE) -c $< -o $@
 
 clean:

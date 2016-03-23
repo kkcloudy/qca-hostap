@@ -44,6 +44,8 @@ endef
 
 define Build/Compile
 	
+	RANLIB=$(TARGET_CROSS)ranlib \
+	OBJCOPY=$(TARGET_CROSS)objcopy \
 	$(MAKE) -C $(PKG_BUILD_DIR)/src/portal \
 	CC="$(TARGET_CC)" \
 	AR=$(TARGET_CROSS)ar \
