@@ -21,13 +21,13 @@ int x_snoop_init(struct hostapd_data *hapd)
 	struct hostapd_bss_config *conf = hapd->conf;
 
 	printf("cj_debug x_snoop_init 1\n");
-
+#if 0
 	if (!conf->isolate) {
 		wpa_printf(MSG_DEBUG,
 			   "x_snoop: ap_isolate must be enabled for x_snoop");
 		return -1;
 	}
-
+#endif
 	printf("cj_debug x_snoop_init 2\n");
 
 	if (conf->bridge[0] == '\0') {

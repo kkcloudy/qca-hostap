@@ -13,7 +13,7 @@
 #ifdef CONFIG_DEBUG_SYSLOG
 #include <syslog.h>
 
-static int wpa_debug_syslog = 1; // zhaoyang1 modifies for hostap debug 2015-04-03
+static int wpa_debug_syslog = 0; // zhaoyang1 modifies for hostap debug 2015-04-03
 #endif /* CONFIG_DEBUG_SYSLOG */
 
 #ifdef CONFIG_DEBUG_LINUX_TRACING

@@ -800,7 +800,7 @@ endif
 #ifdef CONFIG_DEBUG_FILE
 CFLAGS += -DCONFIG_DEBUG_FILE
 # zhaoyang1 modifies for hostap debug 2015-04-03
-CFLAGS += -DCONFIG_DEBUG_SYSLOG
+#CFLAGS += -DCONFIG_DEBUG_SYSLOG
 #endif
 
 ALL=hostapd hostapd_cli
