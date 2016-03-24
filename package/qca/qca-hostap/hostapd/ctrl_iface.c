@@ -1760,6 +1760,9 @@ static void hostapd_ctrl_iface_receive(int sock, void *eloop_ctx,
 	} else if (os_strncmp(buf, "DISABLE", 7) == 0) {
 		if (hostapd_ctrl_iface_disable(hapd->iface))
 			reply_len = -1;
+	} else if(os_strncmp(buf, "STA_LIST",8) == 0) {
+            reply_len = hostapd_ctrl_iface_sta_list(hapd,reply,reply_size);
+           
 	} else {
 #ifdef CONFIG_HS20
 		if (hostapd_ctrl_iface_is_anqpsock(hapd, &from, fromlen)) {

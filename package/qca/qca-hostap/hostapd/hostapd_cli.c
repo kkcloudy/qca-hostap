@@ -728,8 +728,11 @@ static int hostapd_cli_cmd_get(struct wpa_ctrl *ctrl, int argc, char *argv[])
 	}
 	return wpa_ctrl_command(ctrl, cmd);
 }
-
-
+static int hostapd_cli_cmd_sta_list(struct wpa_ctrl *ctrl, int argc, char *argv[])
+{
+       return wpa_ctrl_command(ctrl,"STA_LIST");
+	   
+}
 struct hostapd_cli_cmd {
 	const char *cmd;
 	int (*handler)(struct wpa_ctrl *ctrl, int argc, char *argv[]);
@@ -769,6 +772,7 @@ static struct hostapd_cli_cmd hostapd_cli_commands[] = {
 	{ "get", hostapd_cli_cmd_get },
 	{ "anqp_set", hostapd_cli_cmd_anqp_set },
 	{ "hs20_anqp_set", hostapd_cli_cmd_hs20_anqp_set },
+    { "sta_list", hostapd_cli_cmd_sta_list },
 	{ NULL, NULL }
 };
 

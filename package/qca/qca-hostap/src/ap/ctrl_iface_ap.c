@@ -19,6 +19,7 @@
 #include "p2p_hostapd.h"
 #include "ctrl_iface_ap.h"
 #include "ap_drv_ops.h"
+#include "ap_config.h"
 
 
 static int hostapd_ctrl_iface_sta_mib(struct hostapd_data *hapd,
@@ -268,4 +269,45 @@ int hostapd_ctrl_iface_disassociate(struct hostapd_data *hapd,
 		hostapd_free_stas(hapd);
 
 	return 0;
+}
+static const char * ipaddr_str(u32 addr)
+{
+	static char buf[17];
+
+	os_snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+		    (addr >> 24) & 0xff, (addr >> 16) & 0xff,
+		    (addr >> 8) & 0xff, addr & 0xff);
+	return buf;
+}
+int hostapd_ctrl_iface_sta_list(struct hostapd_data *hapd,char *buf, size_t buflen)
+{
+    int len,res,ret;
+    struct sta_info *sta = hapd->sta_list;
+	len = 0;
+	char *SSID = NULL;
+	time_t now,online;
+	struct hostap_sta_driver_data data;
+	SSID = (char *)hapd->conf->ssid.ssid;
+	ret = os_snprintf(buf+len,buflen-len,"\nSSID:%s " MACSTR "\n",SSID,MAC2STR(hapd->own_addr));
+	len += ret;
+	ret = os_snprintf(buf+len,buflen-len,"======================================================================\n");
+	len += ret; 
+	ret = os_snprintf(buf+len,buflen-len,"STA_MAC              IP                    OnlineTime       RX     TX     \n");
+	len += ret;
+    while(sta){     
+        time(&now);
+		online = now - sta->sta_add_time;
+		if (hostapd_drv_read_sta_data(hapd, &data, sta->addr))
+		    return -1;
+	    sta->last_rx_bytes = data.rx_bytes;
+	    sta->last_tx_bytes = data.tx_bytes;
+		ret = os_snprintf(buf+len,buflen-len,MACSTR "    %-17s     %-10lu       %-7lu   %-7lu\n",
+			  MAC2STR(sta->addr),ipaddr_str(ntohl(sta->ipaddr)),online,sta->last_rx_bytes,sta->last_tx_bytes);
+		len += ret;
+		sta = sta->next;
+	}
+
+	ret = os_snprintf(buf+len,buflen-len,"======================================================================\n");
+	len += ret; 
+	return len;
 }

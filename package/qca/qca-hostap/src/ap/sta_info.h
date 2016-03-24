@@ -77,6 +77,7 @@ struct sta_info {
 
 	u32 acct_session_id_hi;
 	u32 acct_session_id_lo;
+	time_t sta_add_time; //xikai add for online time
 	time_t acct_session_start;
 	int acct_session_started;
 	int acct_terminate_cause; /* Acct-Terminate-Cause */
