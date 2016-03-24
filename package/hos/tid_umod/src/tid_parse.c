@@ -173,6 +173,7 @@ static int tid_parse_devstr(struct devinfo *devinfo, const char *devstr)
         return -1;
     }
 
+    ////////////////////////// phone & pad //////////////////////////////////////
     if (0 == strncasecmp(option, "iphone;", strlen(option)))
     {
         memcpy(devinfo->devtype, "iphone", sizeof(devinfo->devtype));
@@ -198,6 +199,13 @@ static int tid_parse_devstr(struct devinfo *devinfo, const char *devstr)
             return 0;
         }
     }
+    if (0 == strncasecmp(option, "BlackBerry;", strlen(option)))
+    {
+        memcpy(devinfo->devtype, "BlackBerry", sizeof(devinfo->devtype));
+        memcpy(devinfo->ostype, "BlackBerry", sizeof(devinfo->ostype));
+        return 0;
+    }
+    ////////////////////////// pc //////////////////////////////////////
     if (0 == strncasecmp(option, "X11;", strlen(option)))
     {
         option = strtok(NULL, ";");
@@ -208,19 +216,52 @@ static int tid_parse_devstr(struct devinfo *devinfo, const char *devstr)
             return 0;
         }
     }
-    if (0 == strncasecmp(option, "Windows", strlen(option)))
-    {
-        memcpy(devinfo->ostype, "windows", sizeof(devinfo->ostype));
-        memcpy(devinfo->devtype, "PC", sizeof(devinfo->devtype));
-        return 0;
-    }
     if (0 == strncasecmp(option, "Macintosh;", strlen(option)))
     {
         memcpy(devinfo->devtype, "Mac PC", sizeof(devinfo->devtype));
         memcpy(devinfo->ostype, "Mac OS", sizeof(devinfo->ostype));
         return 0;
     }
-
+    if ((0 == strncasecmp(option, "Windows", strlen(option))) || 
+        (0 == strncasecmp(option, "Windows;", strlen(option)))
+        (0 == strncasecmp(option, "compatible;", strlen(option))))
+    {
+        if (NULL != strstr(devstr, "ME"))
+        {
+            memcpy(devinfo->ostype, "Windows ME", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 5.1"))
+        {
+            memcpy(devinfo->ostype, "Windows XP", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 5.2"))
+        {
+            memcpy(devinfo->ostype, "Windows Server", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 6.0"))
+        {
+            memcpy(devinfo->ostype, "Windows Vista", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 6.1"))
+        {
+            memcpy(devinfo->ostype, "Windows 7", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 6.2"))
+        {
+            memcpy(devinfo->ostype, "Windows 8", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 6.4"))
+        {
+            memcpy(devinfo->ostype, "Windows 10", sizeof(devinfo->ostype));
+        }
+        if (NULL != strstr(devstr, "Windows NT 10.0"))
+        {
+            memcpy(devinfo->ostype, "Windows 10", sizeof(devinfo->ostype));
+        }
+        memcpy(devinfo->devtype, "PC", sizeof(devinfo->devtype));
+        return 0;
+    }
+    
     return -1;
 }
 
