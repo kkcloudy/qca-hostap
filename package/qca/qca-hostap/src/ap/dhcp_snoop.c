@@ -86,7 +86,11 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 	int res, msgtype = 0, prefixlen = 32;
 	u32 subnet_mask = 0;
 	u16 tot_len;
-
+	int dns_flag = 0;
+	u32 dns1 = 0;
+	u32 dns2 = 0;
+	u8 *tmp;
+	
 	/*
 	printPacketBuffer(buf, len);
 	*/
@@ -131,6 +135,22 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 				prefixlen--;
 			}
 			break;
+		case 6: /* dns */
+			dns_flag = 1;
+			if (opt[1] == 4) {
+				dns1 = WPA_GET_BE32(&opt[2]);
+				tmp = (u8 *)&dns1;
+				wpa_printf(MSG_DEBUG, "%d.%d.%d.%d\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+			}
+			if (opt[1] == 8) {
+				dns1 = WPA_GET_BE32(&opt[2]);
+				dns2 = WPA_GET_BE32(&opt[6]);
+			
+				tmp = (u8 *)&dns1;
+				wpa_printf(MSG_DEBUG, "dns1 %d.%d.%d.%d\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+				tmp = (u8 *)&dns2;
+				wpa_printf(MSG_DEBUG, "dns2 %d.%d.%d.%d\n", tmp[0], tmp[1], tmp[2], tmp[3]);
+			}
 		case 53: /* message type */
 			if (opt[1])
 				msgtype = opt[2];
@@ -158,6 +178,10 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 			return;
 
 		sta->ipaddr = b->your_ip;
+		if (dns_flag) {
+			sta->dns[0] = dns1;
+			sta->dns[1] = dns2;
+		}
 
 #if 0 /* temporarily close  */
 		if (sta->ipaddr != 0) {

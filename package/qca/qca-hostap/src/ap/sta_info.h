@@ -42,6 +42,7 @@ struct sta_info {
 	struct sta_info *hnext; /* next entry in hash table list */
 	u8 addr[6];
 	be32 ipaddr;
+	u32 dns[2]; /* sta dns offered by DHCP */
 	u16 aid; /* STA's unique AID (1 .. 2007) or 0 if not yet assigned */
 	u32 flags; /* Bitfield of WLAN_STA_* */
 	u16 capability;
