@@ -20,7 +20,6 @@ int x_snoop_init(struct hostapd_data *hapd)
 {
 	struct hostapd_bss_config *conf = hapd->conf;
 
-	printf("cj_debug x_snoop_init 1\n");
 #if 0
 	if (!conf->isolate) {
 		wpa_printf(MSG_DEBUG,
@@ -28,15 +27,12 @@ int x_snoop_init(struct hostapd_data *hapd)
 		return -1;
 	}
 #endif
-	printf("cj_debug x_snoop_init 2\n");
 
 	if (conf->bridge[0] == '\0') {
 		wpa_printf(MSG_DEBUG,
 			   "x_snoop: Bridge must be configured for x_snoop");
 		return -1;
 	}
-
-	printf("cj_debug x_snoop_init 3\n");
 
 #if 0
 	if (hostapd_drv_br_port_set_attr(hapd, DRV_BR_PORT_ATTR_HAIRPIN_MODE,
@@ -46,15 +42,11 @@ int x_snoop_init(struct hostapd_data *hapd)
 		return -1;
 	}
 
-	printf("cj_debug x_snoop_init 4\n");
-
 	if (hostapd_drv_br_port_set_attr(hapd, DRV_BR_PORT_ATTR_PROXYARP, 1)) {
 		wpa_printf(MSG_DEBUG,
 			   "x_snoop: Failed to enable proxyarp on the bridge port");
 		return -1;
 	}
-
-	printf("cj_debug x_snoop_init 5\n");
 
 	if (hostapd_drv_br_set_net_param(hapd, DRV_BR_NET_PARAM_GARP_ACCEPT,
 					 1)) {
@@ -62,8 +54,6 @@ int x_snoop_init(struct hostapd_data *hapd)
 			   "x_snoop: Failed to enable accepting gratuitous ARP on the bridge");
 		return -1;
 	}
-
-	printf("cj_debug x_snoop_init 6\n");
 #endif
 
 #ifdef CONFIG_IPV6

@@ -1692,7 +1692,11 @@ atheros_init(struct hostapd_data *hapd, struct wpa_init_params *params)
 		goto bad;
 	if (l2_packet_get_own_addr(drv->sock_xmit, params->own_addr))
 		goto bad;
+#if 0 /* Cao Jia modify for EAP socket bind on ath interface */
 	if (params->bridge[0]) {
+#else
+	if (0) {
+#endif
 		wpa_printf(MSG_DEBUG, "Configure bridge %s for EAPOL traffic.",
 			   params->bridge[0]);
 		drv->sock_recv = l2_packet_init(params->bridge[0], NULL,

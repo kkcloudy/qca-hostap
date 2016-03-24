@@ -220,7 +220,9 @@ void wpa_printf(int level, const char *fmt, ...)
 #ifdef CONFIG_DEBUG_FILE
 		if (out_file) {
 			vfprintf(out_file, fmt, ap);
+			/*
 			fprintf(out_file, "\n");
+			*/
 		} else {
 #endif /* CONFIG_DEBUG_FILE */
 		vprintf(fmt, ap);

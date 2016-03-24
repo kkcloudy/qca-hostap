@@ -250,8 +250,6 @@ hostapd_set_bss_options() {
 
 	config_get ssid "$vif" ssid
 	config_get bridge "$vif" bridge
-	# zhaoyang1 modifies for binding sock with wlan interface 2015-04-03
-    	bridge=""
 	config_get ieee80211d "$vif" ieee80211d
 	config_get iapp_interface "$vif" iapp_interface
 

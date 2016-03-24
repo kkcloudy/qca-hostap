@@ -42,6 +42,27 @@ struct bootp_pkt {
 #define DHCPACK	5
 static const u8 ic_bootp_cookie[] = { 99, 130, 83, 99 };
 
+static void printPacketBuffer(unsigned char *buffer,unsigned long buffLen)
+{
+	unsigned int i;
+
+	if(!buffer)
+		return;
+	wpa_printf(MSG_DEBUG, ":::::::::::::::::::::::::::::::::::::::::::::::\n");
+	
+	for(i = 0;i < buffLen ; i++)
+	{
+		wpa_printf(MSG_DEBUG, "%02x ",buffer[i]);
+		if(0==(i+1)%16) {
+			wpa_printf(MSG_DEBUG, "\n");
+		}
+	}
+	if((buffLen%16)!=0)
+	{
+		wpa_printf(MSG_DEBUG, "\n");
+	}
+	wpa_printf(MSG_DEBUG, ":::::::::::::::::::::::::::::::::::::::::::::::\n");
+}
 
 static const char * ipaddr_str(u32 addr)
 {
@@ -65,6 +86,10 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 	int res, msgtype = 0, prefixlen = 32;
 	u32 subnet_mask = 0;
 	u16 tot_len;
+
+	/*
+	printPacketBuffer(buf, len);
+	*/
 
 	exten_len = len - ETH_HLEN - (sizeof(*b) - sizeof(b->exten));
 	if (exten_len < 4)
@@ -129,14 +154,12 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 			   MAC2STR(sta->addr), ipaddr_str(ntohl(b->your_ip)),
 			   prefixlen);
 
-		printf("dhcp_snoop: Found DHCPACK for " MACSTR
-			" @ IPv4 address %s/%d",
-			MAC2STR(sta->addr), ipaddr_str(ntohl(b->your_ip)),
-			prefixlen);
-
 		if (sta->ipaddr == b->your_ip)
 			return;
 
+		sta->ipaddr = b->your_ip;
+
+#if 0 /* temporarily close  */
 		if (sta->ipaddr != 0) {
 			wpa_printf(MSG_DEBUG,
 				   "dhcp_snoop: Removing IPv4 address %s from the ip neigh table",
@@ -154,6 +177,7 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 			return;
 		}
 		sta->ipaddr = b->your_ip;
+#endif
 	}
 
 	if (hapd->conf->disable_dgaf && is_broadcast_ether_addr(buf)) {
