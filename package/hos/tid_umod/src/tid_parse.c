@@ -223,7 +223,7 @@ static int tid_parse_devstr(struct devinfo *devinfo, const char *devstr)
         return 0;
     }
     if ((0 == strncasecmp(option, "Windows", strlen(option))) || 
-        (0 == strncasecmp(option, "Windows;", strlen(option)))
+        (0 == strncasecmp(option, "Windows;", strlen(option))) ||
         (0 == strncasecmp(option, "compatible;", strlen(option))))
     {
         if (NULL != strstr(devstr, "ME"))
