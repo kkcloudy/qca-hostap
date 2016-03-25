@@ -1,0 +1,652 @@
+1、采用linux内核的coding style，kr风格。详细参考后面的附注
+2、类命名：小写字母，用"_"分割各个关键字。
+3、需要隐藏结构体内部数据的时候才使用typedef。
+   	同时也推荐用这种方式来控制各个模块之间的耦合。
+3、变量命名：小写字母，可以用"_"分割关键字，如果在不使用"_"分割关键字也不会产生歧义的时候，建议不使用"_"
+4、模块内部使用的函数必须标明为static。
+5、函数命名时，以模块名为前缀。
+6、行宽不要超过80个字符
+7、所有的缩进都使用tab，每次缩进意味着一个逻辑的嵌套。因为超过80个字符的换行需要用tab缩进来对齐。
+8、代码的逻辑缩进次数尽量不要超过4次，超过说明嵌套的逻辑太深了，建议重新设计逻辑，或者独立出函数。
+
+
+
+
+《linux kernel coding style》
+
+  这篇简短的文章描述了Linux内核首选的编码风格。编码风格是很个人化的东西，
+  我不会把自己的观点强加给任何人。但是，Linux内核的代码毕竟是我必须有能
+  力维护的，因此我宁愿它的编码风格是我喜欢的。请至少考虑一下这一点。 
+    首先，我建议打印一份《GNU编码标准》，不要阅读它。烧掉它，它不过是象
+    征性的姿态。 
+    然后，请看： 
+
+
+   第 1 章： 缩进 
+
+    Tabs(制表符)是8个字符的大小，因此缩进也应该是8个字符的大小。有些叛
+    逆主张试图把缩进变成4个(甚至是2个！)字符的长度，这就好象试图把PI
+    (案，圆周率)定义成3是一样的。 
+    依据：缩进背后的思想是:清楚地定义一个控制块从哪里开始，到哪里结束。
+    尤其是在你连续不断的盯了20个小时的屏幕后，如果你有大尺寸的缩进。
+    你将更容易发现缩进的好处。 
+    现在，有些人说8个字符大小的缩进导致代码太偏右了，并且在一个80字符
+    宽的终端屏幕上看着很不舒服。对这个问题的回答是：如果你有超过3个级
+    别的缩进，你就有点犯糊涂了，应当修改你的程序。 
+    简而言之，8个字符的缩进使程序更易读，而且当你把功能隐藏的太深时，
+    多层次的缩进还会对此很直观的给出警告。要留心这种警告信息。 
+    
+    第 2 章： 放置花括号 
+
+    C程序中另一个要主意的就是花括号的放置。与缩进尺寸不同的是，关于如何
+    放置花括号没有技术上的理由。但是，首选的方法是象先知Brain Kernighan
+    和Dennis Ritchie展现的那样：把左括号放在行尾，右括号放在行首。也就是： 
+    
+   if (x is true) { 
+      we do y 
+   } 
+    
+    然而，还有另外一种情况，就是函数：函数应当把左右括号都放在行首。也就是： 
+    
+   int function(int x) 
+   { 
+      body of function 
+   } 
+    
+    叛逆的人们所在皆有。他们说，这样会导致…嗯，不一致性(案，指函数的花括号
+    使用与其他情况不统一)。但是所有正确思考的人都知道：(1) K&R是正确的；
+    (2) K&R还是正确的。而且，函数与别任何东西都不一样(在C语言中你没法隐藏它)。 
+    注意，右括号所在的行不应当有其它东西，除非跟随着一个条件判断。
+    也就是do-while语句中的“while”和if-else语句中的“else”。象这样： 
+    
+   do { 
+      body of do-loop 
+   } while (condition); 
+    
+和： 
+    
+   if (x == y) { 
+      .. 
+   } else if (x > y) { 
+      ... 
+   } else { 
+      .... 
+   } 
+    
+    依据： K&R。 
+    而且，注意这种花括号的放置减少了空行的数目，并没损害可读性。因此，
+    当屏幕上不可以有很多空行时(试想25行的终端屏幕)，你就有更多的空行来安插注释。 
+    
+
+    第 3 章： 命名 
+
+    C是一门朴素的语言，你使用的命名也应该这样。与Modula-2和Pascal程序员不同，C
+    程序员不使用诸如 “ThisVariableIsATemporaryCounter”这样“聪明”的名字。C程序
+    员应该叫它“tmp”，这写起来更简单，也不会更难懂。 
+    然而，当面对复杂情况时就有些棘手，给全局变量取一个描述性的名字是必要的。
+    把一个全局函数叫做“foo”是一种目光短浅的行为。 
+    全局变量(只当你确实需要时才用)应该有描述性的名字，全局函数也一样。如果你
+    有一个统计当前用户个数的函数，应当把它命名为“count_active_user()”或者简单
+    点些的类似名称，不应该命名为“cntusr()”。 
+    把函数类型写进函数名(即所谓的“匈牙利命名法”)简直就是大脑有问题──编译器总
+    是知道函数的类型并且能加以检查，这种命名法只会弄糊涂程序员自己。怪不得微
+    软总是制造充满bug的程序。 
+    局部变量的名字应该尽量短，而且说到点子上。如果你有个普通的整型循环计数变
+    量，应当命名为“i”。命名为“loop_counter”并不能带来任何成效，如果它不被误
+    解的话(案，这里的言外之意是说，如果被误解就更惨了)。与此类似，“tmp”可以
+    作为一个用来存储任何类型临时值的变量的名字。 
+    如果你害怕弄混淆局部变量(s)的名字，你就面临着另一个问题，也叫作“函数增长
+    荷尔蒙失调综合症”。请参考下一章。 
+    
+
+    第 4 章： 函数 
+
+    函数应当短而精美，而且只做一件事。它们应当占满1或2个屏幕(就象我们知道的
+    那样，ISO/ANSI的屏幕大小是80X24)，只做一件事并且把它做好。 
+    一个函数的最大长度与它的复杂度和缩进级别成反比。所以，如果如果你有一个概
+    念上简单(案，“简单”是simple而不是easy)的函数，它恰恰包含着一个很长的case
+    语句，这样你不得不为不同的情况准备不同的处理，那么这样的长函数是没问题的。 
+    然而，如果你有一个复杂的函数，你猜想一个并非天才的高一学生可能看不懂得这
+    个函数，你就应当努力把它减缩得更接近前面提到的最大函数长度限制。可以使用
+    一些辅助函数，给它们取描述性的名字(如果你认为这些辅助函数的调用是性能关
+    键的，可以让编译器把它们内联进来，这比在单个函数内完成所有的事情通常要好些)。 
+    对函数还存在另一个测量标准：局部变量的数目。这不该超过5到10个，否则你可能
+    会弄错。应当重新考虑这个函数，把它分解成小片。人类的大脑一般能同时记住7个
+    不同的东西，超过这个数目就会犯糊涂。或许你认为自己很聪明，那么请你理解一下
+    从现在开始的2周时间你都做什么了。 
+
+    
+    第 5 章：注释 
+
+   注释是有用的，但过量的注释则是有害的。不要试图在注释中解释你的代码是如何工
+   作的：把代码是如何工作的视为一件显然的事情会更好些，而且，给糟糕的代码作注
+   释则是在浪费时间。 
+
+    通常，你愿意自己的注释说出代码是做什么的，而不是如何做。还有，尽量避免在函
+    数体内作注释：如果函数很复杂，你很可能需要分开来注释，回头到第4章去看看吧。
+    你可以给一段代码──漂亮的或丑陋的──作注释以引起注意或警告，但是不要过量。
+    取而代之，应当把注释放在函数首部，告诉人们该函数作什么，而不是为什么这样做。 
+
+
+    第 6 章：你把事情弄乱了 
+
+   好吧，我们来看看。很可能有长期使用UNIX的人告诉过你，“GNU emacs”能自动为你格
+   式化C程序源代码，你注意到这是真的，它确实能做到，但是缺省情况下它的用处远远
+   小于期望值──键入无数的monkeys到GNU emacs中绝不可能造出好的程序。 
+    因此，你可以或者删除GNU emacs，或者对它进行理智的配置。对于后者，可以把下
+    面的行粘贴到你的.emacs文件中： 
+    
+   (defun linux-c-mode () 
+   "C mode with adjusted defaults for use with the Linux kernel." 
+   (interactive) 
+   (c-mode) 
+   (c-set-style "K&R") 
+   (setq c-basic-offset 8)) 
+    
+    这将会定义一个把C代码弄成linux风格的命令。当hacking一个模块时，如果你把
+    “-*- linux-c -*-”放到了最初的两行，这个模块将被自动调用。而且，如果你打算
+    每当在/usr/src/linux下编辑源文件时就自动调用它，也许你会把下面的命令： 
+   (setq auto-mode-alist (cons '("/usr/src/linux.*/.*\\.[ch]$" . linux-c-mode) 
+            auto-mode-alist)) 
+    添加进你的.emacs文件。 
+    但是，即使你没能让emacs正确做到格式化，也并非将就此一无所有：还有“indent”程序呢。 
+    嗯，再提醒一下，GNU indent跟GNU emacs有同样的毛病，这就需要你给它一些命令行选项。
+    然而，这不是很糟糕的事，因为即使是GNU indent也承认K&R的权威性(GNU的人不是魔鬼，
+    他们只是在这里太过严格了，以致于误导人)，所以你可以只需给indent这样的选项：
+     “-kr -i8”(表示“K&R风格，8个字符的缩进”)。 
+   “indent”程序有很多选项，特别是当为重排过的程序作注释的时候，你需要看一下它的手册。
+   记住：“indent”可不是修正糟糕程序的万能钥匙。 
+    
+
+    第 7 章： 配置文件(configuration-files) 
+
+   对配置选项来说(arch/xxx/config.in和所有的Config.in文件)，使用不同的缩进风格。 
+    若代码中的缩进级别为3，配置选项就应该为2,这样可以暗示出依赖关系。后者只是用于
+    bool/tristate(即二态/三态)的选项。对其它情况用常识就行了。举例来说： 
+
+   if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then 
+      tristate 'Apply nitroglycerine inside the keyboard (DANGEROUS)' CONFIG_BOOM 
+      if [ "$CONFIG_BOOM" != "n" ]; then 
+         bool '  Output nice messages when you explode' CONFIG_CHEER 
+      fi 
+   fi 
+
+    通常CONFIG_EXPERIMENTAL应当在所有不稳定的选项的周围出现。所有已知会破坏数据的
+    选项(如文件系统的实验性的写支持功能)应当被标记为(DANGEROUS)，其他实验性的选项
+    应当被标记为(EXPERIMENTAL)。 
+    
+
+    第 8 章： 数据结构 
+
+   假如数据结构在其被创建/销毁的线程环境(案：这里说的线程是一个执行实体，可能是进
+   程、内核线程或其它)之外还具有可见性，那么他们都该有引用计数。在内核中没有垃圾
+   收集机制(而且内核之外的垃圾收集也是缓慢而低效的)，这意味着你绝对应该为每一次
+   使用进行引用计数。 
+    引用计数意味着你可以避开锁，还能允许多个线程并行访问该数据结构──而且不用担心
+    仅仅因为访问数据结构的线程睡眠了一会儿或者干别的去了，它们就会消失。 
+    注意，锁不是引用计数的替代品。锁是用来保持数据结构的一致性的，而引用计数是一
+    种内存管理技术。通常二者都需要，而且不会彼此混淆。 
+    确实有许多数据结构可以有两个级别的引用计数，当使用者具有不同的“等级”(classes)
+    时就是这样。子等级(subclass)记录了处于该等级的使用者个数，而且当它减到零的时
+    候就把总体计数(global count)减一。 
+    这种“多级引用计数”(multi-reference-counting)的一个实例可以在内存管理子系统
+    ("struct mm_struct":mm_users和mm_count)中找到，也可以在文件系统的代码中
+    ("struct super_block":s_count和s_active)找到。 
+    记住：如果另一个线程能找到你的数据结构，而你有没对它做引用计数，那几乎可以
+    肯定：这是一个bug。
+ 
+ 
+ 
+ 
+英文的，MS要新一些
+
+Linux kernel coding style
+Torvalds Linus.
+This is a short document describing the preferred coding style for the
+linux kernel.  Coding style is very personal, and I won't _force_ my
+views on anybody, but this is what goes for anything that I have to be
+able to maintain, and I'd prefer it for most other things too.  Please
+at least consider the points made here.
+
+First off, I'd suggest printing out a copy of the GNU coding standards,
+and NOT read it.  Burn them, it's a great symbolic gesture.
+
+Anyway, here goes:
+
+
+         Chapter 1: Indentation
+
+Tabs are 8 characters, and thus indentations are also 8 characters.
+There are heretic movements that try to make indentations 4 (or even 2!)
+characters deep, and that is akin to trying to define the value of PI to
+be 3.
+
+Rationale: The whole idea behind indentation is to clearly define where
+a block of control starts and ends.  Especially when you've been looking
+at your screen for 20 straight hours, you'll find it a lot easier to see
+how the indentation works if you have large indentations.
+
+Now, some people will claim that having 8-character indentations makes
+the code move too far to the right, and makes it hard to read on a
+80-character terminal screen.  The answer to that is that if you need
+more than 3 levels of indentation, you're screwed anyway, and should fix
+your program.
+
+In short, 8-char indents make things easier to read, and have the added
+benefit of warning you when you're nesting your functions too deep.
+Heed that warning.
+
+Don't put multiple statements on a single line unless you have
+something to hide:
+
+    if (condition) do_this;
+      do_something_everytime;
+
+Outside of comments, documentation and except in Kconfig, spaces are never
+used for indentation, and the above example is deliberately broken.
+
+Get a decent editor and don't leave whitespace at the end of lines.
+
+        Chapter 2: Breaking long lines and strings
+
+Coding style is all about readability and maintainability using commonly
+available tools.
+
+The limit on the length of lines is 80 columns and this is a hard limit.
+
+Statements longer than 80 columns will be broken into sensible chunks.
+Descendants are always substantially shorter than the parent and are placed
+substantially to the right. The same applies to function headers with a long
+argument list. Long strings are as well broken into shorter strings.
+
+void fun(int a, int b, int c)
+{
+    if (condition)
+        printk(KERN_WARNING "Warning this is a long printk with "
+                        "3 parameters a: %u b: %u "
+                        "c: %u \n", a, b, c);
+    else
+        next_statement;
+}
+
+        Chapter 3: Placing Braces
+
+The other issue that always comes up in C styling is the placement of
+braces.  Unlike the indent size, there are few technical reasons to
+choose one placement strategy over the other, but the preferred way, as
+shown to us by the prophets Kernighan and Ritchie, is to put the opening
+brace last on the line, and put the closing brace first, thusly:
+
+    if (x is true) {
+        we do y
+    }
+
+However, there is one special case, namely functions: they have the
+opening brace at the beginning of the next line, thus:
+
+    int function(int x)
+    {
+        body of function
+    }
+
+Heretic people all over the world have claimed that this inconsistency
+is ...  well ...  inconsistent, but all right-thinking people know that
+(a) K&R are _right_ and (b) K&R are right.  Besides, functions are
+special anyway (you can't nest them in C).
+
+Note that the closing brace is empty on a line of its own, _except_ in
+the cases where it is followed by a continuation of the same statement,
+ie a "while" in a do-statement or an "else" in an if-statement, like
+this:
+
+    do {
+        body of do-loop
+    } while (condition);
+
+and
+
+    if (x == y) {
+        ..
+    } else if (x > y) {
+        ...
+    } else {
+        ....
+    }
+
+Rationale: K&R.
+
+Also, note that this brace-placement also minimizes the number of empty
+(or almost empty) lines, without any loss of readability.  Thus, as the
+supply of new-lines on your screen is not a renewable resource (think
+25-line terminal screens here), you have more empty lines to put
+comments on.
+
+
+        Chapter 4: Naming
+
+C is a Spartan language, and so should your naming be.  Unlike Modula-2
+and Pascal programmers, C programmers do not use cute names like
+ThisVariableIsATemporaryCounter.  A C programmer would call that
+variable "tmp", which is much easier to write, and not the least more
+difficult to understand.
+
+HOWEVER, while mixed-case names are frowned upon, descriptive names for
+global variables are a must.  To call a global function "foo" is a
+shooting offense.
+
+GLOBAL variables (to be used only if you _really_ need them) need to
+have descriptive names, as do global functions.  If you have a function
+that counts the number of active users, you should call that
+"count_active_users()" or similar, you should _not_ call it "cntusr()".
+
+Encoding the type of a function into the name (so-called Hungarian
+notation) is brain damaged - the compiler knows the types anyway and can
+check those, and it only confuses the programmer.  No wonder MicroSoft
+makes buggy programs.
+
+LOCAL variable names should be short, and to the point.  If you have
+some random integer loop counter, it should probably be called "i".
+Calling it "loop_counter" is non-productive, if there is no chance of it
+being mis-understood.  Similarly, "tmp" can be just about any type of
+variable that is used to hold a temporary value.
+
+If you are afraid to mix up your local variable names, you have another
+problem, which is called the function-growth-hormone-imbalance syndrome.
+See next chapter.
+
+
+        Chapter 5: Functions
+
+Functions should be short and sweet, and do just one thing.  They should
+fit on one or two screenfuls of text (the ISO/ANSI screen size is 80x24,
+as we all know), and do one thing and do that well.
+
+The maximum length of a function is inversely proportional to the
+complexity and indentation level of that function.  So, if you have a
+conceptually simple function that is just one long (but simple)
+case-statement, where you have to do lots of small things for a lot of
+different cases, it's OK to have a longer function.
+
+However, if you have a complex function, and you suspect that a
+less-than-gifted first-year high-school student might not even
+understand what the function is all about, you should adhere to the
+maximum limits all the more closely.  Use helper functions with
+descriptive names (you can ask the compiler to in-line them if you think
+it's performance-critical, and it will probably do a better job of it
+than you would have done).
+
+Another measure of the function is the number of local variables.  They
+shouldn't exceed 5-10, or you're doing something wrong.  Re-think the
+function, and split it into smaller pieces.  A human brain can
+generally easily keep track of about 7 different things, anything more
+and it gets confused.  You know you're brilliant, but maybe you'd like
+to understand what you did 2 weeks from now.
+
+
+        Chapter 6: Centralized exiting of functions
+
+Albeit deprecated by some people, the equivalent of the goto statement is
+used frequently by compilers in form of the unconditional jump instruction.
+
+The goto statement comes in handy when a function exits from multiple
+locations and some common work such as cleanup has to be done.
+
+The rationale is:
+
+- unconditional statements are easier to understand and follow
+- nesting is reduced
+- errors by not updating individual exit points when making
+    modifications are prevented
+- saves the compiler work to optimize redundant code away ;)
+
+int fun(int )
+{
+    int result = 0;
+    char *buffer = kmalloc(SIZE);
+
+    if (buffer == NULL)
+        return -ENOMEM;
+
+    if (condition1) {
+        while (loop1) {
+            ...
+        }
+        result = 1;
+        goto out;
+    }
+    ...
+out:
+    kfree(buffer);
+    return result;
+}
+
+        Chapter 7: Commenting
+
+Comments are good, but there is also a danger of over-commenting.  NEVER
+try to explain HOW your code works in a comment: it's much better to
+write the code so that the _working_ is obvious, and it's a waste of
+time to explain badly written code.
+
+Generally, you want your comments to tell WHAT your code does, not HOW.
+Also, try to avoid putting comments inside a function body: if the
+function is so complex that you need to separately comment parts of it,
+you should probably go back to chapter 5 for a while.  You can make
+small comments to note or warn about something particularly clever (or
+ugly), but try to avoid excess.  Instead, put the comments at the head
+of the function, telling people what it does, and possibly WHY it does
+it.
+
+When commenting the kernel API functions, please use the kerneldoc format.
+See the files Documentation/kernel-doc-nano-HOWTO.txt and scripts/kernel-doc
+for details.
+
+        Chapter 8: You've made a mess of it
+
+That's OK, we all do.  You've probably been told by your long-time Unix
+user helper that "GNU emacs" automatically formats the C sources for
+you, and you've noticed that yes, it does do that, but the defaults it
+uses are less than desirable (in fact, they are worse than random
+typing - an infinite number of monkeys typing into GNU emacs would never
+make a good program).
+
+So, you can either get rid of GNU emacs, or change it to use saner
+values.  To do the latter, you can stick the following in your .emacs file:
+
+(defun linux-c-mode ()
+  "C mode with adjusted defaults for use with the Linux kernel."
+  (interactive)
+  (c-mode)
+  (c-set-style "K&R")
+  (setq tab-width 8)
+  (setq indent-tabs-mode t)
+  (setq c-basic-offset 8))
+
+This will define the M-x linux-c-mode command.  When hacking on a
+module, if you put the string -*- linux-c -*- somewhere on the first
+two lines, this mode will be automatically invoked. Also, you may want
+to add
+
+(setq auto-mode-alist (cons '("/usr/src/linux.*/.*\\.[ch]$" . linux-c-mode)
+            auto-mode-alist))
+
+to your .emacs file if you want to have linux-c-mode switched on
+automagically when you edit source files under /usr/src/linux.
+
+But even if you fail in getting emacs to do sane formatting, not
+everything is lost: use "indent".
+
+Now, again, GNU indent has the same brain-dead settings that GNU emacs
+has, which is why you need to give it a few command line options.
+However, that's not too bad, because even the makers of GNU indent
+recognize the authority of K&R (the GNU people aren't evil, they are
+just severely misguided in this matter), so you just give indent the
+options "-kr -i8" (stands for "K&R, 8 character indents"), or use
+"scripts/Lindent", which indents in the latest style.
+
+"indent" has a lot of options, and especially when it comes to comment
+re-formatting you may want to take a look at the man page.  But
+remember: "indent" is not a fix for bad programming.
+
+
+        Chapter 9: Configuration-files
+
+For configuration options (arch/xxx/Kconfig, and all the Kconfig files),
+somewhat different indentation is used.
+
+Help text is indented with 2 spaces.
+
+if CONFIG_EXPERIMENTAL
+    tristate CONFIG_BOOM
+    default n
+    help
+      Apply nitroglycerine inside the keyboard (DANGEROUS)
+    bool CONFIG_CHEER
+    depends on CONFIG_BOOM
+    default y
+    help
+      Output nice messages when you explode
+endif
+
+Generally, CONFIG_EXPERIMENTAL should surround all options not considered
+stable. All options that are known to trash data (experimental write-
+support for file-systems, for instance) should be denoted (DANGEROUS), other
+experimental options should be denoted (EXPERIMENTAL).
+
+
+        Chapter 10: Data structures
+
+Data structures that have visibility outside the single-threaded
+environment they are created and destroyed in should always have
+reference counts.  In the kernel, garbage collection doesn't exist (and
+outside the kernel garbage collection is slow and inefficient), which
+means that you absolutely _have_ to reference count all your uses.
+
+Reference counting means that you can avoid locking, and allows multiple
+users to have access to the data structure in parallel - and not having
+to worry about the structure suddenly going away from under them just
+because they slept or did something else for a while.
+
+Note that locking is _not_ a replacement for reference counting.
+Locking is used to keep data structures coherent, while reference
+counting is a memory management technique.  Usually both are needed, and
+they are not to be confused with each other.
+
+Many data structures can indeed have two levels of reference counting,
+when there are users of different "classes".  The subclass count counts
+the number of subclass users, and decrements the global count just once
+when the subclass count goes to zero.
+
+Examples of this kind of "multi-level-reference-counting" can be found in
+memory management ("struct mm_struct": mm_users and mm_count), and in
+filesystem code ("struct super_block": s_count and s_active).
+
+Remember: if another thread can find your data structure, and you don't
+have a reference count on it, you almost certainly have a bug.
+
+
+        Chapter 11: Macros, Enums, Inline functions and RTL
+
+Names of macros defining constants and labels in enums are capitalized.
+
+#define CONSTANT 0x12345
+
+Enums are preferred when defining several related constants.
+
+CAPITALIZED macro names are appreciated but macros resembling functions
+may be named in lower case.
+
+Generally, inline functions are preferable to macros resembling functions.
+
+Macros with multiple statements should be enclosed in a do - while block:
+
+#define macrofun(a, b, c)             \
+    do {                    \
+        if (a == 5)            \
+            do_this(b, c);        \
+    } while (0)
+
+Things to avoid when using macros:
+
+1) macros that affect control flow:
+
+#define FOO(x)                    \
+    do {                    \
+        if (blah(x) < 0)        \
+            return -EBUGGERED;    \
+    } while(0)
+
+is a _very_ bad idea.  It looks like a function call but exits the "calling"
+function; don't break the internal parsers of those who will read the code.
+
+2) macros that depend on having a local variable with a magic name:
+
+#define FOO(val) bar(index, val)
+
+might look like a good thing, but it's confusing as hell when one reads the
+code and it's prone to breakage from seemingly innocent changes.
+
+3) macros with arguments that are used as l-values: FOO(x) = y; will
+bite you if somebody e.g. turns FOO into an inline function.
+
+4) forgetting about precedence: macros defining constants using expressions
+must enclose the expression in parentheses. Beware of similar issues with
+macros using parameters.
+
+#define CONSTANT 0x4000
+#define CONSTEXP (CONSTANT | 3)
+
+The cpp manual deals with macros exhaustively. The gcc internals manual also
+covers RTL which is used frequently with assembly language in the kernel.
+
+
+        Chapter 12: Printing kernel messages
+
+Kernel developers like to be seen as literate. Do mind the spelling
+of kernel messages to make a good impression. Do not use crippled
+words like "dont" and use "do not" or "don't" instead.
+
+Kernel messages do not have to be terminated with a period.
+
+Printing numbers in parentheses (%d) adds no value and should be avoided.
+
+
+        Chapter 13: Allocating memory
+
+The kernel provides the following general purpose memory allocators:
+kmalloc(), kzalloc(), kcalloc(), and vmalloc().  Please refer to the API
+documentation for further information about them.
+
+The preferred form for passing a size of a struct is the following:
+
+    p = kmalloc(sizeof(*p), ...);
+
+The alternative form where struct name is spelled out hurts readability and
+introduces an opportunity for a bug when the pointer variable type is changed
+but the corresponding sizeof that is passed to a memory allocator is not.
+
+Casting the return value which is a void pointer is redundant. The conversion
+from void pointer to any other pointer type is guaranteed by the C programming
+language.
+
+
+        Chapter 14: References
+
+The C Programming Language, Second Edition
+by Brian W. Kernighan and Dennis M. Ritchie.
+Prentice Hall, Inc., 1988.
+ISBN 0-13-110362-8 (paperback), 0-13-110370-9 (hardback).
+URL: http://cm.bell-labs.com/cm/cs/cbook/
+
+The Practice of Programming
+by Brian W. Kernighan and Rob Pike.
+Addison-Wesley, Inc., 1999.
+ISBN 0-201-61586-X.
+URL: http://cm.bell-labs.com/cm/cs/tpop/
+
+GNU manuals - where in compliance with K&R and this text - for cpp, gcc,
+gcc internals and indent, all available from http://www.gnu.org
+
+WG14 is the international standardization working group for the programming
+language C, URL: http://std.dkuug.dk/JTC1/SC22/WG14/
+
+

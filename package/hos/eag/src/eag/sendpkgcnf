@@ -1,0 +1,14 @@
+userip=192.168.1.1
+errcode=0
+pkgtype=0x36
+#username=aaaa
+#password=bbbb
+usermac=00:11:22:33:44:55
+#challenge=0x00112233445566778899aabbccddeeff
+#chappasswd=0x00112233445566778899aabbccddeeff
+#ua=ieee
+#basip=1.2.3.4
+#starttime=123456789
+#stoptime=1234569411
+#sesstime=12345
+#nasid=99887666555

@@ -1,0 +1,46 @@
+设计目标：
+1、debug信息有开关控制
+2、针对不同的模块，可以单独动态的开放debug信息，其他级别的信息直接输出
+3、针对eag对外部模块的接口，一定要添加日志。最好把外部接口部分规划为不同的模块。
+	现在对以下模块或接口的debug开关做定义。
+	blkmem，redir,redir_pkg(分析httpreq时每一行打印一次)，
+	radius，radius_pkg(收发的报文内容)，radius_coa,
+	portal，portal_pkg(收发的报文内容)，portal_pkg_err(收发报文，errcode不为0的报文),portal_err(接受，返回的errcode),
+	debus，hansi，eagthread
+	session，wireless(调用)，iparp
+	vrrp_interface(vrrp的调用结果和通知结果),wireless_notice(通知)
+	
+	关于blkmem和eag_log中的相互调用：从设计角度上讲，模块之间相互调用并不太合适，加重了耦合。
+		如果在eag_log初始化的过程中，调用了blkmem，blkmem的调试信息如何显示？
+		eag_log中使用blkmem，主要是用于debug信息的过滤条件的添加，
+		比如;eag_log在注册"blkmem"的过滤条件的时候会调用blkmem的接口，因为当前blkmem还未完成注册，
+		则这个调用过程中的blkmem的相关的debug信息就不会输出出来。
+		所以至少需要在eag_log中对blkmem函数调用的返回做判断，在错误的时候，直接使用log_err进行输出。
+	
+4、对于客户关心的信息，以及同外部设备交互时的异常，需要用local7的方式记录（设备系统的syslog，只local7的才会发送给syslog server）
+	用户上下线，radius超时，portal超时，认证异常等，进程手动退出等
+	认证报文的错误等。
+	
+5、在所有函数调用中，都必须判断函数返回值的正确性，如果函数返回错误，必须要使用logerr进行日志输出。
+	当前代码中有些地方还未做到这一点，需要check代码，添加上多对所有调用函数返回值的判断。
+	关于返回值：
+	不一定是指return的值，而是指接口本身的输出，输出可能是return的，也可能是参数中的一个指针携带回来的。
+	
+6、非debug级别的日志在添加的时候一定要注意，不能在循环中不带条件的打印，可能会影响性能。
+
+7、关于debug filter的效率分析
+	每个debug日志都会有一个filter开关，如果eag_log注册了这个filter，才最终输出。
+	每个debug日志都会将自己的filter开关，和eag_log中注册的所有的filter做比较，如果找到了，就输出，如果没有，就直接退出，不输出日志。
+	从上面的算法可以看出，如果注册的filter越多，需要进行的判断（字符串比较）就越多。
+	是否会影响效率？
+	
+	另一个算法：采用bitmap的方式来表示模块，在匹配的使用，用位运算进行匹配，没有字符串比较，不会应为开放了更多模块的debug日志增加运算时间。
+			而且同一个debug日志输出，可以关联到多个模块。
+		采用bitmap的方式主要缺点就是缺乏任意性，如果在后期维护中需要添加一个新的module，需要修改命令行的实现。
+			采用字符串filter的方式，开发者可以在代码中比较随意的添加新的filter。
+		可以添加的filter个数最大应该就是unsigned long long的bit数，64个。字符串filter的方式个数不受限制，采用链表添加的。
+		
+	字符串filter的效率分析：
+	a、更多的情况下是不会开debug日志的，只有需要的时候针对特定的filter才需要开放日志。
+	b、strcmp函数在匹配filter的时候，比bitmap消耗时间，但实际上syslog本身是io操作，更消耗时间。相比较而言strcmp所消耗的时间是微乎其微的。
+		所以在filter匹配上做优化可能效果并不会太明显。
