@@ -1,0 +1,32 @@
+#!/bin/sh /etc/rc.common
+
+START=100
+
+USE_PROCD=1
+PROG=/sbin/igmpsnp
+
+start_service()
+{
+        local swtich=`/sbin/uci get igmp.igmpsnp.switch`
+        local multounicast=`/sbin/uci get igmp.igmpsnp.multounicast`
+        local interval=`/sbin/uci get igmp.igmpsnp.hostlifeinterval`
+        local command="$PROG" 
+
+        if [ $swtich -eq 1 ]; then
+                procd_open_instance
+                procd_set_param command "$PROG" -i $interval 
+                procd_set_param respawn
+                procd_close_instance
+                
+        else
+                echo "igmpsnp disable"
+
+        fi
+
+}
+
+stop_service()
+{
+    /usr/bin/killall igmpsnp
+}
+	

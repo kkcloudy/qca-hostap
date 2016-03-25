@@ -18,7 +18,16 @@
 #include <pthread.h>
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/un.h>
+
+
+#include <sys/stat.h>
+#include <linux/netlink.h>
+#include <linux/socket.h>
+
+
 #include "igmpsnp_com.h"
+
 
 
 
@@ -86,17 +95,13 @@
 #define IGMP_REPORT_V3 0x22	/*V3 report*/
 #define IGMP_REPORT_V3_JOIN 0x04	
 #define IGMP_REPORT_V3_LEAVE 0x03
-
-
 #define IPPROTO_IGMP_V1 1
 #define IPPROTO_IGMP_V2 2 
 #define IPPROTO_IGMP_V3 3
-#define IPPROTO_IGMP_TIMEOUT 20   /*for igmp v1 */
-
-
-
+#define IPPROTO_IGMP_TIMEOUT 180   /*for igmp v1 */
 #define IGMP_SNOOP_NO	0
 #define IGMP_SNOOP_YES	1
+
 
 
 
@@ -119,7 +124,7 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;	/*Ïß³ÌËø*/
 #define DEL_PORT 2
 
 #define CMD_LEN 256
-#define SYSMAC_ADDRESS_LEN 8
+#define SYSMAC_ADDRESS_LEN 6
 
 #define IGMP_IFINDEX "/proc/sys/net/br_igmp/if_index"
 #define IGMP_GROUPID "/proc/sys/net/br_igmp/mcast_addr"
@@ -216,10 +221,58 @@ typedef enum igmpstastate
 	
 }igmpstastate;
 
+
+#define NETLINK_GENERIC       16
+#define NETLINK_DETECTOR_IGMP (NETLINK_GENERIC + 8)  /*igmp netlink id */
+#define NETLINK_IGMP_ADD  3
+#define NETLINK_IGMP_DEL  4
+
+#define MODULE_ID_IGMPSNP 0x101 /* to be discussed */
+#define MAX_MSG_PAYLOAD 128
+int nlsock_to_igmpsnp = 0;
+int nlsock_to_kernel = 0;
+
+
+typedef struct 
+{
+	struct nlmsghdr nlh;
+	char buf[MAX_MSG_PAYLOAD];
+}igmpsnp_nlmsg;
+
+igmpsnp_nlmsg config_parm_from_igmpsnp;
+
+
+
+#define IGMP_SNP_TYPE_OPTION 0x00
+#define IGMP_SNP_TYPE_GROUP_IP 0x01
+#define IGMP_SNP_TYPE_STA_MAC 0x02
+
+//tlv message define
+#define TLV_MSG_TYPE_LEN 1
+#define TLV_MSG_LENGTH_LEN 1
+
+#pragma pack(push, 1)
+struct IGMP_TLV {
+	u_int8_t t_op;
+	u_int8_t l_op;
+	u_int8_t v_op;
+	u_int8_t t_group_ip;
+	u_int8_t l_group_ip;
+	u_int32_t v_group_ip;
+	u_int8_t t_sta_mac;
+	u_int8_t l_sta_mac;
+	u_int8_t v_sta_mac[6];
+};
+
+struct igmp_snp_list{
+	u_int8_t member_num;
+	struct IGMP_TLV tlv;
+};
+#pragma pack(pop)
+
+
+
 MC_group	 *p_mcgrouplist = NULL;
-
-
-
 
 
 # if 0
@@ -555,24 +608,20 @@ LONG igmp_snp_deletesta( UCHAR sta_macaddr[])
 	INT ret = IGMPSNP_RETURN_CODE_OK;
 
 	
-
-	igmp_snp_syslog_dbg("igmp_snp_deletesta:sta_macaddr:%x,%x,%x,%x,%x,%x\n",sta_macaddr[0],sta_macaddr[1],sta_macaddr[2],sta_macaddr[3],sta_macaddr[4],sta_macaddr[5]);
-
-
 	loopupput = p_mcgrouplist;
 	
 	while (NULL != loopupput)
 	{
-	
-		igmp_snp_syslog_dbg("igmp_snp_deletesta:-------- mcgroup addr=%x\n",loopupput->MC_ipadd);
+
 		
 		lstaput =loopupput->stalist;
 			
 		while (NULL != lstaput)
 		{
-
-			if (strcmp (lstaput->sta_macaddr,sta_macaddr ) == 0 )
+		
+			if (memcmp (lstaput->sta_macaddr,sta_macaddr,SYSMAC_ADDRESS_LEN ) == 0 )
 			{
+				
 				break;
 			}
 
@@ -602,6 +651,7 @@ LONG igmp_snp_deletesta( UCHAR sta_macaddr[])
 		loopupput = loopupput->next;
 	}
 
+	create_mcgrouplist_file();
 
 	return IGMPSNP_RETURN_CODE_OK;
 
@@ -949,7 +999,7 @@ INT  set_hw_tab( unsigned group_id, unsigned int ifindex, unsigned opt_type)
 	 INT ret = IGMPSNP_RETURN_CODE_OK;
 	 	 	 
 
-	  igmp_snp_syslog_dbg("---------------------------igmp_snp_global_timer_func-----------------\n");
+	 // igmp_snp_syslog_dbg("---------------------------igmp_snp_global_timer_func-----------------\n");
 	  
 	 loopupput = p_mcgrouplist;
 	 
@@ -962,7 +1012,7 @@ INT  set_hw_tab( unsigned group_id, unsigned int ifindex, unsigned opt_type)
 			 while (NULL != lstaput)
 			 {
 			 
-				 igmp_snp_syslog_dbg("igmp_snp_global_timer_func:lstaput->hosttimer_id=%d---lstaput->ver_flag=%d--station macaddr %x,%x,%x,%x,%x,%x\r\n\n",lstaput->hosttimer_id,lstaput->ver_flag,lstaput->sta_macaddr[0],lstaput->sta_macaddr[1],lstaput->sta_macaddr[2],lstaput->sta_macaddr[3],lstaput->sta_macaddr[4],lstaput->sta_macaddr[5]);
+				// igmp_snp_syslog_dbg("igmp_snp_global_timer_func:lstaput->hosttimer_id=%d---lstaput->ver_flag=%d--station macaddr %x,%x,%x,%x,%x,%x\r\n\n",lstaput->hosttimer_id,lstaput->ver_flag,lstaput->sta_macaddr[0],lstaput->sta_macaddr[1],lstaput->sta_macaddr[2],lstaput->sta_macaddr[3],lstaput->sta_macaddr[4],lstaput->sta_macaddr[5]);
 
 				  if (IPPROTO_IGMP_V1 == lstaput->ver_flag )
 				  {
@@ -974,7 +1024,7 @@ INT  set_hw_tab( unsigned group_id, unsigned int ifindex, unsigned opt_type)
 							 {
 								 lstaput->hosttimer_id = 0;	 /*time expire, set state*/
 								 
-								 igmp_snp_syslog_dbg("igmp_snp_global_timer_func: sta %x,%x,%x,%x,%x,%x the hosttimerid Timer out \n",lstaput->sta_macaddr[0],lstaput->sta_macaddr[1],lstaput->sta_macaddr[2],lstaput->sta_macaddr[3],lstaput->sta_macaddr[4],lstaput->sta_macaddr[5]);
+								 //igmp_snp_syslog_dbg("igmp_snp_global_timer_func: sta %x,%x,%x,%x,%x,%x the hosttimerid Timer out \n",lstaput->sta_macaddr[0],lstaput->sta_macaddr[1],lstaput->sta_macaddr[2],lstaput->sta_macaddr[3],lstaput->sta_macaddr[4],lstaput->sta_macaddr[5]);
 
 
 								 igmp_snp_searchgroup(loopupput->MC_ipadd,lstaput->sta_macaddr,lstaput->ver_flag,IGMP_GROUP_DEL);
@@ -1041,18 +1091,163 @@ INT  set_hw_tab( unsigned group_id, unsigned int ifindex, unsigned opt_type)
 	 return IGMPSNP_RETURN_CODE_OK;
  }
 
+ /*
+ *****************************************************
+ * FuncName:nlsock_create_to_igmp
+ * Description:create netlink socket to igmpsnp
+ *****************************************************
+ */
+ int nlsock_create_to_igmpsnp(void)
+ {
+	 int nlsock_fd = 0;
+	 int creat_try = 0;
+	 struct sockaddr_nl src_addr, dest_addr;
+	 struct msghdr msg;
+	 struct nlmsghdr *nlh = NULL;
+ 
+	 for (creat_try = 0; creat_try < 3; creat_try ++)
+	 {
+		 nlsock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_DETECTOR_IGMP);
+		 if (nlsock_fd < 0)
+			 continue;
+		 else
+			 break;
+	 }
+	 if (nlsock_fd < 0)
+	 {
+		 igmp_snp_syslog_err( "failed to create netlink socket to igmpsnp\n");
+		 return IGMPSNP_RETURN_CODE_ERROR;
+	 }
+	 memset(&src_addr, 0, sizeof(src_addr));
+	 src_addr.nl_family = AF_NETLINK;
+	 src_addr.nl_pid = 0x02;
+	 src_addr.nl_groups = 0;
+ 
+	 if (bind(nlsock_fd, (struct sockaddr *)&src_addr, sizeof(src_addr)))
+	 {
+		 igmp_snp_syslog_err( "failed to create netlink socket to igmpsnp\n");
+		 close(nlsock_fd);
+		 return IGMPSNP_RETURN_CODE_ERROR;
+	 }
+ 
+	 return nlsock_fd;
+ }
+ 
+ 
+ int  parse_netlink_msg(char * buf)//,struct MC_LIST_UPDATE* list_entry)
+ {	 
+	 u_int16_t tmp_len = 0;
+	 u_int16_t tmp_total_len = 0;
+	 u_int8_t type = 0;
+	 UCHAR sta_macaddr[6];
+     int igmp_len = sizeof(struct igmp_snp_list);
+	 buf ++;
+		 while(tmp_total_len < igmp_len){ 
+			 switch(*buf){				 
+				 case IGMP_SNP_TYPE_OPTION:
+				 buf ++;
+				 tmp_len = *buf;
+				 buf ++;
+				 type = *buf;
+				 break;	
+				 
+				 case IGMP_SNP_TYPE_GROUP_IP:
+				 buf ++;
+				 tmp_len = *buf;
+				 buf ++;
+				 break;
+				 
+				 case IGMP_SNP_TYPE_STA_MAC:
+				 buf ++;
+				 tmp_len = *buf;
+				 buf ++;
+				 memcpy(sta_macaddr,buf,6);  				 
+				 igmp_snp_syslog_dbg("parse_netlink_msg:sta_macaddr:%x,%x,%x,%x,%x,%x\n",sta_macaddr[0],sta_macaddr[1],sta_macaddr[2],sta_macaddr[3],sta_macaddr[4],sta_macaddr[5]);
+				 igmp_snp_deletesta(sta_macaddr);
+				 break;
+			 }
+			 buf += tmp_len;
+			 tmp_total_len += (TLV_MSG_TYPE_LEN + TLV_MSG_LENGTH_LEN + tmp_len);
+		 }	 
+ 
+ }
+ 
+ 
+ 
+ /*
+ ***********************************************************
+ * FuncName:recv_scan_locate_parm
+ * Description:recv scan params from wtpd,update scan params
+				 in detector and restart scan locate task
+ * Return:0 success, -1 failure.
+ ***********************************************************
+ */
+ int recv_scan_locate_parm(int nlsock_to_igmpsnp)
+ {
+
+	 int recv_status = 0;
+	 int error = 0;
+	 struct sockaddr from_addr;
+	 socklen_t addr_len;
+	 addr_len = sizeof(struct sockaddr_nl);
+	 
+	 /* wangjianru modified for coverity check 2013-10-29 */
+	 memset(&config_parm_from_igmpsnp.buf, 0, MAX_MSG_PAYLOAD);
+	 /* gengzj added end */
+	 
+	 recv_status = recvfrom(nlsock_to_igmpsnp, &config_parm_from_igmpsnp, 
+		 sizeof(config_parm_from_igmpsnp), 0, (struct sockaddr *)&from_addr, &addr_len);
+	 
+	 if (recv_status < 0)
+	 {
+		 igmp_snp_syslog_err("recv config params from kernnel failed!\n");
+		 return IGMPSNP_RETURN_CODE_ERROR;
+	 }
+	 else
+	 {
+		 igmp_snp_syslog_dbg("recv scan locate params ok, recv_status: %d\n", recv_status);
+ 
+		 igmp_snp_syslog_dbg("=================recv igmpsnp buf=================%s\n", config_parm_from_igmpsnp.buf);
+		 
+		 error = parse_netlink_msg(config_parm_from_igmpsnp.buf);
+		 if (error < 0)
+		 {
+			 igmp_snp_syslog_err("parse config msg from kernel failed,continue.\n");
+			 return IGMPSNP_RETURN_CODE_ERROR;
+		 }
+		 else
+		 {
+			 igmp_snp_syslog_dbg("parse_netlink_msg ok.\n");
+			 return IGMPSNP_RETURN_CODE_OK;
+		 }
+	 }
+	 
+ }
 
 
  void *create_recvevent_thread(void)
 {
 
 
-	while(1)
-	{
-		igmp_snp_syslog_dbg("---------------create_recvevent_thread--------------\n");
-		sleep (10);
-		
+    nlsock_to_igmpsnp = nlsock_create_to_igmpsnp();	
+			
+    if (nlsock_to_igmpsnp < 0)
+    {
+	    igmp_snp_syslog_err("build the netlink socket to igmpsnp failded! nlsock_to_igmpsnp: %d\n", nlsock_to_igmpsnp);
+	    exit(0);
 	}
+	else
+	{
+	    while (1)
+		{
+		    recv_scan_locate_parm(nlsock_to_igmpsnp);
+			
+		}
+				
+				
+	}
+
+		
 
 }
 
@@ -1156,6 +1351,111 @@ static void *create_timer_thread(void)
 #endif
 
 
+
+/*
+*****************************************************
+* FuncName:nlsock_create_to_kernel
+* Description:create netlink socket to kernel
+*****************************************************
+*/
+int nlsock_create_to_kernel( UINT mc_ipaddr,UCHAR sta_macaddr[],USHORT option)
+{
+
+	igmp_snp_syslog_dbg( "nlsock_create_to_kernel\n");
+
+	int nlsock_fd = 0;
+	int creat_try = 0;
+	struct sockaddr_nl src_addr, dest_addr;
+	struct msghdr msg;
+	struct nlmsghdr *nlh = NULL;
+	struct iovec iov;
+
+	struct igmp_snp_list list; 
+	struct IGMP_TLV *tlv = &list.tlv;
+  int i ;
+
+	for (creat_try = 0; creat_try < 3; creat_try ++)
+	{
+
+		nlsock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_DETECTOR_IGMP);
+		if (nlsock_fd < 0)
+			continue;
+		else
+			break;
+	}
+	if (nlsock_fd < 0)
+	{
+		igmp_snp_syslog_err( "failed to create netlink socket to igmpsnp\n");
+		
+		return -1;
+	}
+	
+	memset(&dest_addr, 0, sizeof(dest_addr));
+	dest_addr.nl_family = AF_NETLINK;
+	dest_addr.nl_pid = 0;
+	dest_addr.nl_groups = 0;
+
+
+	if(NULL== (nlh=(struct nlmsghdr*)malloc(NLMSG_SPACE(MAX_MSG_PAYLOAD)))){
+		   igmp_snp_syslog_dbg("alloc mem failed!");
+		   return 1;
+	}
+
+
+	nlh->nlmsg_len= NLMSG_SPACE(MAX_MSG_PAYLOAD);
+	nlh->nlmsg_pid= 0x02;
+	nlh->nlmsg_type= 0;
+	nlh->nlmsg_flags= 0;
+	
+
+
+	
+	memset(&list,0x0,sizeof(struct igmp_snp_list));
+
+	list.member_num = 1;
+	tlv->t_op = IGMP_SNP_TYPE_OPTION;
+	tlv->l_op = sizeof(tlv->v_op);
+	tlv->v_op = option;
+	
+	tlv->t_group_ip = IGMP_SNP_TYPE_GROUP_IP;
+	tlv->l_group_ip = sizeof(tlv->v_group_ip);
+	tlv->v_group_ip = mc_ipaddr;
+	
+	tlv->t_sta_mac = IGMP_SNP_TYPE_STA_MAC;
+	tlv->l_sta_mac = 6;
+	memcpy(tlv->v_sta_mac,sta_macaddr,6);
+
+
+
+
+
+
+    memcpy(NLMSG_DATA(nlh), &list,sizeof(struct igmp_snp_list));
+	
+    memset(&iov, 0, sizeof(iov));
+    iov.iov_base = (void *)nlh;
+    iov.iov_len = nlh->nlmsg_len;
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+
+	igmp_snp_syslog_dbg("user message:\n");
+	for(i = 0; i < nlh->nlmsg_len; i ++){
+	  if(i && i%20 ==0) igmp_snp_syslog_dbg("\n");
+	  igmp_snp_syslog_dbg("%02x ", ((unsigned char*)nlh)[i]);
+   }	
+	igmp_snp_syslog_dbg("\n");
+	
+	sendmsg(nlsock_fd, &msg, 0);
+
+	
+    close(nlsock_fd);
+	free(nlh);
+
+}
+
+
+
 /**********************************************************************************
 * create_recvskb_thread()
 *
@@ -1205,7 +1505,8 @@ static void *create_timer_thread(void)
 
 
 	 init_igmp_snp_vaplist();//get vap list by wangjr
-	 
+
+	 #if 0
 	 igmp_snp_syslog_dbg("%s : vap_listing.curr_size=%d\n",__FUNCTION__,vap_listing.curr_size);
 	 for (i= 0; i < vap_listing.curr_size; i++) {
 		 
@@ -1213,7 +1514,7 @@ static void *create_timer_thread(void)
 		 
 	 }
 	 //icm_sys_ifnames_deinit(&vap_listing);
-
+	#endif
 
      UCHAR *packet = (
      CHAR *)malloc(2048*sizeof(char));
@@ -1247,16 +1548,8 @@ static void *create_timer_thread(void)
 	     igmp_snp_syslog_dbg("%s :%s 's index is %d\n",__FUNCTION__,vap_listing.ifnames[i], ifr.ifr_ifindex);
 	     vap_index[j++] = ifr.ifr_ifindex;
     }
-   // if(0 == vap_count)
-   // {
-    	//printf("error: not valid vap\n");
-    	//return;
-   // }
-    //for(i=0; i< vap_count; i++)
-   // {
-   //     set_hw_tab( MUCAST_ALL & IGMP_MASK, vap_index[i], IGMP_REPORT_V2 );
-    	//set_hw_tab( MUCAST_LEVEL & IGMP_MASK, vap_index[i], IGMP_REPORT_V2 );
-   // }
+
+
     
 	while(1){
 	ret = select(g_sockfd+ 1, &rdfds, NULL, NULL, NULL); 
@@ -1272,7 +1565,6 @@ static void *create_timer_thread(void)
 	}
 	else 
 	{
-		//printf("select function ret=%d\n", ret);
 		if(FD_ISSET(g_sockfd, &rdfds)) 
 		{
 			memset(&from, 0, sizeof(struct sockaddr_ll));
@@ -1280,8 +1572,8 @@ static void *create_timer_thread(void)
 			bytes = recvfrom(g_sockfd,packet,2048, 0,(struct sockaddr *) &from, &fromlen);
 			if(bytes<=0) 
 			{
-			    igmp_snp_syslog_err("recvfrom error%s\n\r",strerror(errno));
-				igmp_snp_syslog_err("g_sockfd = %d, packet = %d\r\n",g_sockfd,packet);
+			    igmp_snp_syslog_err("recvfrom error%s\n",strerror(errno));
+				igmp_snp_syslog_err("g_sockfd = %d, packet = %d\n",g_sockfd,packet);
 				return;
 			}
 			
@@ -1290,15 +1582,16 @@ static void *create_timer_thread(void)
 			ip = (struct iphdr *)(packet + sizeof(struct ethhdr));
             for(i=0; i<vap_listing.curr_size; i++)
             {
-            	igmp_snp_syslog_dbg("%s :vap index is %d\n",__FUNCTION__,vap_index[i]);
+            	//igmp_snp_syslog_dbg("%s :vap index is %d\n",__FUNCTION__,vap_index[i]);
             	if(vap_index[i] == from.sll_ifindex)
             	    flag = 1;	
             }
-            igmp_snp_syslog_dbg("%s :protocol = %d\n",__FUNCTION__,ip->protocol);
-            igmp_snp_syslog_dbg("%s :flag = %d\n", __FUNCTION__,flag);
+           // igmp_snp_syslog_dbg("%s :protocol = %d\n",__FUNCTION__,ip->protocol);
+           // igmp_snp_syslog_dbg("%s :flag = %d\n", __FUNCTION__,flag);
+           
             if( IPPROTO_IGMP == ip->protocol  && 1 ==  flag)
             {
-				 igmp_snp_syslog_dbg("%s :the recvfrom interface index is %d\n",__FUNCTION__, from.sll_ifindex);
+				 //igmp_snp_syslog_dbg("%s :the recvfrom interface index is %d\n",__FUNCTION__, from.sll_ifindex);
 				 igmp_snp_syslog_dbg("%s :recv mac %x,%x,%x,%x,%x,%x\r\n",__FUNCTION__,from.sll_addr[0],from.sll_addr[1],from.sll_addr[2],from.sll_addr[3],from.sll_addr[4],from.sll_addr[5]);
 				if (bytes < (int) (sizeof(struct ethhdr) + sizeof(struct iphdr) + 8)) {
 					igmp_snp_syslog_err("message too short, ignoring\n\r");
@@ -1318,13 +1611,9 @@ static void *create_timer_thread(void)
 			   if( IGMP_REPORT_V3 != igmp->type)
 			   {
 				   unsigned char *test = &(igmp->gaddr);
-				   igmp_snp_syslog_dbg("igmp type: %d.%d.%d.%d\n", test[0],test[1],test[2],test[3]);
-				  
+				   
 				   igmp_snp_syslog_dbg("igmp group id : %x --- %x\n",igmp->gaddr, igmp->gaddr&0x7fffff);
 				   
-			   	   //set_hw_tab( (igmp->gaddr&IGMP_MASK), from.sll_ifindex, igmp->type );
-				   
-
 					
 					if( IGMP_REPORT_V1 == igmp->type)
 					{
@@ -1332,6 +1621,7 @@ static void *create_timer_thread(void)
 						
 						igmp_snp_searchgroup(igmp->gaddr,from.sll_addr,IPPROTO_IGMP_V1,IGMP_GROUP_ADD);
 						create_mcgrouplist_file();
+						nlsock_create_to_kernel(igmp->gaddr,from.sll_addr,NETLINK_IGMP_ADD);
 						
 					}
 					else if(IGMP_REPORT_V2 == igmp->type)
@@ -1339,12 +1629,14 @@ static void *create_timer_thread(void)
 						igmp_snp_syslog_pkt_rev("Received IGMPv2 reports\n");
 						igmp_snp_searchgroup(igmp->gaddr,from.sll_addr,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
 						create_mcgrouplist_file();
+						nlsock_create_to_kernel(igmp->gaddr,from.sll_addr,NETLINK_IGMP_ADD);
 					}				
 					else if(IGMP_LEAVE_V2 ==igmp->type)
 					{
 						igmp_snp_syslog_pkt_rev("Received IGMPv2 leaves\n");
 						igmp_snp_searchgroup(igmp->gaddr,from.sll_addr,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
 						create_mcgrouplist_file();
+						nlsock_create_to_kernel(igmp->gaddr,from.sll_addr,NETLINK_IGMP_DEL);
 					}
 					else 
 					{
@@ -1374,11 +1666,13 @@ static void *create_timer_thread(void)
 						 {
 						 	igmp_snp_searchgroup(v3_report->grec[0].grec_mca,from.sll_addr,IPPROTO_IGMP_V3,IGMP_GROUP_ADD);
 							create_mcgrouplist_file();
+							nlsock_create_to_kernel(v3_report->grec[0].grec_mca,from.sll_addr,NETLINK_IGMP_ADD);
 						 }
 						 else if(v3_report->grec[0].grec_type == IGMP_REPORT_V3_LEAVE)
 						 {	
 						 	igmp_snp_searchgroup(v3_report->grec[0].grec_mca,from.sll_addr,IPPROTO_IGMP_V3,IGMP_GROUP_DEL);
 							create_mcgrouplist_file();
+							nlsock_create_to_kernel(v3_report->grec[0].grec_mca,from.sll_addr,NETLINK_IGMP_DEL);
 						 }	
 						 else
 						 {
@@ -1447,6 +1741,13 @@ int create_mcgrouplist_file()
 
 //# if 0
 
+
+
+
+
+
+
+
 static void usage(void)
 {		
  	fprintf(stderr,			
@@ -1464,25 +1765,10 @@ static void usage(void)
  int main(int argc, char *argv[])
 {
 
-
 	INT ret;
 	INT i;
 	INT c ; 
 	
-	//UCHAR mac1[8]={0x00,0x24,0xd7,0x1c,0x2e,0x34};
-	//UCHAR mac2[8]={0x08,0x00,0x27,0x00,0x98,0x5E};
-	
-	//UCHAR mac3[8]={0x14,0xFE,0xB5,0xE5,0x7A,0xCE};
-
-	//UCHAR mac4[8]={0x00,0x00,0xB5,0xE5,0x00,0x00};
-
-
-	//UCHAR mac5[8]={0x66,0x99,0xB5,0xE5,0x7A,0xCE};
-
-	//UCHAR mac6[8]={0x77,0x88,0xB5,0xE5,0x00,0x00};
-
-
-
 	for (;;) {				
 		c = getopt(argc, argv, "dhi:"); 
 		if (c < 0)
@@ -1547,97 +1833,12 @@ static void usage(void)
 	}
 
 
-
-
-
-	
-#if 0
-
-	igmp_snp_searchgroup(33333,mac1,IPPROTO_IGMP_V1,IGMP_GROUP_ADD);
-
-	create_mcgrouplist_file();
-
-
-	sleep(10);
-	
-	igmp_snp_searchgroup(33333,mac2,IPPROTO_IGMP_V1,IGMP_GROUP_ADD);
-
-	create_mcgrouplist_file();
-
-
-	igmp_snp_searchgroup(33333,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-	igmp_snp_searchgroup(33333,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-	
-
-	igmp_snp_searchgroup(44444,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-	igmp_snp_searchgroup(44444,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-	
-
-	igmp_snp_searchgroup(33333,mac5,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-	igmp_snp_searchgroup(33333,mac6,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-
-	igmp_snp_searchgroup(44444,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-
-	igmp_snp_searchgroup(44444,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-
-	igmp_snp_searchgroup(33333,mac2,IPPROTO_IGMP_V1,IGMP_GROUP_DEL);
-
-
-
-	igmp_snp_searchgroup(88888,mac2,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-
-	ret = igmp_snp_searchgroup(77777,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-	printf("----------------ret= %d\n",ret);
-
-	igmp_snp_searchgroup(88888,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-	
-	igmp_snp_searchgroup(66666,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-	igmp_snp_searchgroup(77777,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-
-	igmp_snp_searchgroup(88888,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_ADD);
-	
-
-
-	
-	create_mcgrouplist_file();
-	
-	sleep(40);
-	
-	igmp_snp_searchgroup(88888,mac2,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-	
-	igmp_snp_searchgroup(77777,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-
-	ret = igmp_snp_searchgroup(88888,mac3,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-
-	printf("---------------------ret= %x\n",ret);
-	
-	igmp_snp_searchgroup(88888,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-	
-	ret = igmp_snp_searchgroup(55555,mac4,IPPROTO_IGMP_V2,IGMP_GROUP_DEL);
-	
-	printf("---------------------ret= %x\n",ret);
-
-	create_mcgrouplist_file();
-	
-	sleep(5);
-
-	igmp_snp_deletesta(mac4);
-
-#endif
-
 	create_mcgrouplist_file();
 
 	pthread_join(thread_recvskb,NULL);
 	pthread_join(thread_recvevent,NULL);
 	pthread_join(thread_timer,NULL);
-	
+
 
 }
 

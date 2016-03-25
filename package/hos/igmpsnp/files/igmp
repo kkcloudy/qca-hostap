@@ -1,0 +1,6 @@
+
+config igmp 'igmpsnp'
+	option switch '1'
+	option multounicast '1'
+	option hostlifeinterval '180'
+

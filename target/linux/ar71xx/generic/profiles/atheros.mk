@@ -93,7 +93,7 @@ define Profile/APV5
                 -firewall -odhcpd -dnsmasq -wpad-mini\
                 kmod-qca-wifi-perf kmod-qca-wifi-perf qca-hostap \
                 qca-spectral qca-hostapd-cli qca-wpa-cli \
-                qca-wpa-supplicant tid kmod-tid_kmod dnsrd kmod-dnsrd_kmod \
+                qca-wpa-supplicant tid igmpsnp kmod-tid_kmod dnsrd kmod-dnsrd_kmod \
                 hos-appkey hos-btt hos-partool pro_ctl_util\
                 hos-cfpd libhos-appkey libhos-partool \
                 syncd kmod-kes kmod-packet_trace horst libncurses ethtool fping uplink \
@@ -152,7 +152,7 @@ define Profile/AP152_AFI
 		-firewall -odhcpd -dnsmasq -wpad-mini\
 		kmod-qca-wifi-perf kmod-qca-wifi-perf qca-hostap \
 		qca-spectral qca-hostapd-cli qca-wpa-cli qca-whc-lbd \
-		qca-wpa-supplicant tid kmod-tid_kmod dnsrd kmod-dnsrd_kmod \
+		qca-wpa-supplicant tid igmpsnp kmod-tid_kmod dnsrd kmod-dnsrd_kmod \
 		hos-appkey hos-btt hos-partool \
 		hos-cfpd libhos-appkey libhos-partool \
 		kmod-kes horst libncurses ethtool fping \
