@@ -1062,6 +1062,7 @@ enable_qcawifi() {
 
 		case "$enc" in
 			none)
+				start_hostapd=1
 				# If we're in open mode and want to use WPS, we
 				# must start hostapd
 				config_get_bool wps_pbc "$vif" wps_pbc 0

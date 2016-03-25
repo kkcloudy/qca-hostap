@@ -104,6 +104,7 @@ struct hostapd_data {
 	int tkip_countermeasures;
 
 	int ctrl_sock;
+	int eag_sock; //xikai add
 	struct wpa_ctrl_dst *ctrl_dst;
 
 	void *ssl_ctx;
@@ -312,4 +313,29 @@ int hostapd_probe_req_rx(struct hostapd_data *hapd, const u8 *sa, const u8 *da,
 			 const u8 *bssid, const u8 *ie, size_t ie_len,
 			 int ssi_signal);
 
+void hostapd_eag_iface_deinit(struct hostapd_data *hapd);
+#define HOSTAPD_MAX_SSID_LEN 32
+typedef enum{
+    STA_ADD = 0,
+	STA_DEL = 1,
+	STA_UPDATE = 2,
+	OPEN_ROAM = 3,
+	EAG_DEL_AUTH = 4,		
+	EAG_MAC_AUTH = 5,
+	EAG_MAC_DEL_AUTH = 6,
+	EAG_NTF_ASD_STA_INFO = 7,
+	EAG_AUTH =8
+
+} Operate;
+typedef struct{
+    char iface[IFNAMSIZ + 1];
+	char bridge[IFNAMSIZ + 1];
+	u8 addr[6];
+	unsigned int ip_addr;
+	char ssid[HOSTAPD_MAX_SSID_LEN + 1];
+}EAG_STA;
+typedef struct {
+    Operate op;
+	EAG_STA sta;
+}EAG_MSG;
 #endif /* HOSTAPD_H */

@@ -202,6 +202,7 @@ static void handle_dhcp(void *ctx, const u8 *src_addr, const u8 *buf,
 		}
 		sta->ipaddr = b->your_ip;
 #endif
+		send_msg_to_eag(hapd, sta, STA_ADD);
 	}
 
 	if (hapd->conf->disable_dgaf && is_broadcast_ether_addr(buf)) {

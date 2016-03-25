@@ -32,6 +32,10 @@
 #include "ap_config.h"
 #include "p2p_hostapd.h"
 #include "gas_serv.h"
+
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <stddef.h>
 #include "x_snoop.h"
 #include "dhcp_snoop.h"
 
@@ -293,6 +297,7 @@ static void hostapd_cleanup(struct hostapd_data *hapd)
 {
 	if (hapd->iface->ctrl_iface_deinit)
 		hapd->iface->ctrl_iface_deinit(hapd);
+	hostapd_eag_iface_deinit(hapd);
 	hostapd_free_hapd_data(hapd);
 }
 
@@ -796,7 +801,9 @@ static int hostapd_setup_bss(struct hostapd_data *hapd, int first)
 		wpa_printf(MSG_ERROR, "Failed to setup control interface");
 		return -1;
 	}
-
+    if(hostapd_eag_iface_init(hapd)){
+        wpa_printf(MSG_ERROR, "Failed to setup eag interface");
+	}
 	if (!hostapd_drv_none(hapd) && vlan_init(hapd)) {
 		wpa_printf(MSG_ERROR, "VLAN initialization failed.");
 		return -1;
@@ -1034,6 +1041,7 @@ hostapd_alloc_bss_data(struct hostapd_iface *hapd_iface,
 	hapd->iface = hapd_iface;
 	hapd->driver = hapd->iconf->driver;
 	hapd->ctrl_sock = -1;
+	hapd->eag_sock = -1;
 
 	return hapd;
 }
@@ -1422,3 +1430,160 @@ void hostapd_new_assoc_sta(struct hostapd_data *hapd, struct sta_info *sta,
 	eloop_register_timeout(hapd->conf->ap_max_inactivity, 0,
 			       ap_handle_timer, hapd, sta);
 }
+
+void hostapd_eag_iface_receive(int sock,void *eloop_ctx,void *sock_ctx)
+{
+    struct hostapd_data *hapd = eloop_ctx;
+	char buf[512];
+	int res;
+	EAG_MSG *msg;
+	struct sockaddr_un from;
+	socklen_t fromlen = sizeof(from);
+	res = recvfrom(sock, buf, sizeof(buf) - 1, 0,
+		       (struct sockaddr *) &from, &fromlen);
+	if (res < 0) {
+		perror("recvfrom(ctrl_iface)");
+		return;
+	}
+	msg = (EAG_MSG *)buf;
+	wpa_printf(MSG_DEBUG,"receive message from EAG, op = %d\n",msg->op);
+}
+int hostapd_eag_iface_init(struct hostapd_data *hapd)
+{
+    struct sockaddr_un addr;
+	int s = -1;
+	char *fname = NULL;
+	size_t len;
+
+	
+	if(hapd->eag_sock > -1){
+        wpa_printf(MSG_DEBUG, "eag_iface already exists!");
+		return 0;
+	}
+    if (mkdir("/var/run/hostapd-eag", S_IRWXU | S_IRWXG) < 0) {
+		if (errno == EEXIST) {
+			wpa_printf(MSG_DEBUG, "Using existing eag "
+				   "interface directory.");
+		} else {
+			perror("mkdir[ctrl_interface]");
+			goto fail;
+		}
+	}
+	
+    if (os_strlen("/var/run/hostapd-eag") + 1 +
+	    os_strlen(hapd->conf->iface) >= sizeof(addr.sun_path))
+		goto fail;
+
+	s = socket(PF_UNIX,SOCK_DGRAM,0);
+    if (s < 0) {
+		perror("socket(PF_UNIX)");
+		goto fail;
+	}
+
+	os_memset(&addr, 0, sizeof(addr));
+#ifdef __FreeBSD__
+	addr.sun_len = sizeof(addr);
+#endif /* __FreeBSD__ */
+	addr.sun_family = AF_UNIX;
+
+	len = os_strlen("/var/run/hostapd-eag") + 2 + os_strlen(hapd->conf->iface);
+	fname = malloc(len);
+	if(fname == NULL){
+        wpa_printf(MSG_ERROR,"fname malloc failed");
+		goto fail;
+	}
+	
+	os_snprintf(fname, len, "%s/%s",
+		    "/var/run/hostapd-eag", hapd->conf->iface);
+	fname[len - 1] = '\0';
+
+	os_strlcpy(addr.sun_path, fname, sizeof(addr.sun_path));
+	if(bind(s,(struct sockaddr *)&addr,sizeof(addr)) < 0){
+        wpa_printf(MSG_DEBUG, "eag_iface bind(PF_UNIX) failed: %s",
+			   strerror(errno));
+		goto fail;
+	}
+	if (chmod(fname, S_IRWXU | S_IRWXG) < 0) {
+		perror("chmod[eag_interface/ifname]");
+		goto fail;
+	}
+	os_free(fname);
+
+	hapd->eag_sock = s;
+	
+    eloop_register_read_sock(s, hostapd_eag_iface_receive, hapd,
+				 NULL);	
+	return 0;
+
+fail:
+	if (s >= 0)
+		close(s);
+	if (fname) {
+		unlink(fname);
+	}
+	return -1;	
+}		
+
+int send_msg_to_eag(struct hostapd_data *hapd,struct sta_info *sta,Operate op)
+{
+	int ret;
+	struct sockaddr_un eag_addr;
+    EAG_MSG message;
+	
+	os_memset(&message, 0, sizeof(message));
+	message.op = op;
+    os_memcpy(message.sta.addr,sta->addr,6);
+	message.sta.ip_addr = sta->ipaddr;
+	os_strncpy(message.sta.iface, hapd->conf->iface, IFNAMSIZ+1);
+	os_strncpy(message.sta.bridge, hapd->conf->bridge, IFNAMSIZ+1);
+	os_strncpy(message.sta.ssid, hapd->conf->ssid.ssid, hapd->conf->ssid.ssid_len);	
+	os_memset(&eag_addr, 0, sizeof(eag_addr));
+#ifdef __FreeBSD__
+	eag_addr.sun_len = sizeof(eag_addr);
+#endif /* __FreeBSD__ */
+	eag_addr.sun_family = AF_UNIX;
+    os_strlcpy(eag_addr.sun_path, "/var/run/portal_sta_us", sizeof(eag_addr.sun_path));
+    ret = sendto(hapd->eag_sock, &message, sizeof(message), 0, (struct sockaddr *) &eag_addr,
+		       sizeof(eag_addr));
+	if(ret < 0){
+        wpa_printf(MSG_ERROR,"send message to eag failed\n");
+		return -1;
+	}
+	
+	return 0;
+}
+
+void hostapd_eag_iface_deinit(struct hostapd_data *hapd)
+{
+
+	if (hapd->eag_sock > -1) {
+		char *fname = NULL;
+		int len;
+		eloop_unregister_read_sock(hapd->eag_sock);
+		close(hapd->eag_sock);
+		hapd->ctrl_sock = -1;
+		len = os_strlen("/var/run/hostapd-eag") + 2 + os_strlen(hapd->conf->iface);
+	    fname = malloc(len);
+		if(fname == NULL){
+            wpa_printf(MSG_DEBUG,"fname malloc failed");
+			return;
+		}
+        os_snprintf(fname, len, "%s/%s",
+		    "/var/run/hostapd-eag", hapd->conf->iface);
+	    fname[len - 1] = '\0';
+		if (fname)
+			unlink(fname);
+		os_free(fname);
+    
+		if (rmdir("/var/run/hostapd-eag") < 0) {
+			if (errno == ENOTEMPTY) {
+				wpa_printf(MSG_DEBUG, "Control interface "
+					   "directory not empty - leaving it "
+					   "behind");
+			} else {
+				perror("rmdir[ctrl_interface]");
+			}
+		}
+	}
+}
+
