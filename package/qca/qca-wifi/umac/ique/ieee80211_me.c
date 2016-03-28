@@ -72,8 +72,9 @@ static struct MC_GROUP_LIST_ENTRY* ieee80211_me_create_grp_list(struct ieee80211
                                                                 u_int8_t* grp_addr, u_int32_t grp_ipaddr);
 int ieee80211_me_SnoopIsDenied(struct ieee80211vap *vap, u_int32_t grpaddr);
 void ieee80211_me_SnoopListUpdate(struct MC_LIST_UPDATE* list_entry);
-uint8_t ieee80211_me_SnoopListGetMember(struct ieee80211vap* vap, uint8_t* grp_addr, u_int32_t grp_ipaddr,
-void ieee80211_me_SnoopWDSNodeCleanup(struct ieee80211_node *ni);                                            u_int32_t src_ip_addr, uint8_t* table, int table_len);
+uint8_t ieee80211_me_SnoopListGetMember(struct ieee80211vap* vap, uint8_t* grp_addr, u_int32_t grp_ipaddr, 
+                                u_int32_t src_ip_addr,uint8_t* table, int table_len);
+void ieee80211_me_SnoopWDSNodeCleanup(struct ieee80211_node *ni);   
 static u_int8_t ieee80211_me_count_member_anysrclist(struct MC_GROUP_LIST_ENTRY* grp_list,
                                                      u_int8_t* table,
                                                      int table_len,
