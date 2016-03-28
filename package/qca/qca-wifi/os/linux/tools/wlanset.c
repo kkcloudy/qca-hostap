@@ -36,6 +36,7 @@
 enum han_ioctl_priv {
 	HAN_IOCTL_PRIV_BANDSTEERING = 0,
 	HAN_IOCTL_PRIV_WIRELESSQOS = 1,
+	HAN_IOCTL_PRIV_IGMP_SNP = 2,
 };
 
 #define HAN_IOCTL_WMM_ENABLE 0
@@ -64,6 +65,17 @@ enum han_ioctl_priv {
 #define OP_SET 	0x01
 #define OP_GET	0x02
 #define AC_MAX_ARGS  8
+
+struct han_igmpsnp{
+#define HAN_IOCTL_IGMPSNP_ENABLE 0
+#define HAN_IOCTL_IGMPSNP_MUTOUN 1
+#define HAN_IOCTL_IGMPSNP_STATUS 2
+#define HAN_IOCTL_IGMPSNP_DEBUG 3
+
+	unsigned int subtype;
+	unsigned int op;
+	int value;
+};
 
 struct wireless_qos{
 		unsigned int subtype;
@@ -145,6 +157,7 @@ struct han_ioctl_priv_args {
 		} bandsteering;
 		
 		struct wireless_qos wmm; //pengdecai for han private wmm
+		struct han_igmpsnp	igmp;
 
 		/*New cmd struct*/
 	} u;
@@ -484,6 +497,100 @@ han_wirelessqos_deal_paramter(int argc, char** argv,char *store)
    return real_arg_num;
 }
 
+void
+han_igmp_snooping_help(void)
+{
+	printf("\nusage:: wlanset igmp COMMAND [OPTION] ... \n");
+	printf("OPTIONS: \n");
+	printf("\tset_snoop_enable\t\t[0|1]\n");
+	printf("\tget_snoop_enable\n");
+	printf("\tset_mutoun_enable\t\t[0|1]\n");
+	printf("\tget_mutoun_enable\n");
+	printf("\tget_status\n");
+	printf("\tset_debug\t\t[0|1]\n");
+	printf("\tget_debug\n");
+
+}
+
+
+static int han_igmp_snooping(int argc, char** argv)
+{
+
+#define CALC(a, t)	((t) ? ((a) * 100 / (t)) : 0)
+
+	struct iwreq iwr;
+	int ret = 0;
+	unsigned char buf[1024] = {0};
+	struct han_ioctl_priv_args a = {0};
+	
+	if (argc < 4) {
+		han_igmp_snooping_help();
+		return -1;
+	} else {
+		a.type = HAN_IOCTL_PRIV_IGMP_SNP;
+		if (WLANSET_STRING_EQ(argv[3], "set_snoop_enable")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_ENABLE;
+			a.u.igmp.op = OP_SET;
+		} else if (WLANSET_STRING_EQ(argv[3],"get_snoop_enable")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_ENABLE;
+			a.u.igmp.op = OP_GET;
+		} else if (WLANSET_STRING_EQ(argv[3], "set_mutoun_enable")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_MUTOUN;
+			a.u.igmp.op = OP_SET;
+		} else if (WLANSET_STRING_EQ(argv[3],"get_mutoun_enable")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_MUTOUN;
+			a.u.igmp.op = OP_GET;
+		} else if (WLANSET_STRING_EQ(argv[3], "set_debug")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_DEBUG;
+			a.u.igmp.op = OP_SET;
+		} else if (WLANSET_STRING_EQ(argv[3],"get_debug")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_DEBUG;
+			a.u.igmp.op = OP_GET;
+		}else if (WLANSET_STRING_EQ(argv[3],"get_status")) {
+			a.u.igmp.subtype = HAN_IOCTL_IGMPSNP_STATUS;
+			a.u.igmp.op = OP_GET;
+		}else {
+			han_igmp_snooping_help();
+			return -1;
+		}
+		
+		if (OP_SET == a.u.igmp.op){
+		    a.u.igmp.value = atoi(argv[4]);
+		}
+		
+	    memset(buf, 0, sizeof(buf));
+	    memcpy(buf, &a, sizeof(struct han_ioctl_priv_args));
+		
+	    memset(&iwr, 0, sizeof(iwr));
+	    WLANSET_STRING_CP(iwr.ifr_name, argv[2]);
+	    iwr.u.data.pointer = (void *) buf;
+	    iwr.u.data.length = sizeof(buf);
+			
+	    ret = han_ioctl(&iwr, IEEE80211_IOCTL_HAN_PRIV);
+	    if (ret < 0 ){
+			printf("han ioctl error !\n");	
+			return -1;
+	    }
+	   
+		if(OP_GET == a.u.igmp.op){
+			memcpy(&a, buf, sizeof(struct han_ioctl_priv_args));
+			if(HAN_IOCTL_IGMPSNP_ENABLE == a.u.igmp.subtype){
+				printf("%d\n",a.u.igmp.value);
+					   
+			}else if(HAN_IOCTL_IGMPSNP_MUTOUN == a.u.igmp.subtype){
+				printf("%d\n",a.u.igmp.value);
+					   
+			}else if(HAN_IOCTL_IGMPSNP_DEBUG == a.u.wmm.subtype){
+				printf("%d\n",a.u.igmp.value);
+			
+			}else if(HAN_IOCTL_IGMPSNP_STATUS == a.u.wmm.subtype){
+			
+			}
+	    }
+	} 
+	return ret;
+}
+
 static int han_wirelessqos(int argc, char** argv)
 {
     int ret = 0;
@@ -769,6 +876,7 @@ han_help (void)
 	printf("OPTIONS: \n");
 	printf("\tbandsteering\t\t... ...\n");
 	printf("\ttraffic_limit\t... ...\n");
+	printf("\tigmp\t... ...\n");
 	printf("\twmm\t... ...\n");
 	printf("\n");
 }
@@ -790,6 +898,9 @@ int main (int argc, char** argv)
 			printf("wlanset command  bandsteering: wrong format\n");	
 	} else if (WLANSET_STRING_EQ(argv[1], "wmm")){
 		if(han_wirelessqos(argc, argv) < 0)
+		printf("wlanset command  wmm: wrong format\n");	
+	}else if (WLANSET_STRING_EQ(argv[1], "igmp")){
+		if(han_igmp_snooping(argc, argv) < 0)
 		printf("wlanset command  wmm: wrong format\n");	
 	}
 	else if (WLANSET_STRING_EQ(argv[1], "traffic_limit"))

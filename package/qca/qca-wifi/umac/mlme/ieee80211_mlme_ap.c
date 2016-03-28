@@ -14,6 +14,12 @@
 #include <ieee80211_smartantenna.h>
 #include <if_smart_ant.h>
 
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
+
 #define IEEE80211_PSPOLL_KICKOUT_THR 30000
 
 #if UMAC_SUPPORT_AP || UMAC_SUPPORT_BTAMP
@@ -635,6 +641,15 @@ void mlme_recv_auth_ap(struct ieee80211_node *ni,
                 /* Leave the node only if PMF not enabled */
                 if (!ieee80211_is_pmf_enabled(vap, ni)) {
                     if(!ieee80211_vap_trigger_mlme_resp_is_set(vap)) {
+						
+						/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+
+						if(vap->iv_me->mc_snoop_enable){
+							  send_igmp_snooping_sta_leave(ni);
+						}
+#endif
+						/*End:pengdecai for han igmpsnp*/
                         ieee80211_ref_node(ni);
                         if(IEEE80211_NODE_LEAVE(ni)) {
                             IEEE80211_DELIVER_EVENT_MLME_DISASSOC_INDICATION(vap,

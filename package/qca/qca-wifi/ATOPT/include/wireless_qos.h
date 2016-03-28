@@ -32,5 +32,6 @@ extern u_int8_t ieee80211_wmm_to_vlan(struct ieee80211vap *vap, u_int8_t ac);
 extern int ol_do_vlan_to_wmm(struct ieee80211vap *vap,struct sk_buff *skb);
 extern void ol_ieee80211_do_wmm_to_dscp_vlan(os_if_t osif, struct sk_buff *skb,u_int8_t tid);
 extern int ol_set_dscp_to_wmm(struct ieee80211vap *vap);
+extern int ieee80211_han_ioctl_igmp_snooping(struct net_device *dev,struct han_ioctl_priv_args *a,struct iwreq *iwr);
 
 #endif

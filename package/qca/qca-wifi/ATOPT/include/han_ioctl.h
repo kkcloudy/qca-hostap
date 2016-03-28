@@ -7,6 +7,7 @@
 enum han_ioctl_priv {
 	HAN_IOCTL_PRIV_BANDSTEERING = 0,
 	HAN_IOCTL_PRIV_WIRELESSQOS = 1,
+	HAN_IOCTL_PRIV_IGMP_SNP = 2,
 };
 
 #define HAN_IOCTL_WMM_ENABLE 0
@@ -84,6 +85,19 @@ struct wireless_qos{
 		}wmm_stat;
 };
 
+struct han_igmpsnp{
+#define HAN_IOCTL_IGMPSNP_ENABLE 0
+#define HAN_IOCTL_IGMPSNP_MUTOUN 1
+#define HAN_IOCTL_IGMPSNP_STATUS 2
+#define HAN_IOCTL_IGMPSNP_DEBUG 3
+
+
+#define OP_SET 	0x01
+#define OP_GET	0x02
+	unsigned int subtype;
+	unsigned int op;
+	int value;
+};
 
 struct han_ioctl_priv_args {
 	enum han_ioctl_priv type;
@@ -118,6 +132,7 @@ struct han_ioctl_priv_args {
 		} bandsteering;
 		
 		struct wireless_qos wmm;
+		struct han_igmpsnp  igmp;
 
 		/*New cmd struct*/
 	} u;

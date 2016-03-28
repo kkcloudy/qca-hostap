@@ -10,6 +10,12 @@
 #include "ieee80211_mlme_priv.h"    /* Private to MLME module */
 #include "osif_private.h"
 
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
+
 /* Local function prototypes */
 static OS_TIMER_FUNC(timeout_callback);
 
@@ -1281,8 +1287,17 @@ void ieee80211_mlme_recv_deauth(struct ieee80211_node *ni, u_int16_t reason_code
 #if ATH_SUPPORT_AOW
             ieee80211_aow_join_indicate(ni->ni_ic, AOW_STA_DISCONNECTED, ni);
 #endif  /* ATH_SUPPORT_AOW */
+
+
             ieee80211_ref_node(ni);
             if(IEEE80211_NODE_LEAVE(ni)) {
+				
+				/*Begin:pengdecai for han igmpsnp*/
+				if(vap->iv_me->mc_snoop_enable){
+					  send_igmp_snooping_sta_leave(ni);
+				}
+				/*End:pengdecai for han igmpsnp*/
+				
                 /* Call MLME indication handler if node is in associated state */
                 IEEE80211_DELIVER_EVENT_MLME_DEAUTH_INDICATION(vap, ni->ni_macaddr, reason_code);
             }
@@ -1312,11 +1327,18 @@ void ieee80211_mlme_recv_disassoc(struct ieee80211_node *ni, u_int32_t reason_co
     case IEEE80211_M_HOSTAP:
     case IEEE80211_M_BTAMP:
         if (ni != vap->iv_bss) {
+			
+			/*Begin:pengdecai for han igmpsnp*/
+			if(vap->iv_me->mc_snoop_enable){
+				  send_igmp_snooping_sta_leave(ni);
+			}
+			/*End:pengdecai for han igmpsnp*/
 #if ATH_SUPPORT_AOW
         ieee80211_aow_join_indicate(ni->ni_ic, AOW_STA_DISCONNECTED, ni);
 #endif  /* ATH_SUPPORT_AOW */
             ieee80211_ref_node(ni);
             if(IEEE80211_NODE_LEAVE(ni)) {
+				
                 /* Call MLME indication handler if node is in associated state */
                 IEEE80211_DELIVER_EVENT_MLME_DISASSOC_INDICATION(vap, ni->ni_macaddr, reason_code);
             }

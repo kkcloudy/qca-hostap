@@ -16980,6 +16980,16 @@ ieee80211_ioctl_han_priv(struct net_device *dev, struct iwreq *iwr)
 #endif
 	/*End:pengdecai for han private wmm*/
 
+	   /*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_IGMP_SNP
+		case HAN_IOCTL_PRIV_IGMP_SNP:
+			error = ieee80211_han_ioctl_igmp_snooping(dev,&a,iwr);
+	   break;
+#endif
+	   /*End:pengdecai for han private wmm*/
+
+		
+
 		default:
 			return -EFAULT;
 	}

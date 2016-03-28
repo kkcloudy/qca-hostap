@@ -431,8 +431,7 @@ ieee80211_vlan_priv_to_wmm(struct ieee80211vap *vap,u_int8_t v_priv)
 	if(vap->priv_wmm.debug == 2){
 		printk("802.1P->WMM:step(1/3): 802.1P = %d -> WMM_AC = %d\n",v_priv,ac);
 	}  
-	return 0;
-
+	return ac;
 }
 
 u_int8_t 

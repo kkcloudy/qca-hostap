@@ -24,7 +24,7 @@ struct ald_netlink {
     atomic_t                ald_refcnt;
 };
 
-extern struct net init_net;
+//extern struct net init_net;
 
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
 

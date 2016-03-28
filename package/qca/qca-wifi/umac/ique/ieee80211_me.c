@@ -70,8 +70,10 @@ static struct MC_GROUP_LIST_ENTRY*
 ieee80211_me_find_group_list(struct ieee80211vap* vap, uint8_t *grp_addr, u_int32_t grp_ipaddr);
 static struct MC_GROUP_LIST_ENTRY* ieee80211_me_create_grp_list(struct ieee80211vap* vap,
                                                                 u_int8_t* grp_addr, u_int32_t grp_ipaddr);
-static int ieee80211_me_SnoopIsDenied(struct ieee80211vap *vap, u_int32_t grpaddr);
-static void ieee80211_me_SnoopListUpdate(struct MC_LIST_UPDATE* list_entry);
+int ieee80211_me_SnoopIsDenied(struct ieee80211vap *vap, u_int32_t grpaddr);
+void ieee80211_me_SnoopListUpdate(struct MC_LIST_UPDATE* list_entry);
+uint8_t ieee80211_me_SnoopListGetMember(struct ieee80211vap* vap, uint8_t* grp_addr, u_int32_t grp_ipaddr,
+void ieee80211_me_SnoopWDSNodeCleanup(struct ieee80211_node *ni);                                            u_int32_t src_ip_addr, uint8_t* table, int table_len);
 static u_int8_t ieee80211_me_count_member_anysrclist(struct MC_GROUP_LIST_ENTRY* grp_list,
                                                      u_int8_t* table,
                                                      int table_len,
@@ -80,14 +82,13 @@ static u_int8_t ieee80211_me_count_member_src_list(struct MC_GROUP_LIST_ENTRY* g
                                                    u_int32_t src_ip_addr,
                                                    u_int8_t* table, int table_len,
                                                    u_int32_t timestamp);
-static uint8_t ieee80211_me_SnoopListGetMember(struct ieee80211vap* vap, uint8_t* grp_addr, u_int32_t grp_ipaddr,
-                                               u_int32_t src_ip_addr, uint8_t* table, int table_len);
+
 static void ieee80211_me_remove_node_grp(struct MC_GROUP_LIST_ENTRY* grp_list,
                                          struct ieee80211_node* ni);
 static void ieee80211_me_clean_snp_list(struct ieee80211vap* vap);
 static void ieee80211_me_SnoopListInit(struct ieee80211vap *vap);
 static int ieee80211_me_SnoopConvert(struct ieee80211vap *vap, wbuf_t wbuf);
-static void ieee80211_me_SnoopWDSNodeCleanup(struct ieee80211_node *ni);
+
 static int ieee80211_me_SnoopInspecting(struct ieee80211vap *vap, struct ieee80211_node *ni, wbuf_t wbuf);
 static void ieee80211_me_SnoopListDump(struct ieee80211vap *vap);
 static void ieee80211_me_detach(struct ieee80211vap *vap);
@@ -332,7 +333,12 @@ static void ieee80211_me_SnoopShowDenyTable(struct ieee80211vap *vap)
 /*
  * Check if the address is in deny list
  */
-static int
+
+#ifdef ATOPT_IGMP_SNP
+	int
+#else
+	static int
+#endif
 ieee80211_me_SnoopIsDenied(struct ieee80211vap *vap, u_int32_t grpaddr)
 {
     int idx;
@@ -448,7 +454,11 @@ static void ieee80211_me_SnoopDeleteGrp(struct ieee80211vap* vap, uint8_t *grp_a
 }
 
 /* update the snoop table based on the received entries*/
+#ifdef ATOPT_IGMP_SNP
+void
+#else
 static void
+#endif
 ieee80211_me_SnoopListUpdate(struct MC_LIST_UPDATE* list_entry)
 {
     struct MC_SNOOP_LIST* snp_list;
@@ -505,7 +515,7 @@ ieee80211_me_SnoopListUpdate(struct MC_LIST_UPDATE* list_entry)
                         }
                     }
                 } else if(list_entry->cmd == IGMP_SNOOP_CMD_ADD_EXC_LIST) {
-                    /* remove the member from list*/
+                   /* remove the member from list*/
                    TAILQ_REMOVE(&grp_list->src_list, grp_member_list, member_list);
                    ol_ieee80211_remove_node_grp(grp_member_list, list_entry->vap);
                    OS_FREE(grp_member_list);
@@ -840,7 +850,11 @@ ieee80211_me_count_member_src_list(struct MC_GROUP_LIST_ENTRY* grp_list,
 }
 
 /* Getmembers list from snoop table for current data */
-static uint8_t
+#ifdef ATOPT_IGMP_SNP
+	uint8_t
+#else
+	static uint8_t
+#endif
 ieee80211_me_SnoopListGetMember(struct ieee80211vap* vap, uint8_t* grp_addr, u_int32_t grp_ipaddr, 
                                 u_int32_t src_ip_addr,uint8_t* table, int table_len)
 {
@@ -1010,7 +1024,11 @@ ieee80211_me_clean_snp_list(struct ieee80211vap* vap)
 }
 
 /* remove the node from the snoop list*/
+#ifdef ATOPT_IGMP_SNP
+void
+#else
 static void
+#endif
 ieee80211_me_SnoopWDSNodeCleanup(struct ieee80211_node* ni)
 {
     struct ieee80211vap *vap = ni->ni_vap;
@@ -1849,7 +1867,13 @@ ieee80211_me_attach(struct ieee80211vap * vap)
 
     /*Attach function entry points*/
     vap->iv_ique_ops.me_detach = ieee80211_me_detach;
+	
+#ifdef ATOPT_IGMP_SNP
+	vap->iv_ique_ops.me_inspect = NULL;
+#else
     vap->iv_ique_ops.me_inspect = ieee80211_me_SnoopInspecting;
+#endif
+
     vap->iv_ique_ops.me_convert = ieee80211_me_SnoopConvert;
     vap->iv_ique_ops.me_dump = ieee80211_me_SnoopListDump;
     vap->iv_ique_ops.me_clean = ieee80211_me_SnoopWDSNodeCleanup;

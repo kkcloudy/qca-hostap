@@ -1217,11 +1217,43 @@ enable_qcawifi() {
 		esac
 		ifconfig "$ifname" up
 	done
+    set_igmpsnp_start
     #Begin:pengdecai for han private wmm
     set_han_wmm_start
     set_prio_8021p_start
     #End:pengdecai for han private wmm
 }
+
+#Begin:pengdecai for han igmpsnp
+set_igmp() {   	
+local cfg="$1"
+local ifname="$2"
+config_get switch "$cfg" switch "0"
+config_get multounicast "$cfg"  multounicast "0"
+
+
+wlanset igmp  "$ifname" set_snoop_enable $switch  > /dev/null 2>&1 
+if [ $multounicast -gt 0 ];then 
+	wlanset igmp  "$ifname" set_mutoun_enable 2  > /dev/null 2>&1 
+	else 
+	wlanset igmp  "$ifname" set_mutoun_enable 0  > /dev/null 2>&1 
+fi
+} 
+
+set_igmpsnp() {
+    local cfg="$1"
+ 	config_get ifname "$cfg" ifname
+    config_load igmp
+	config_foreach set_igmp igmp "$ifname"
+}
+
+set_igmpsnp_start() {
+echo set_igmpsnp_start 
+config_load wireless 
+config_foreach set_igmpsnp wifi-iface
+}
+#endf pengdecai for han igmpsnp
+
 #Begin:pengdecai for han private wmm
 set_wmm() {                                                                                                  local cfg="$1"
     config_get wmm_enable "$cfg"  wmm_enable "0"                                                                              

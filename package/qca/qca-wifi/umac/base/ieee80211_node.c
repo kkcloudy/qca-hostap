@@ -17,6 +17,11 @@
 #endif
 #include <if_smart_ant.h>
 
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
 
 #ifdef IEEE80211_DEBUG_REFCNT
 #define node_reclaim(nt,ni)  _node_reclaim(nt,ni,__func__,__LINE__)
@@ -1152,13 +1157,33 @@ restart:
                 IEEE80211_DPRINTF(ni->ni_vap, IEEE80211_MSG_AUTH, "%s: sending DEAUTH to %s, timeout stations reason %d\n",
                         __func__, ether_sprintf(ni->ni_macaddr), IEEE80211_REASON_AUTH_EXPIRE);
                 wlan_mlme_deauth_request(ni->ni_vap,ni->ni_macaddr,IEEE80211_REASON_AUTH_EXPIRE);
-                /* we need to send deauth indication to hostapd as indication
+
+				/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP				
+				if(ni->ni_vap->iv_me->mc_snoop_enable){
+					  send_igmp_snooping_sta_leave(ni);
+				}
+#endif
+				/*End:pengdecai for han igmpsnp*/
+
+
+				/* we need to send deauth indication to hostapd as indication
                    sent in wlan_mlme_deauth_request is in custom event and not
                    interpreted by hostpad */
                 IEEE80211_DELIVER_EVENT_MLME_DEAUTH_INDICATION(ni->ni_vap, ni->ni_macaddr, IEEE80211_REASON_AUTH_EXPIRE);
             } else if ( ni->ni_vap->iv_opmode == IEEE80211_M_IBSS || ni->ni_vap->iv_opmode == IEEE80211_M_STA) {
                 ieee80211_sta_leave(ni);
             } else {
+            
+            	/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+
+				if(ni->ni_vap->iv_me->mc_snoop_enable){
+					  send_igmp_snooping_sta_leave(ni);
+				}
+#endif
+				/*End:pengdecai for han igmpsnp*/
+				
 #if ATH_SUPPORT_AOW
                 ieee80211_aow_join_indicate(ni->ni_ic, AOW_STA_DISCONNECTED, ni);
 #endif  /* ATH_SUPPORT_AOW */

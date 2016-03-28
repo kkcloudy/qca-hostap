@@ -34,6 +34,13 @@
 #endif
 /* FIXME : Commented calls to lock_bh */
 
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
+
+
 /* Add wds address to the node table */
 inline int
 _ieee80211_add_wds_addr(struct ieee80211_node_table *nt,
@@ -586,6 +593,14 @@ wds_update_rootwds_table(struct ieee80211_node * ni, struct ieee80211_node_table
                 ieee80211_free_node(temp_node);
                 return;
             }
+			
+			/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+			  if(ni->ni_vap->iv_me->mc_snoop_enable){
+					send_igmp_snooping_sta_leave(ni);
+			  }
+#endif
+			  /*End:pengdecai for han igmpsnp*/
             IEEE80211_NODE_LEAVE(temp_node);
             ieee80211_free_node(temp_node);
         }

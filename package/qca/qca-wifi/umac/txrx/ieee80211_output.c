@@ -24,6 +24,12 @@
 #endif
 	/*End:pengdecai for han private wmm*/
 
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
+
 extern void ieee80211_cts_done(bool txok);
 
 #ifdef QCA_PARTNER_PLATFORM
@@ -440,6 +446,16 @@ void ieee80211_kick_node(struct ieee80211_node *ni)
     if ( ni->ni_vap->iv_opmode == IEEE80211_M_IBSS || ni->ni_vap->iv_opmode == IEEE80211_M_STA) {
         ieee80211_sta_leave(ni);
     } else {
+    
+	
+	/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+	  if(ni->ni_vap->iv_me->mc_snoop_enable){
+			send_igmp_snooping_sta_leave(ni);
+	  }
+#endif
+	  /*End:pengdecai for han igmpsnp*/
+	
         IEEE80211_NODE_LEAVE(ni);
     }
     ieee80211_free_node(ni);

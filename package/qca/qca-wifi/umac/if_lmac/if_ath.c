@@ -52,6 +52,13 @@ extern unsigned long ath_ignoredfs_enable;      /* defined in ah_osdep.c  */
 #include "ath_lmac_state_event.h"
 
 extern void ieee80211_cts_done(bool txok);
+/*Begin:pengdecai for han netlink*/
+#ifdef ATOPT_NETLINK
+#include "han_netlink.h"
+extern int num_global_scn; //added by pengdecai for han netlink
+#endif
+/*End:pengdecai for han netlink*/
+
 
 #if ATH_SUPPORT_WRAP
 /*
@@ -10374,6 +10381,14 @@ ath_net80211_bsteering_node_is_inact(struct ieee80211_node *ni)
     return ni->ni_bs_inact_flag;;
 }
 #endif /* ATH_BAND_STEERING */
+
+
+/*Begin:pengdecai for han netlink*/
+#ifdef ATOPT_NETLINK
+	static int han_netlink_cnt = 0;
+#endif
+/*End:pengdecai for han netlink*/	
+
 int
 ath_attach(u_int16_t devid, void *base_addr,
            struct ath_softc_net80211 *scn,
@@ -11203,6 +11218,16 @@ ath_attach(u_int16_t devid, void *base_addr,
 #endif
 
     ic->ic_def_bintval_override = 1;
+
+	/*Begin:pengdecai for han netlink*/
+#ifdef ATOPT_NETLINK
+	han_netlink_init();
+    han_netlink_cnt ++;
+
+#endif
+	/*End:pengdecai for han netlink*/
+
+
     return 0;
 }
 
@@ -11261,7 +11286,16 @@ ath_detach(struct ath_softc_net80211 *scn)
     adf_os_spinlock_destroy(&scn->amem.lock);
     asf_amem_destroy(scn->amem.handle, NULL);
     scn->amem.handle = NULL;
-
+	
+	/*Begin:pengdecai for han netlink*/
+#ifdef ATOPT_NETLINK
+	han_netlink_cnt --;
+	if(han_netlink_cnt == 0){//when all wifi has been delete then delete netlink.
+		han_netlink_delete();
+	}
+#endif
+	/*End:pengdecai for han netlink*/	
+	
     return 0;
 }
 

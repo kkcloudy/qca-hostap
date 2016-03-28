@@ -78,6 +78,11 @@ extern osif_dev* osif_wrap_wdev_find(struct wrap_devt *wdt, unsigned char *mac);
 #include <wireless_qos.h>
 #endif
 /*End:pengdecai for han private wmm*/   
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
 
 
 #define OSIF_TO_NETDEV(_osif) (((osif_dev *)(_osif))->netdev)
@@ -5078,6 +5083,34 @@ osif_vap_hardstart_generic(struct sk_buff *skb, struct net_device *dev)
     {
         if (osdev->osif_is_mode_offload) {
 #if ATH_PERF_PWR_OFFLOAD
+
+	 /*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+	  if(vap->iv_me->mc_snoop_enable){
+		vap->iv_me->me_convert_ol_aponly_start ++;
+		if (IEEE80211_IS_IPV4_MULTICAST(eh->ether_dhost) &&
+				vap->iv_sta_assoc > 0 &&
+				!IEEE80211_IS_BROADCAST(eh->ether_dhost) &&
+				vap->iv_opmode == IEEE80211_M_HOSTAP &&
+				vap->iv_ique_ops.me_convert)
+		{
+
+		
+			 vap->iv_me->me_convert_start ++;
+			 /*
+			 * if the convert function returns some value larger
+			 * than 0, it means that one or more frames have been
+			 * transmitted and we are safe to return from here.
+			 */
+			if(ol_ieee80211_me_SnoopConvert(vap,skb) > 0) {
+				return 0;
+			}
+		}
+	}
+#endif
+	/*End:pengdecai for han igmpsnp*/
+
+
 #define OFFCHAN_EXT_TID_NONPAUSE    19
             u_int8_t tidno = wbuf_get_tid(skb);
             if (tidno == OFFCHAN_EXT_TID_NONPAUSE)
@@ -5089,7 +5122,7 @@ osif_vap_hardstart_generic(struct sk_buff *skb, struct net_device *dev)
             memset(skb->cb, 0x0, sizeof(skb->cb));
             if(OL_TX_VLAN_WAR(skb))
                     goto bad;
-
+			
             /*
              * DMA mapping is done within the OS shim prior to sending
              * the frame to the driver.
@@ -5380,10 +5413,43 @@ osif_ol_ll_vap_hardstart(struct sk_buff *skb, struct net_device *dev)
         }
 #endif /* QCA_SUPPORT_RAWMODE_PKT_SIMULATION */
    }
+	
+	/*Begin:pengdecai for han private wmm*/ 
+#ifdef ATOPT_WIRELESS_QOS
+			if(vap->priv_wmm.vlan_flag && ieee80211_vap_wme_is_set(vap))
+			ol_do_vlan_to_wmm(vap,skb);
+#endif
+	/*End:pengdecai for han private wmm*/
+
+
    /* Raw mode or native wifi mode not
     * supported in qwrap , revisit later
     */
     OL_WRAP_TX_PROCESS(&osdev,vap,skb);
+
+	/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+		 if(vap->iv_me->mc_snoop_enable){
+		 	eh = (struct ether_header *)wbuf_header(skb);
+			   if (IEEE80211_IS_IPV4_MULTICAST(eh->ether_dhost) &&
+					   vap->iv_sta_assoc > 0 &&
+					   !IEEE80211_IS_BROADCAST(eh->ether_dhost) &&
+					   vap->iv_opmode == IEEE80211_M_HOSTAP &&
+					   vap->iv_ique_ops.me_convert)
+			   {
+					/*
+					* if the convert function returns some value larger
+					* than 0, it means that one or more frames have been
+					* transmitted and we are safe to return from here.
+					*/
+				   if(ol_ieee80211_me_SnoopConvert(vap,skb) > 0) {
+					   VAP_TX_SPIN_UNLOCK(&osdev->tx_lock);
+					   return 0;
+				   }
+			   }
+	   }
+#endif
+	/*End:pengdecai for han igmpsnp*/
 
     OL_TX_LL_WRAPPER(osdev->iv_txrx_handle, skb, vap->iv_ic->ic_adf_dev);
     VAP_TX_SPIN_UNLOCK(&osdev->tx_lock);

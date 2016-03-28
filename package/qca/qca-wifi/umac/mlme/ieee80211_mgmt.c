@@ -20,6 +20,13 @@
 #include <ieee80211_target.h>
 #endif
 
+/*Begin:pengdecai for han igmpsnp*/
+#ifdef ATOPT_IGMP_SNP
+#include "igmp_snooping.h"
+#endif
+/*End:pengdecai for han igmpsnp*/
+
+
 /*
  * xmit management processing code.
  */
@@ -2563,8 +2570,16 @@ ieee80211_recv_auth(struct ieee80211_node *ni, wbuf_t wbuf, int subtype,
                if (ni != vap->iv_bss) {
                   IEEE80211_NOTE(vap, IEEE80211_MSG_MLME, ni,
                             "%s", "Removing the node from the station node list\n");
+				  
                   ieee80211_ref_node(ni);
                   if(_ieee80211_node_leave(ni)) {
+				  				  
+					  /*Begin:pengdecai for han igmpsnp*/
+					  if(vap->iv_me->mc_snoop_enable){
+					  	send_igmp_snooping_sta_leave(ni);
+					  }
+					  /*End:pengdecai for han igmpsnp*/
+	
                      /* Call MLME indication handler if node is in associated state */
                      IEEE80211_DELIVER_EVENT_MLME_DISASSOC_INDICATION(vap,
                                                                           ni->ni_macaddr,

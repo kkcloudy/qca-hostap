@@ -986,6 +986,18 @@ ifndef ATOPT_COMMAND
 export ATOPT_COMMAND=0
 endif
 
+#Begin:pengdecai for han netlink
+ifndef ATOPT_NETLINK
+export ATOPT_NETLINK=0
+endif
+#End:pengdecai for han netlink
+
+#Begin:pengdecai for han igmpsnp
+ifndef ATOPT_IGMP_SNP
+export ATOPT_IGMP_SNP=0
+endif
+#End:pengdecai for han igmpsnp
+
 #
 # directives
 #
@@ -2237,6 +2249,24 @@ COPTS+= -DATOPT_COMMADN=1
 else
 COPTS+= -DATOPT_COMMAND=0
 endif
+
+
+#Begin:pengdecai for han netlink
+ifeq ($(strip ${ATOPT_NETLINK}),1)
+COPTS+= -DATOPT_NETLINK=1
+else
+COPTS+= -DATOPT_NETLINK=0
+endif
+#End:pengdecai for han netlink
+
+#Begin:pengdecai for han igmpsnp
+ifeq ($(strip ${ATOPT_IGMP_SNP}),1)
+COPTS+= -DATOPT_IGMP_SNP=1
+else
+COPTS+= -DATOPT_IGMP_SNP=0
+endif
+#End:pengdecai for han igmpsnp
+
 
 #Begin:pengdecai for han private wmm
 ifeq ($(strip ${ATOPT_WIRELESS_QOS}),1)

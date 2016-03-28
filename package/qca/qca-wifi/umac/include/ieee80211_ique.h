@@ -206,6 +206,10 @@ struct ieee80211_ique_me {
     os_timer_t      snooplist_timer;
     spinlock_t	    ieee80211_melock;
     int             me_hifi_enable;
+	u_int32_t       me_convert_ol_aponly_start;
+	u_int32_t       me_convert_start;
+	u_int32_t       me_convert_loops;
+	u_int32_t       me_convert_success;
 #if ATH_SUPPORT_HYFI_ENHANCEMENTS
     ieee80211_snoop_lock_t          me_hifi_lock;
     struct ieee80211_me_hifi_table  me_hifi_table;
