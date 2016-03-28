@@ -36,6 +36,10 @@ endef
 define Package/igmpsnp/install
 	$(INSTALL_DIR) $(1)/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/igmpsnp $(1)/sbin/
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/igmpsnp.init $(1)/etc/init.d/igmpsnp
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_BIN) ./files/igmp $(1)/etc/config/igmp
 endef
 
 $(eval $(call BuildPackage,igmpsnp))
