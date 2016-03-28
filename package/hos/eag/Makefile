@@ -23,7 +23,8 @@ define Package/eag
 #  SECTION:=hos
 #  CATEGORY:=hos
 #  SUBMENU:=app
-   DEPENDS:=+libpthread +libopenssl +libuci +libubus +ubus +ubusd +jshn 
+   DEPENDS:=+libpthread +libopenssl +libuci +libubus +ubus +ubusd +jshn +iptables-mod-extra +iptables-mod-ipopt \
+	   +iptables-mod-iprange +iptables-mod-nat +iptables-mod-nat-extra
    TITLE:=captive-portal authentication and MAC authentication
 endef
 
